@@ -18,6 +18,10 @@ namespace tmpp::ui
         /// Outer page margin.
         inline constexpr double PAGE_MARGIN = 24.0;
 
+        /// Left inset for a page that sits beside the navigation rail. Smaller than PAGE_MARGIN
+        /// because the rail already provides the separation from the window edge.
+        inline constexpr double CONTENT_LEFT_INSET = 8.0;
+
         /// Spacing between stacked elements.
         inline constexpr double STACK_SPACING = 8.0;
 
@@ -43,6 +47,19 @@ namespace tmpp::ui
 
         /// Height reserved for the status bar.
         inline constexpr double STATUS_BAR_HEIGHT = 28.0;
+
+        /// Thickness of the outline drawn around every chart.
+        ///
+        /// One pixel, matching the original. Kept here rather than at each call site so the
+        /// charts cannot disagree about it.
+        inline constexpr double CHART_BORDER_THICKNESS = 1.0;
+
+        /// Corner radius of a chart outline.
+        inline constexpr double CHART_CORNER_RADIUS = 2.0;
+
+        /// Opacity of a chart outline. Low because a per-core grid puts dozens of frames on screen,
+        /// and at full strength they form a mesh that competes with the curves.
+        inline constexpr double CHART_BORDER_OPACITY = 0.45;
     }
 
     namespace theme
@@ -62,5 +79,18 @@ namespace tmpp::ui
         inline constexpr wchar_t const* ACCENT_TEXT = L"AccentTextFillColorPrimaryBrush";
         inline constexpr wchar_t const* LAYER_BACKGROUND = L"LayerFillColorDefaultBrush";
         inline constexpr wchar_t const* DIVIDER = L"DividerStrokeColorDefaultBrush";
+
+        /**
+         * @brief The brush used to outline a chart.
+         *
+         * A distinct key from CARD_BORDER so that changing how charts are outlined cannot shift the
+         * borders on cards, which are a different visual element.
+         *
+         * Deliberately the subtle stroke rather than the strong one. With a per-core grid there are
+         * dozens of frames on screen at once, and the strong stroke turns them into a mesh of boxes
+         * that competes with the curves for attention. The frame only needs to say where the plot
+         * ends.
+         */
+        inline constexpr wchar_t const* CHART_BORDER = L"ControlStrokeColorDefaultBrush";
     }
 }

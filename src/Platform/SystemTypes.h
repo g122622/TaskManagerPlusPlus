@@ -140,6 +140,43 @@ namespace tmpp::platform
     };
 
     /**
+     * @brief How physical memory is currently distributed, in bytes.
+     *
+     * Windows does not expose this through GlobalMemoryStatusEx, which reports only total and
+     * available. The breakdown comes from SystemMemoryListInformation, which reports the page
+     * lists by type; the values here are those page counts converted to bytes.
+     *
+     * The four categories are mutually exclusive and together account for all physical memory,
+     * which is what lets the composition bar be drawn as one continuous strip.
+     */
+    struct SystemMemoryComposition
+    {
+        /// Pages backing live allocations: process working sets, the kernel, drivers.
+        uint64_t inUseBytes{0};
+
+        /// Pages written but not yet flushed to their backing store.
+        uint64_t modifiedBytes{0};
+
+        /// Pages holding cached file data, reusable on demand. This is the standby list.
+        uint64_t standbyBytes{0};
+
+        /// Pages on the free list, immediately available.
+        uint64_t freeBytes{0};
+
+        /// Page size used for the conversion, for diagnostics.
+        uint64_t pageSize{0};
+
+        /// True when the breakdown came from the page lists rather than being derived.
+        bool available{false};
+
+        /// Total accounted for, which should equal installed physical memory.
+        [[nodiscard]] uint64_t Total() const noexcept
+        {
+            return inUseBytes + modifiedBytes + standbyBytes + freeBytes;
+        }
+    };
+
+    /**
      * @brief Which system metrics this machine can provide.
      */
     struct SystemCapabilities
@@ -152,5 +189,9 @@ namespace tmpp::platform
         /// True when a processor performance counter is queryable, which is what
         /// makes the live clock speed available.
         bool hasProcessorPerformance{false};
+
+        /// True when the memory page lists are queryable, which is what makes the
+        /// composition breakdown available.
+        bool hasMemoryComposition{false};
     };
 }

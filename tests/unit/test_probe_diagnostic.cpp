@@ -8,6 +8,8 @@
 
 #include <cstdio>
 
+#include <windows.h>
+
 #include "Platform/Windows/ProcessorSpeedProbe.h"
 #include "Platform/Windows/WindowsSystemProbe.h"
 
@@ -61,6 +63,35 @@ namespace tmpp::platform
                 std::printf("second read      : %s\n", second.GetError().Message().c_str());
             }
         }
+
+        auto const composition = probe.ReadMemoryComposition();
+        std::printf("--- memory composition ---\n");
+        if (composition.Success())
+        {
+            auto const& m = composition.Value();
+            double const mb = 1024.0 * 1024.0;
+            std::printf("available        : %s\n", m.available ? "yes" : "no");
+            std::printf("page size        : %llu\n", static_cast<unsigned long long>(m.pageSize));
+            std::printf("in use           : %.1f MB\n", static_cast<double>(m.inUseBytes) / mb);
+            std::printf("modified         : %.1f MB\n", static_cast<double>(m.modifiedBytes) / mb);
+            std::printf("standby (cached) : %.1f MB\n", static_cast<double>(m.standbyBytes) / mb);
+            std::printf("free             : %.1f MB\n", static_cast<double>(m.freeBytes) / mb);
+            std::printf("total accounted  : %.1f MB\n", static_cast<double>(m.Total()) / mb);
+
+            MEMORYSTATUSEX mem{};
+            mem.dwLength = sizeof(mem);
+            if (GlobalMemoryStatusEx(&mem) != 0)
+            {
+                std::printf("installed        : %.1f MB\n", static_cast<double>(mem.ullTotalPhys) / mb);
+                long long const diff = static_cast<long long>(m.Total()) - static_cast<long long>(mem.ullTotalPhys);
+                std::printf("difference       : %lld MB (should be near zero)\n", diff / (1024 * 1024));
+            }
+        }
+        else
+        {
+            std::printf("composition read failed: %s\n", composition.GetError().Message().c_str());
+        }
+        std::printf("--- end ---\n\n");
 
         auto const totals = probe.ReadTotals(1, 2, 3);
         if (totals.Success())

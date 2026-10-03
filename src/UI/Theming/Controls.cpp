@@ -135,4 +135,54 @@ namespace tmpp::ui::controls
         column.Width(GridLengthHelper::FromPixels(width));
         return column;
     }
+
+    Grid MakeGrid(int32_t columns, int32_t rows, double columnSpacing, double rowSpacing)
+    {
+        Grid grid;
+        for (int32_t i = 0; i < columns; ++i)
+        {
+            grid.ColumnDefinitions().Append(MakeStarColumn());
+        }
+        for (int32_t i = 0; i < rows; ++i)
+        {
+            grid.RowDefinitions().Append(MakeStarRow());
+        }
+        grid.ColumnSpacing(columnSpacing);
+        grid.RowSpacing(rowSpacing);
+        return grid;
+    }
+
+    Border MakeChartFrame(double radius)
+    {
+        Grid content;
+        return MakeChartFrame(content, radius);
+    }
+
+    Border MakeChartFrame(Grid& outContent, double radius)
+    {
+        outContent = Grid();
+        return MakeChartFrame(outContent.try_as<FrameworkElement>(), radius);
+    }
+
+    Border MakeChartFrame(FrameworkElement const& content, double radius)
+    {
+        // Every chart is outlined the same way, from this one place. Three separate implementations
+        // had already drifted apart -- a translucent grey, the card stroke and a third colour --
+        // while all three were meant to look identical.
+        Border frame;
+        frame.BorderThickness(ThicknessHelper::FromUniformLength(metrics::CHART_BORDER_THICKNESS));
+
+        // The brush is dimmed rather than taken at full strength: the themed stroke is designed to
+        // delineate a card, and on a chart it makes the frame the most prominent thing in the plot.
+        auto const border = ThemedBrush(theme::CHART_BORDER);
+        border.Opacity(metrics::CHART_BORDER_OPACITY);
+        frame.BorderBrush(border);
+
+        // One radius for every chart, so a grid of cells and a single large chart have matching
+        // corners.
+        frame.CornerRadius(CornerRadiusHelper::FromUniformRadius(radius));
+
+        frame.Child(content);
+        return frame;
+    }
 }

@@ -61,14 +61,44 @@ namespace tmpp::ui
         /// Hides the header, leaving only the plot.
         void SetHeaderVisible(bool visible);
 
+
+        /**
+         * @brief Changes the stroke width of the line.
+         *
+         * Driven by the user's setting (docs/ROADMAP.md, M1-6).
+         */
+        void SetLineWidth(double width);
+
     private:
         void _redraw();
+
+        /**
+         * @brief Redraws the background grid at the current plot size.
+         *
+         * The grid is a fixed number of divisions rather than a value scale: the original's lines
+         * are evenly spaced guides, not axis ticks, and keeping them fixed means the grid does not
+         * shift as values change. What the lines do is give the eye something to measure the curve
+         * against, which a plain background does not.
+         */
+        void _drawGrid();
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_header{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_title{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_currentValue{nullptr};
+
+        /// The frame around the plot, built by controls::MakeChartFrame so every chart in the
+        /// application is outlined identically.
+        winrt::Microsoft::UI::Xaml::Controls::Border m_plotFrame{nullptr};
+
+        /// What sits inside the frame: the grid lines layers first, then the plot.
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_plotHost{nullptr};
+
+        /// Grid lines, drawn behind the plot so they stay put while the curve moves.
+        winrt::Microsoft::UI::Xaml::Controls::Canvas m_gridCanvas{nullptr};
+
         winrt::Microsoft::UI::Xaml::Controls::Canvas m_canvas{nullptr};
+
         winrt::Microsoft::UI::Xaml::Shapes::Polyline m_line{nullptr};
         winrt::Microsoft::UI::Xaml::Shapes::Polygon m_fill{nullptr};
 
@@ -79,35 +109,10 @@ namespace tmpp::ui
         /// Samples in the full time window. Zero means fit the data instead.
         size_t m_timeSpan{0};
 
-        /// Diagnostic bookkeeping: the last reported (points, size) state, so a report is
-        /// emitted on each change rather than on every call.
-        std::tuple<size_t, int, int> m_lastReportedState{0, 0, 0};
-        bool m_hasReportedState{false};
+        /// Stroke width of the line, adjustable by the user.
+        double m_lineWidth{2.0};
 
-    public:
-        /**
-         * @brief Number of points currently held.
-         *
-         * Exposed for diagnostics: whether a blank chart means missing data or a
-         * zero-sized canvas cannot be told from the outside, and the two have entirely
-         * different fixes.
-         */
-        [[nodiscard]] size_t PointCount() const noexcept { return m_values.size(); }
-
-        /// The canvas size the last redraw saw, as width * 100000 + height.
-        [[nodiscard]] double CanvasWidth() const noexcept { return m_canvas.ActualWidth(); }
-        [[nodiscard]] double CanvasHeight() const noexcept { return m_canvas.ActualHeight(); }
-
-        /// Height of the root grid, of the header, and whether the header is collapsed.
-        ///
-        /// Exposed for diagnostics: a cell canvas too short to draw in has two possible
-        /// causes -- the cell itself is too small, or the header is still occupying part
-        /// of it -- and the two have entirely different fixes.
-        [[nodiscard]] double RootHeight() const noexcept { return m_root.ActualHeight(); }
-        [[nodiscard]] double HeaderHeight() const noexcept { return m_header.ActualHeight(); }
-        [[nodiscard]] bool HeaderVisible() const noexcept
-        {
-            return m_header.Visibility() != winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
-        }
+        /// Last diagnostic state reported, so a report is emitted per change rather than per call.
+        std::string m_lastDiagnostic;
     };
 }

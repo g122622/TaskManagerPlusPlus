@@ -92,6 +92,7 @@
     <ClCompile Include="test_core_grid_math.cpp" />
     <ClCompile Include="test_chart_time_axis.cpp" />
     <ClCompile Include="test_domain_models.cpp" />
+    <ClCompile Include="test_memory_composition.cpp" />
     <ClCompile Include="test_domain_rates.cpp" />
     <ClCompile Include="test_main.cpp" />
     <ClCompile Include="test_platform_probes.cpp" />

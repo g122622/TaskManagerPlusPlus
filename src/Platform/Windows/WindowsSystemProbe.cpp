@@ -321,6 +321,29 @@ namespace tmpp::platform
 
         m_capabilities.hasPerProcessorCpuTimes = nt::QuerySystemInformation() != nullptr;
 
+        // The page-list query is probed the same way: present on every supported system, but
+        // checked rather than assumed, so its absence hides one strip instead of failing a
+        // sample. It needs a full-size buffer: with a short one the query answers
+        // STATUS_INFO_LENGTH_MISMATCH and the capability would be reported as absent on a
+        // machine that supports it.
+        if (auto const query = nt::QuerySystemInformation())
+        {
+            constexpr SYSTEM_INFORMATION_CLASS SystemMemoryListInformation =
+                static_cast<SYSTEM_INFORMATION_CLASS>(80);
+
+            /// Matches SYSTEM_MEMORY_LIST_INFORMATION: 22 ULONG_PTR values, 176 bytes on x64.
+            struct ProbeBuffer
+            {
+                ULONG_PTR counters[22];
+            };
+            static_assert(sizeof(ProbeBuffer) == 176, "the probe buffer must match the native size");
+
+            ProbeBuffer probe{};
+            ULONG returned = 0;
+            m_capabilities.hasMemoryComposition =
+                query(SystemMemoryListInformation, &probe, sizeof(probe), &returned) == nt::STATUS_SUCCESS;
+        }
+
         SYSTEM_INFO systemInfo{};
         GetNativeSystemInfo(&systemInfo);
         m_capabilities.hasProcessorTopology = systemInfo.dwNumberOfProcessors > 0;
@@ -426,6 +449,112 @@ namespace tmpp::platform
         info.availableVirtual = status.ullAvailVirtual;
         info.memoryLoadPercent = status.dwMemoryLoad;
         return info;
+    }
+
+    Result<SystemMemoryComposition> WindowsSystemProbe::ReadMemoryComposition() const
+    {
+        if (!m_capabilities.hasMemoryComposition)
+        {
+            return Error{ErrorCode::NotSupported,
+                         "SystemMemoryListInformation is unavailable; cannot read the memory breakdown",
+                         "WindowsSystemProbe::ReadMemoryComposition"};
+        }
+
+        // SystemMemoryListInformation reports the page lists as counts of pages.
+        //
+        // The class and its layout are not declared in winternl.h, so they are stated here.
+        // The structure is SYSTEM_MEMORY_LIST_INFORMATION: five named counters, then the page
+        // counts broken down by standby priority, then repurposed pages, then one trailing
+        // counter. That is twenty-two ULONG_PTR values, and the query reports a required
+        // length of 176 bytes on x64, which confirms the shape.
+        //
+        // The size matters: an earlier version of this probe passed a 32-byte buffer, the
+        // query answered STATUS_INFO_LENGTH_MISMATCH, and the whole breakdown was reported as
+        // unsupported on a machine that supports it perfectly well.
+        constexpr SYSTEM_INFORMATION_CLASS SystemMemoryListInformation = static_cast<SYSTEM_INFORMATION_CLASS>(80);
+
+        struct MemoryListInformation
+        {
+            ULONG_PTR zeroPageCount;
+            ULONG_PTR freePageCount;
+            ULONG_PTR modifiedPageCount;
+            ULONG_PTR modifiedNoWritePageCount;
+            ULONG_PTR badPageCount;
+
+            /// Standby pages, subdivided by priority. Their sum is the cached figure.
+            ULONG_PTR pageCountByPriority[8];
+
+            /// Pages repurposed for another purpose; not part of the four segments shown.
+            ULONG_PTR repurposedPagesByPriority[8];
+
+            ULONG_PTR modifiedPageCountPageFile;
+        };
+        static_assert(sizeof(MemoryListInformation) == 176,
+                      "SYSTEM_MEMORY_LIST_INFORMATION must be 22 ULONG_PTR values");
+
+        MemoryListInformation info{};
+        ULONG returned = 0;
+
+        auto const query = nt::QuerySystemInformation();
+        if (query == nullptr)
+        {
+            return Error{ErrorCode::NotSupported,
+                         "NtQuerySystemInformation is unavailable",
+                         "WindowsSystemProbe::ReadMemoryComposition"};
+        }
+
+        LONG const status = query(SystemMemoryListInformation, &info, sizeof(info), &returned);
+        if (status != nt::STATUS_SUCCESS)
+        {
+            return Error{ErrorCode::NativeFailure,
+                         "NtQuerySystemInformation(SystemMemoryListInformation) failed with status 0x" +
+                             std::to_string(static_cast<unsigned long>(status)),
+                         "WindowsSystemProbe::ReadMemoryComposition"};
+        }
+
+        SYSTEM_INFO systemInfo{};
+        GetNativeSystemInfo(&systemInfo);
+        uint64_t const pageSize = systemInfo.dwPageSize;
+        if (pageSize == 0)
+        {
+            return Error{ErrorCode::NativeFailure,
+                         "GetNativeSystemInfo reported a zero page size",
+                         "WindowsSystemProbe::ReadMemoryComposition"};
+        }
+
+        SystemMemoryComposition composition;
+        composition.pageSize = pageSize;
+
+        // Zeroed and free pages are both immediately available, so they form one segment.
+        composition.freeBytes = (static_cast<uint64_t>(info.zeroPageCount) +
+                                 static_cast<uint64_t>(info.freePageCount)) * pageSize;
+
+        composition.modifiedBytes = static_cast<uint64_t>(info.modifiedPageCount) * pageSize;
+
+        // The standby list is the cached figure, and it is split across priority levels. Its
+        // parts are summed rather than read from a single field, which is why the earlier
+        // attempt to index a flat array produced a wrong count.
+        uint64_t standbyPages = 0;
+        for (ULONG_PTR const pages : info.pageCountByPriority)
+        {
+            standbyPages += static_cast<uint64_t>(pages);
+        }
+        composition.standbyBytes = standbyPages * pageSize;
+
+        // In use is what remains once the other lists are accounted for. Deriving it rather
+        // than reading it keeps the four segments summing to the installed total, which is what
+        // the composition bar depends on: a strip whose parts do not add up shows a visible gap
+        // or overrun.
+        MEMORYSTATUSEX memory{};
+        memory.dwLength = sizeof(memory);
+        if (GlobalMemoryStatusEx(&memory) != 0)
+        {
+            uint64_t const accounted = composition.modifiedBytes + composition.standbyBytes + composition.freeBytes;
+            composition.inUseBytes = (memory.ullTotalPhys > accounted) ? (memory.ullTotalPhys - accounted) : 0;
+        }
+
+        composition.available = true;
+        return composition;
     }
 
     Result<SystemProcessorInfo> WindowsSystemProbe::ReadProcessorInfo() const

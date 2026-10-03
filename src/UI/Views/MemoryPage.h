@@ -18,6 +18,7 @@
 
 #include "Core/SamplingCoordinator.h"
 #include "UI/Charts/HistoryChart.h"
+#include "UI/Charts/MemoryCompositionBar.h"
 
 namespace tmpp::ui
 {
@@ -52,13 +53,26 @@ namespace tmpp::ui
 
         void _updateDetails(domain::SystemView const& system);
 
+        /// Feeds the composition strip and its legend from the page-list breakdown.
+        void _updateComposition(domain::SystemView const& system);
+
         core::SamplingCoordinator& m_coordinator;
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_heading{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_caption{nullptr};
 
+        /// Installed capacity and type, shown at the right of the heading.
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_installedCaption{nullptr};
+
         std::unique_ptr<HistoryChart> m_chart;
+
+        /// The proportional strip under the chart, showing how memory is distributed.
+        std::unique_ptr<MemoryCompositionBar> m_composition;
+
+        /// Label row under the strip, naming each segment's share.
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_compositionLegend{nullptr};
+        std::vector<winrt::Microsoft::UI::Xaml::Controls::TextBlock> m_legendValues;
 
         std::vector<DetailRow> m_column1;
         std::vector<DetailRow> m_column2;

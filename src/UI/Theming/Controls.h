@@ -121,5 +121,51 @@ namespace tmpp::ui
 
         /// A grid column of a fixed width in effective pixels.
         [[nodiscard]] ColumnDefinition MakeFixedColumn(double width);
+
+        /**
+         * @brief Creates an evenly divided grid.
+         *
+         * @param columns Number of star columns.
+         * @param rows Number of star rows.
+         * @param columnSpacing Gap between columns.
+         * @param rowSpacing Gap between rows.
+         */
+        [[nodiscard]] Grid MakeGrid(int32_t columns, int32_t rows, double columnSpacing = 0.0, double rowSpacing = 0.0);
+
+        /**
+         * @brief Creates the outlined frame every chart sits in.
+         *
+         * One factory rather than an outline configured at each call site, because three
+         * separate implementations had already drifted apart: the per-core cells drew a
+         * translucent grey, the memory chart drew the card stroke, and the composition strip drew
+         * its own. They were meant to look identical and did not.
+         *
+         * The frame is returned empty; the caller sets its child. The outline is always on, so
+         * no caller can forget to switch it on, and the charts cannot disagree about it.
+         *
+         * @param radius Corner radius. The default suits a chart; a thin strip wants a smaller
+         *        one so its ends do not read as pill-shaped.
+         */
+        [[nodiscard]] Border MakeChartFrame(double radius = metrics::CHART_CORNER_RADIUS);
+
+        /**
+         * @brief Creates a chart frame around caller-supplied content.
+         *
+         * @param content What the outline is drawn around.
+         * @param radius Corner radius.
+         */
+        [[nodiscard]] Border MakeChartFrame(FrameworkElement const& content,
+                                            double radius = metrics::CHART_CORNER_RADIUS);
+
+        /**
+         * @brief Creates a chart frame and hands back an empty grid to place content in.
+         *
+         * The convenience form for the common case, where the outline wraps a host the caller
+         * then fills.
+         *
+         * @param outContent Receives the empty grid inside the frame.
+         * @param radius Corner radius.
+         */
+        [[nodiscard]] Border MakeChartFrame(Grid& outContent, double radius = metrics::CHART_CORNER_RADIUS);
     }
 }

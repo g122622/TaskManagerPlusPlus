@@ -47,6 +47,10 @@ namespace tmpp::domain
                                    : 0;
         next.memoryUsedPercent = ComputePercentage(next.memoryUsedBytes, memory.totalPhysical, limits::MAX_MEMORY_PERCENT).value;
 
+        // Carried through from the previous publication; it arrives separately because it
+        // comes from a different probe that can fail on its own.
+        next.memoryComposition = m_latest.memoryComposition;
+
         bool cpuDerived = false;
         if (m_hasBaseline && elapsedMs > 0.0)
         {
@@ -180,6 +184,11 @@ namespace tmpp::domain
     void SystemModel::SetTotals(platform::SystemTotals totals)
     {
         m_latest.totals = totals;
+    }
+
+    void SystemModel::SetMemoryComposition(platform::SystemMemoryComposition composition)
+    {
+        m_latest.memoryComposition = composition;
     }
 
     HistoryView SystemModel::History() const

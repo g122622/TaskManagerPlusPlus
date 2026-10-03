@@ -45,6 +45,51 @@ namespace tmpp::core
     };
 
     /**
+     * @brief Which page the application opens on.
+     *
+     * Stored as an enum rather than a page name string so an unknown value in a hand-edited file
+     * falls back to the default instead of selecting nothing.
+     */
+    enum class StartupPage
+    {
+        Processes = 0,
+        Performance,
+        Details,
+        LastUsed,
+    };
+
+    /**
+     * @brief A chart's appearance, as the user configured it.
+     *
+     * The colour is stored as its three channels rather than packed into one integer: a settings
+     * file is meant to be read and edited by hand, and "r: 76, g: 194, b: 255" is far easier to
+     * adjust than 0xFF4CC2FF.
+     */
+    struct ChartStyle
+    {
+        uint8_t red{0x4C};
+        uint8_t green{0xC2};
+        uint8_t blue{0xFF};
+
+        /// Stroke width in effective pixels.
+        double lineWidth{2.0};
+
+        /// Clamped so a hand-edited file cannot produce an invisible or a solid chart.
+        [[nodiscard]] double ClampedLineWidth() const noexcept
+        {
+            if (lineWidth < 0.5)
+            {
+                return 0.5;
+            }
+            if (lineWidth > 8.0)
+            {
+                return 8.0;
+            }
+            return lineWidth;
+        }
+    };
+
+    /**
      * @brief Everything the user can change that must survive a restart.
      */
     struct Settings

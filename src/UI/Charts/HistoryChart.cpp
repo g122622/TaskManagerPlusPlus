@@ -2,8 +2,8 @@
 
 #include "UI/Charts/HistoryChart.h"
 
-#include "UI/Theming/Controls.h"
 #include "UI/Diagnostics.h"
+#include "UI/Theming/Controls.h"
 #include "UI/Theming/Theme.h"
 
 #include <algorithm>
@@ -35,7 +35,21 @@ namespace tmpp::ui
         constexpr double MIN_PLOT_HEIGHT = 24.0;
 
         /// How many times a failing redraw reports itself before going quiet.
-        constexpr uint32_t MAX_REPORTS = 6;
+        /// Vertical divisions of the background grid. Ten rows makes each line worth ten percent,
+        /// which is a readable increment at a glance.
+        constexpr int GRID_ROWS = 10;
+
+        /// Horizontal divisions. Fewer than the rows because the x axis is time rather than a
+        /// scale, so the lines only need to break the curve into spans.
+        constexpr int GRID_COLUMNS = 6;
+
+        /// Opacity of a grid line. Deliberately faint: the grid is a reading aid, and a line strong
+        /// enough to notice on its own competes with the curve it exists to help read.
+        constexpr double GRID_LINE_OPACITY = 0.08;
+
+        /// Stroke width of a grid line. A hairline rather than a full pixel, so it does not
+        /// dominate a small cell.
+        constexpr double GRID_LINE_THICKNESS = 0.5;
 
         [[nodiscard]] winrt::Windows::UI::Color _withAlpha(winrt::Windows::UI::Color color, double alpha)
         {
@@ -84,8 +98,12 @@ namespace tmpp::ui
         Grid::SetRow(m_header, 0);
         m_root.Children().Append(m_header);
 
-        // The plot area has no fixed height: the canvas stretches to its cell and the
-        // points are computed from whatever size that turns out to be.
+        // The plot area has no fixed height: the canvas stretches to its cell and the points are
+        // computed from whatever size that turns out to be.
+        //
+        // The grid lines and the frame both live inside this control rather than being left to
+        // each call site. Repeating them per caller is what let three chart implementations drift
+        // to three different border colours, and the grid would have been forgotten entirely.
         m_canvas = Canvas();
         m_canvas.HorizontalAlignment(HorizontalAlignment::Stretch);
         m_canvas.VerticalAlignment(VerticalAlignment::Stretch);
@@ -95,14 +113,33 @@ namespace tmpp::ui
 
         m_line = winrt::Microsoft::UI::Xaml::Shapes::Polyline();
         m_line.Stroke(SolidColorBrush(m_color));
-        m_line.StrokeThickness(2.0);
+        m_line.StrokeThickness(m_lineWidth);
         m_line.StrokeLineJoin(PenLineJoin::Round);
 
+        // The area fill goes in first so the line draws over it. Adding the line without these two
+        // appends is what left the chart drawing its frame and grid but no curve: the shapes existed
+        // and had their points set, but were never part of the visual tree.
         m_canvas.Children().Append(m_fill);
         m_canvas.Children().Append(m_line);
 
-        Grid::SetRow(m_canvas, 1);
-        m_root.Children().Append(m_canvas);
+        // The canvas is not a child of the frame directly: the frame holds a host so the grid layer
+        // and the plot can coexist inside one outline.
+        m_plotFrame = controls::MakeChartFrame(m_plotHost);
+        m_plotHost.Children().Append(m_canvas);
+
+        // The grid lines are drawn in their own canvas behind the plot. A separate layer means the
+        // plot's redraw does not have to recreate them, and they stay put while the curve moves.
+        m_gridCanvas = Canvas();
+        m_gridCanvas.HorizontalAlignment(HorizontalAlignment::Stretch);
+        m_gridCanvas.VerticalAlignment(VerticalAlignment::Stretch);
+        m_plotHost.Children().InsertAt(0, m_gridCanvas);
+
+        // The grid depends on the size, so it is rebuilt whenever the plot is.
+        m_gridCanvas.SizeChanged([this](winrt::Windows::Foundation::IInspectable const&,
+                                        winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const&) { _drawGrid(); });
+
+        Grid::SetRow(m_plotFrame, 1);
+        m_root.Children().Append(m_plotFrame);
 
         // Redraw on resize, since the point coordinates are derived from the size.
         // Without this the curve would keep the width it had when the data arrived.
@@ -133,6 +170,66 @@ namespace tmpp::ui
     {
         m_header.Visibility(visible ? winrt::Microsoft::UI::Xaml::Visibility::Visible
                                     : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+    }
+
+    void HistoryChart::SetLineWidth(double width)
+    {
+        // Clamped rather than trusted: the value comes from the settings file, and a stroke of
+        // zero would make the chart look empty while an enormous one would fill it solid.
+        m_lineWidth = std::clamp(width, 0.5, 8.0);
+        m_line.StrokeThickness(m_lineWidth);
+    }
+
+    void HistoryChart::_drawGrid()
+    {
+        m_gridCanvas.Children().Clear();
+
+        double const width = m_gridCanvas.ActualWidth();
+        double const height = m_gridCanvas.ActualHeight();
+        if (width <= 1.0 || height < MIN_PLOT_HEIGHT)
+        {
+            return;
+        }
+
+        // The grid is drawn in the muted text colour rather than a fixed grey, so it adapts to the
+        // light and dark themes: a grey chosen for one theme is either invisible or too strong in
+        // the other.
+        auto const brush = controls::ThemedBrush(theme::SUBTLE_TEXT);
+        brush.Opacity(GRID_LINE_OPACITY);
+
+        auto addLine = [this, &brush](double x1, double y1, double x2, double y2) {
+            winrt::Microsoft::UI::Xaml::Shapes::Line line;
+            line.X1(x1);
+            line.Y1(y1);
+            line.X2(x2);
+            line.Y2(y2);
+            line.Stroke(brush);
+            line.StrokeThickness(GRID_LINE_THICKNESS);
+            m_gridCanvas.Children().Append(line);
+        };
+
+        // Horizontal lines first. They carry the value scale, so they are the ones the eye uses to
+        // judge a curve's level.
+        //
+        // The division count scales with the plot: a ten by six grid in a 92 pixel cell is a dense
+        // mesh rather than a guide, while the same count in a 600 pixel chart is a readable aid.
+        // The original does the same, its per-core cells carrying noticeably fewer lines than its
+        // large charts.
+        int const rows = (height >= 220.0) ? GRID_ROWS : 4;
+        int const columns = (width >= 420.0) ? GRID_COLUMNS : 3;
+
+        for (int i = 1; i < rows; ++i)
+        {
+            double const y = (height / rows) * i;
+            addLine(0.0, y, width, y);
+        }
+
+        // Vertical lines, which divide the time axis.
+        for (int i = 1; i < columns; ++i)
+        {
+            double const x = (width / columns) * i;
+            addLine(x, 0.0, x, height);
+        }
     }
 
     void HistoryChart::_redraw()

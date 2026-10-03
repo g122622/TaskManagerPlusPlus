@@ -4,6 +4,7 @@
 
 #include "UI/Diagnostics.h"
 #include "UI/Charts/HistoryChart.h"
+#include "UI/Theming/Controls.h"
 #include "UI/Theming/Theme.h"
 
 #include <algorithm>
@@ -291,16 +292,17 @@ namespace tmpp::ui
             {
                 cell = std::make_unique<CoreCell>();
 
+                // The cell is just a positioned wrapper: the outline belongs to the chart inside
+                // it, which builds its own frame through the shared factory. Drawing a second
+                // border here would double the line and, as before, in a different colour.
                 cell->frame = Border();
                 cell->frame.Margin(ThicknessHelper::FromUniformLength(CELL_GAP / 2.0));
-                cell->frame.CornerRadius(winrt::Microsoft::UI::Xaml::CornerRadiusHelper::FromUniformRadius(2.0));
-                cell->frame.BorderThickness(ThicknessHelper::FromUniformLength(1.0));
-                cell->frame.BorderBrush(
-                    winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{winrt::Windows::UI::Color{0x33, 0x80, 0x80, 0x80}});
+                cell->frame.CornerRadius(winrt::Microsoft::UI::Xaml::CornerRadiusHelper::FromUniformRadius(
+                    metrics::CHART_CORNER_RADIUS));
 
-                // Each cell is a full HistoryChart with its header hidden. Reusing the
-                // component rather than writing a second chart keeps one implementation
-                // of the drawing maths, which is the part that has to be right.
+                // Each cell is a full HistoryChart with its header hidden. Reusing the component
+                // rather than writing a second chart keeps one implementation of the drawing
+                // maths, which is the part that has to be right.
                 cell->chart = std::make_unique<HistoryChart>(L"", winrt::Windows::UI::Colors::DodgerBlue(), 100.0);
                 cell->chart->SetHeaderVisible(false);
 

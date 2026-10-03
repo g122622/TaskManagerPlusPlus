@@ -48,6 +48,11 @@ namespace tmpp::domain
         double memoryUsedPercent{0.0};
         uint64_t memoryUsedBytes{0};
 
+        /// How physical memory is distributed across the page lists. Its available flag is
+        /// false when the probe could not read it, in which case the composition bar is not
+        /// drawn rather than being drawn empty.
+        platform::SystemMemoryComposition memoryComposition;
+
         // Static topology, refreshed on the first sample only.
         platform::SystemProcessorInfo processor;
 
@@ -152,6 +157,11 @@ namespace tmpp::domain
          * @brief Records the rolling system-wide totals.
          */
         void SetTotals(platform::SystemTotals totals);
+
+        /**
+         * @brief Records how physical memory is distributed across the page lists.
+         */
+        void SetMemoryComposition(platform::SystemMemoryComposition composition);
 
         [[nodiscard]] SystemView const& Latest() const noexcept { return m_latest; }
 

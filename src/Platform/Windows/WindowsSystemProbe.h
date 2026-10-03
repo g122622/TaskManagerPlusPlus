@@ -40,6 +40,14 @@ namespace tmpp::platform
         [[nodiscard]] Result<SystemMemoryInfo> ReadMemoryInfo() const;
 
         /**
+         * @brief Reads how physical memory is currently distributed.
+         *
+         * Separate from ReadMemoryInfo because it needs a different, native API and can be
+         * unavailable on its own; the composition bar is simply not drawn when it is.
+         */
+        [[nodiscard]] Result<SystemMemoryComposition> ReadMemoryComposition() const;
+
+        /**
          * @brief Reads the processor topology.
          */
         [[nodiscard]] Result<SystemProcessorInfo> ReadProcessorInfo() const;

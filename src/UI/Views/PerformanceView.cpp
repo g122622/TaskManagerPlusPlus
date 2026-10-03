@@ -27,8 +27,11 @@ namespace tmpp::ui
     namespace
     {
         /// Sparkline size inside a sidebar row.
-        constexpr double SPARKLINE_WIDTH = 90.0;
-        constexpr double SPARKLINE_HEIGHT = 34.0;
+        ///
+        /// The aspect is about 2:3, matching the original's thumbnails, which are considerably
+        /// less wide than the row they sit in. A wider thumbnail crowds the label beside it.
+        constexpr double SPARKLINE_WIDTH = 56.0;
+        constexpr double SPARKLINE_HEIGHT = 36.0;
 
         /// Accent fill for the selected sidebar row.
         constexpr winrt::Windows::UI::Color SELECTION_FILL{0x33, 0x4C, 0xC2, 0xFF};
@@ -61,7 +64,10 @@ namespace tmpp::ui
     void PerformanceView::_buildLayout()
     {
         m_root = Grid();
-        m_root.Padding(ThicknessHelper::FromLengths(metrics::PAGE_MARGIN, 8.0, metrics::PAGE_MARGIN, 8.0));
+        // A smaller left inset than a normal page: the navigation rail already separates the content
+        // from the window edge, so the full page margin leaves a conspicuous gap before the sidebar
+        // card.
+        m_root.Padding(ThicknessHelper::FromLengths(metrics::CONTENT_LEFT_INSET, 8.0, metrics::PAGE_MARGIN, 8.0));
 
         // Two columns: the sidebar at a fixed width, and the detail area taking
         // everything else. A star column is the equivalent of calc(100% - 300px) and,

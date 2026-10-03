@@ -182,6 +182,7 @@
     <ClCompile Include="..\UI\Theming\Formatting.cpp">
     </ClCompile>
     <ClCompile Include="..\UI\Charts\HistoryChart.cpp" />
+    <ClCompile Include="..\UI\Charts\MemoryCompositionBar.cpp" />
     <ClCompile Include="..\UI\Views\MemoryPage.cpp" />
     <ClCompile Include="..\UI\Views\PerformanceView.cpp" />
     <ClCompile Include="..\UI\Views\ProcessesView.cpp" />

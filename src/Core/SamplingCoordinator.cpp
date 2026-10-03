@@ -243,6 +243,14 @@ namespace tmpp::core
             }
         }
 
+        // --- Memory composition. Independent of everything above: a failure here hides one
+        // strip rather than affecting the memory figures.
+        if (auto const composition = m_systemProbe.ReadMemoryComposition(); composition.Success())
+        {
+            std::lock_guard const lock(m_mutex);
+            m_systemModel.SetMemoryComposition(composition.Value());
+        }
+
         // --- Rolling totals.
         if (auto const totals = m_systemProbe.ReadTotals(processTotal, threadTotal, handleTotal); totals.Success())
         {
