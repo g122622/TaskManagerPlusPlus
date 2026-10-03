@@ -385,6 +385,54 @@ namespace tmpp::platform
                         disk.modelName = std::string{reinterpret_cast<char const*>(
                             descriptor.data() + deviceDescriptor->ProductIdOffset)};
                     }
+
+                    // The bus type rides along in the same descriptor, so it costs no extra query.
+                    disk.busType = static_cast<uint32_t>(deviceDescriptor->BusType);
+                }
+            }
+
+            // Whether seeking costs the device time, which is what separates a solid-state device
+            // from a spinning one. This is the query the operating system uses for the same purpose,
+            // so it is reliable where a model string is not.
+            {
+                STORAGE_PROPERTY_QUERY seekQuery{};
+                seekQuery.PropertyId = StorageDeviceSeekPenaltyProperty;
+                seekQuery.QueryType = PropertyStandardQuery;
+
+                DEVICE_SEEK_PENALTY_DESCRIPTOR seekDescriptor{};
+                DWORD seekBytes = 0;
+                if (DeviceIoControl(handle,
+                                    IOCTL_STORAGE_QUERY_PROPERTY,
+                                    &seekQuery,
+                                    sizeof(seekQuery),
+                                    &seekDescriptor,
+                                    sizeof(seekDescriptor),
+                                    &seekBytes,
+                                    nullptr) != FALSE)
+                {
+                    disk.incursSeekPenalty = (seekDescriptor.IncursSeekPenalty != FALSE);
+                }
+            }
+
+            // TRIM support, which only solid-state devices report. A second clue for the same
+            // question, used when the seek-penalty query is unavailable.
+            {
+                STORAGE_PROPERTY_QUERY trimQuery{};
+                trimQuery.PropertyId = StorageDeviceTrimProperty;
+                trimQuery.QueryType = PropertyStandardQuery;
+
+                DEVICE_TRIM_DESCRIPTOR trimDescriptor{};
+                DWORD trimBytes = 0;
+                if (DeviceIoControl(handle,
+                                    IOCTL_STORAGE_QUERY_PROPERTY,
+                                    &trimQuery,
+                                    sizeof(trimQuery),
+                                    &trimDescriptor,
+                                    sizeof(trimDescriptor),
+                                    &trimBytes,
+                                    nullptr) != FALSE)
+                {
+                    disk.trimEnabled = (trimDescriptor.TrimEnabled != FALSE);
                 }
             }
 

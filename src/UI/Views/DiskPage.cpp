@@ -382,9 +382,13 @@ namespace tmpp::ui
 
         assign(m_column3, 0, disk.modelName.empty() ? UnavailableValue() : disk.modelName);
         assign(m_column3, 1, disk.instanceName.empty() ? UnavailableValue() : disk.instanceName);
-        // A solid-state device answers the seek-penalty query with zero; anything else is a spinning
-        // disk. Reporting the distinction is what the original's "Type" row does.
-        assign(m_column3, 2, UnavailableValue());
-        assign(m_column3, 3, index == 0 ? "Yes" : "No");
+
+        // The type comes from the device's own seek-penalty and bus queries rather than from guessing
+        // at the model string, which is what the original's "Type" row reports.
+        assign(m_column3, 2, disk.TypeName());
+
+        // TRIM support is a solid-state capability and needs no extra query: it arrived with the
+        // descriptor that named the device.
+        assign(m_column3, 3, disk.trimEnabled ? "Yes" : "No");
     }
 }

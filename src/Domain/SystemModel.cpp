@@ -226,6 +226,9 @@ namespace tmpp::domain
             activity.instanceName = disk.instanceName;
             activity.deviceIndex = disk.deviceIndex;
             activity.queueDepth = disk.queueDepth;
+            activity.busType = disk.busType;
+            activity.incursSeekPenalty = disk.incursSeekPenalty;
+            activity.trimEnabled = disk.trimEnabled;
 
             auto const previous = m_previousDisks.find(disk.instanceName);
             if (canDerive && previous != m_previousDisks.end())

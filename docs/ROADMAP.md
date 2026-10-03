@@ -8,13 +8,32 @@
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | M1-0 | **构建链路验证**：NuGet 还原、MIDL/mdmerge/cppwinrt 投影、MSBuild 构建、自包含部署 | ✅ **已完成** |
-| M1-1 | Platform 层：进程枚举探针（`NtQuerySystemInformation`）+ 系统 CPU/内存探针 | ✅ **已完成**（20 个单测通过） |
-| M1-2 | Domain 层：`RateMath`、`RingBuffer`、`ProcessModel`、`SystemModel` + 单测 | ✅ **已完成**（77 个单测通过） |
+| M1-1 | Platform 层：进程枚举探针（`NtQuerySystemInformation`）+ 系统 CPU/内存探针 | ✅ **已完成** |
+| M1-2 | Domain 层：`RateMath`、`RingBuffer`、`ProcessModel`、`SystemModel` + 单测 | ✅ **已完成** |
 | M1-3 | Core 层：`BackgroundSampler`、`Settings`、`PathService` | ✅ **已完成** |
-| M1-4 | UI 层：外壳 + 进程列表（虚拟化 + 排序 + 搜索） | ✅ **已完成**（134 个单测通过，窗口实测运行） |
-| M1-5 | UI 层：Win2D 图表控件 + 性能页 CPU/内存块 | ⚠️ **部分完成**（图表用 Polyline 实现，Win2D 待 M2） |
-| M1-6 | 图表颜色自定义 + 预设主题 | 待开始 |
-| M1-7 | 多语言（中/英）+ 主题切换 + 窗口状态记忆 + 单实例 | 待开始 |
+| M1-4 | UI 层：外壳 + 进程列表（虚拟化 + 排序 + 搜索） | ✅ **已完成** |
+| M1-5 | UI 层：图表控件 + 性能页 CPU/内存块 | ✅ **已完成**（图表用 `Polyline`；Win2D 不再需要，见下） |
+| M1-6 | 图表颜色自定义 + 设置页 | ✅ **已完成**（`ColorPicker` 逐图表配色、线宽、置顶、启动页） |
+| M1-7 | 多语言（中/英）+ 主题切换 + 窗口状态记忆 + 单实例 | ⚠️ **部分完成**（窗口位置/尺寸/侧栏宽度/折叠状态已记忆；主题与单实例待做） |
+| M1-8 | 磁盘、网络、GPU 采集与图表 | ✅ **已完成** |
+
+### 关于 Win2D
+
+M1-5 原计划用 Win2D 绘制图表，实际用 `Polyline` 与 `Polygon` 完成，覆盖两轮 60 秒
+（约 120 点/图表）时仍然是渲染的噪声而非瓶颈：抽样线程每 1000 ms 才发布一次，而刷新
+定时器每 100 ms 一次且在没有新样本时立即返回。Win2D 会引入一个包依赖和一套绘图模型，
+换来的收益在这个点数下无法测量，因此不再列为待办。
+
+若将来时间窗扩展到 30 分钟（1800 点）且实测出现掉帧，再考虑引入。
+
+### M1-8 交付内容
+
+- `Platform/Windows/HardwareCounterProbe.{h,cpp}`：磁盘（`IOCTL_DISK_PERFORMANCE`）、
+  网络（`GetIfEntry2`）、GPU（性能计数器 + DXGI）
+- `Platform/SystemTypes.h`：`SystemDiskCounters`、`SystemNetworkCounters`、`SystemGpuInfo`
+- Domain：`DiskActivity`、`NetworkActivity`、每设备历史（按实例名/适配器名索引）
+- UI：`DiskPage`、`NetworkPage`、`GpuPage`，以及按机器实际设备动态生成的侧栏行
+
 
 ### M1-0 交付内容
 
@@ -113,7 +132,7 @@
 - 空闲时单核 CPU 占用约 3.9%，高于需求目标的 <1%。需用性能分析定位
   （候选：进程枚举本身的成本、UI 刷新频率、每帧重建 ItemsSource）。
   记录在此，留待 M1-6/M1-7 用剖析数据决定优化方向。
-- 窗口位置恢复未实现（仅恢复了尺寸）。
+- ~~窗口位置恢复未实现（仅恢复了尺寸）。~~ 已实现：位置、尺寸、最大化状态、侧栏与导航栏宽度、导航栏折叠状态均在关闭时写回，并在恢复前校验位置仍落在虚拟桌面内。
 
 ## 里程碑二：功能补全
 

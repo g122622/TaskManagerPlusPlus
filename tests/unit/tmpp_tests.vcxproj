@@ -101,6 +101,7 @@
     <ClCompile Include="test_probe_diagnostic.cpp" />
     <ClCompile Include="test_hardware_probe.cpp" />
     <ClCompile Include="test_hardware_rates.cpp" />
+    <ClCompile Include="test_disk_type.cpp" />
     <ClCompile Include="test_probe_timing.cpp" />
     <ClCompile Include="test_network_api_benchmark.cpp" />
     <ClCompile Include="test_row_host_math.cpp" />

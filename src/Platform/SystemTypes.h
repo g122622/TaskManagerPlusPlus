@@ -222,6 +222,18 @@ namespace tmpp::platform
         /// Nominal sector size, needed to interpret the byte counts on some drivers.
         uint32_t sectorSize{512};
 
+        /// The bus the device is attached to, as the storage descriptor reports it. Used to say
+        /// whether a solid-state device is NVMe or SATA, which the original distinguishes.
+        uint32_t busType{0};
+
+        /// Whether the device reports that seeking costs it time. A device that does not is
+        /// solid-state; one that does is a spinning disk. This is the query the operating system
+        /// itself uses, so it is reliable where the model string is not.
+        bool incursSeekPenalty{true};
+
+        /// Whether the device reports TRIM support, which only solid-state devices have.
+        bool trimEnabled{false};
+
         /// Requests outstanding at the moment of the query.
         ///
         /// A level rather than a total, so it is reported as read instead of being differenced: the

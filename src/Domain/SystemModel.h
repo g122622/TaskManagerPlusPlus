@@ -57,6 +57,30 @@ namespace tmpp::domain
         std::string modelName;
         std::string instanceName;
         uint32_t deviceIndex{0};
+
+        /// The bus the device is attached to, so a solid-state device can be named as NVMe or SATA.
+        uint32_t busType{0};
+
+        /// Whether seeking costs the device time, which is what separates a spinning disk from a
+        /// solid-state one.
+        bool incursSeekPenalty{true};
+
+        /// Whether the device reports TRIM support, which only solid-state devices have.
+        bool trimEnabled{false};
+
+        /// The device's type in the words the original uses.
+        [[nodiscard]] std::string TypeName() const
+        {
+            if (incursSeekPenalty)
+            {
+                return "HDD";
+            }
+
+            // A solid-state device on the PCI Express bus is NVMe; anything else is SATA or USB.
+            // The bus type is what the storage descriptor reports, so this needs no guessing.
+            constexpr uint32_t BUS_TYPE_NVME = 0x11;
+            return (busType == BUS_TYPE_NVME) ? "SSD (NVMe)" : "SSD (SATA)";
+        }
     };
 
     /**

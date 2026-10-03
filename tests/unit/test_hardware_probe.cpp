@@ -49,6 +49,9 @@ namespace tmpp::platform::test
                         static_cast<unsigned long long>(disk.writeTimeMs));
             std::printf("      average    : read %u B, write %u B\n", disk.averageReadBytes, disk.averageWriteBytes);
             std::printf("      queue depth: %u\n", disk.queueDepth);
+            std::printf("      bus type   : %u\n", disk.busType);
+            std::printf("      seek cost  : %s\n", disk.incursSeekPenalty ? "yes (HDD-class)" : "no (SSD-class)");
+            std::printf("      TRIM       : %s\n", disk.trimEnabled ? "yes" : "no");
             std::printf("      capacity   : %.1f GB\n",
                         static_cast<double>(disk.capacityBytes) / (1024.0 * 1024.0 * 1024.0));
 
