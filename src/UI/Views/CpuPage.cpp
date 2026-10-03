@@ -252,6 +252,14 @@ namespace tmpp::ui
         }
     }
 
+    void CpuPage::SetLineWidth(double width)
+    {
+        if (m_coreGrid != nullptr)
+        {
+            m_coreGrid->SetLineWidth(width);
+        }
+    }
+
     void CpuPage::Refresh()
     {
         uint64_t const version = m_coordinator.SystemVersion();

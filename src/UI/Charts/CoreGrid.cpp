@@ -198,6 +198,17 @@ namespace tmpp::ui
         }
     }
 
+    void CoreGrid::SetLineWidth(double width)
+    {
+        for (auto& cell : m_cells)
+        {
+            if (cell->chart != nullptr)
+            {
+                cell->chart->SetLineWidth(width);
+            }
+        }
+    }
+
     void CoreGrid::_onSizeChanged()
     {
         double const width = m_root.ActualWidth();

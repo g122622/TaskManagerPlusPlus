@@ -72,7 +72,11 @@ namespace tmpp::core
         uint8_t blue{0xFF};
 
         /// Stroke width in effective pixels.
-        double lineWidth{2.0};
+        ///
+        /// Defaults to a hairline. The chart is a reading of a value over time and the line only has
+        /// to mark where that value is; a thicker stroke draws attention to the ink rather than to the
+        /// shape, and it hides the samples it is joining.
+        double lineWidth{1.0};
 
         /// Clamped so a hand-edited file cannot produce an invisible or a solid chart.
         [[nodiscard]] double ClampedLineWidth() const noexcept
@@ -113,12 +117,90 @@ namespace tmpp::core
         uint32_t minimizedIntervalMs{domain::sampling::MINIMIZED_INTERVAL_MS};
         HistoryWindow historyWindow{HistoryWindow::Seconds60};
 
+        // Startup
+        /// Which page to open on. LastUsed resumes wherever the user left off.
+        StartupPage startupPage{StartupPage::Processes};
+
+        /// The page in use when the application last closed. Only consulted when startupPage is
+        /// LastUsed, and updated on every close so the two cannot disagree.
+        StartupPage lastUsedPage{StartupPage::Processes};
+
+        // Appearance
+        /// Per-metric chart styles, so each series can be coloured separately as the original
+        /// allows. Keyed by the same Section the performance page uses.
+        ChartStyle cpuChart{0x4C, 0xC2, 0xFF, 1.0};
+        // The memory series is violet, matching the original's memory chart.
+        ChartStyle memoryChart{155, 140, 255, 1.0};
+        ChartStyle diskChart{0x6E, 0xD8, 0xB0, 1.0};
+        ChartStyle networkChart{0xFF, 0xC1, 0x57, 1.0};
+        ChartStyle gpuChart{0xFF, 0x8A, 0xA8, 1.0};
+
+        // Layout
+        /// Width of the application's navigation rail. Negative means "not yet decided", so the
+        /// platform default applies.
+        double navigationWidth{-1.0};
+
+        /// Whether the navigation rail is expanded.
+        ///
+        /// Defaults to collapsed: the rail is a reminder of where the pages are, and the icons alone
+        /// identify them. A first run should show the content rather than the menu. The state is
+        /// persisted, so a user who expands it keeps it expanded.
+        bool navigationExpanded{false};
+
+        /// Width of the performance page's own sidebar. Negative means "not yet decided".
+        double performanceSidebarWidth{-1.0};
+
         // Window placement
         int32_t windowX{-1}; ///< Negative means "not yet decided".
         int32_t windowY{-1};
         int32_t windowWidth{1100};
         int32_t windowHeight{700};
         bool windowMaximized{false};
+
+        /**
+         * @brief The chart style for a metric, by section index.
+         *
+         * @param sectionIndex Index into the performance page's section list.
+         * @return The style, or the CPU style for an index that has none yet, so a caller always
+         *         has something to draw with rather than a blank series.
+         */
+        [[nodiscard]] ChartStyle const& ChartStyleFor(int sectionIndex) const noexcept
+        {
+            switch (sectionIndex)
+            {
+                case 0:
+                    return cpuChart;
+                case 1:
+                    return memoryChart;
+                case 2:
+                    return diskChart;
+                case 3:
+                    return networkChart;
+                case 4:
+                    return gpuChart;
+                default:
+                    return cpuChart;
+            }
+        }
+
+        /// Mutable accessor, for the settings page.
+        [[nodiscard]] ChartStyle& MutableChartStyleFor(int sectionIndex) noexcept
+        {
+            switch (sectionIndex)
+            {
+                case 1:
+                    return memoryChart;
+                case 2:
+                    return diskChart;
+                case 3:
+                    return networkChart;
+                case 4:
+                    return gpuChart;
+                case 0:
+                default:
+                    return cpuChart;
+            }
+        }
 
         /// Effective interval after applying the minimised-window policy.
         [[nodiscard]] uint32_t EffectiveIntervalMs(bool minimized) const noexcept

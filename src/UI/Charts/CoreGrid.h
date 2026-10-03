@@ -59,6 +59,9 @@ namespace tmpp::ui
         /// Colour applied to every cell.
         void SetColor(winrt::Windows::UI::Color color);
 
+        /// Applies a stroke width to every cell, driven by the user's setting.
+        void SetLineWidth(double width);
+
         /// Number of charts currently built. Exposed for diagnostics and tests.
         [[nodiscard]] size_t CellCount() const noexcept { return m_cells.size(); }
 

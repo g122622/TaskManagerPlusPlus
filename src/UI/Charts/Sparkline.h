@@ -52,6 +52,9 @@ namespace tmpp::ui
         /// Changes the colour, used when a section becomes selected.
         void SetColors(winrt::Windows::UI::Color color, bool muted);
 
+        /// Changes the stroke width, driven by the user's setting.
+        void SetThickness(double thickness);
+
     private:
         void _redraw();
 
@@ -70,6 +73,9 @@ namespace tmpp::ui
         /// Samples in the full time window. Zero means fit the data, which is what a
         /// sparkline with no axis wants.
         size_t m_timeSpan{0};
+
+        /// Stroke width, adjustable by the user.
+        double m_thickness{1.5};
 
         /// Set when a redraw was requested before the canvas had a size, so it can be
         /// retried once layout provides one. Without this, a series set before the

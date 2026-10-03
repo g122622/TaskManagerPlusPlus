@@ -110,7 +110,7 @@ namespace tmpp::ui
         size_t m_timeSpan{0};
 
         /// Stroke width of the line, adjustable by the user.
-        double m_lineWidth{2.0};
+        double m_lineWidth{1.0};
 
         /// Last diagnostic state reported, so a report is emitted per change rather than per call.
         std::string m_lastDiagnostic;

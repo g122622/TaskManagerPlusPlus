@@ -185,4 +185,85 @@ namespace tmpp::ui::controls
         frame.Child(content);
         return frame;
     }
+
+    ColumnDefinition MakeResizableColumn(Border& outHandle, std::function<void(double)> onResize, double initialWidth)
+    {
+        // WinUI has no GridSplitter, so the handle is a narrow Border with pointer handlers.
+        //
+        // The column's width follows the value the drag reports, so one place owns it and the column
+        // cannot disagree with the persisted width.
+        ColumnDefinition column;
+        column.Width(GridLengthHelper::FromPixels(initialWidth));
+
+        outHandle = Border();
+        outHandle.Width(metrics::SPLITTER_WIDTH);
+        outHandle.HorizontalAlignment(HorizontalAlignment::Right);
+
+        // A transparent brush rather than none: a null Background is not hit-testable in WinUI, so
+        // the handle would never receive the pointer.
+        outHandle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+
+        // The handle only becomes visible while the pointer is over it, matching the original's
+        // subtle divider.
+        outHandle.PointerEntered(
+            [handle = outHandle](winrt::Windows::Foundation::IInspectable const&,
+                                 winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) mutable {
+                handle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Color{0x40, 0x80, 0x80, 0x80}));
+            });
+        outHandle.PointerExited(
+            [handle = outHandle](winrt::Windows::Foundation::IInspectable const&,
+                                 winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) mutable {
+                handle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+            });
+
+        // The drag is measured as movement from where it started rather than from the absolute
+        // pointer position, so the boundary stays under the cursor wherever the drag begins.
+        auto const startWidth = std::make_shared<double>(initialWidth);
+        auto const startX = std::make_shared<double>(0.0);
+
+        outHandle.PointerPressed([startX](winrt::Windows::Foundation::IInspectable const& sender,
+                                          winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+            auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+            if (element == nullptr)
+            {
+                return;
+            }
+
+            *startX = args.GetCurrentPoint(element).Position().X;
+
+            // Capture, because the drag leaves the narrow handle almost immediately.
+            element.CapturePointer(args.Pointer());
+        });
+
+        outHandle.PointerMoved([startX, startWidth, onResize](
+                                   winrt::Windows::Foundation::IInspectable const& sender,
+                                   winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+            auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+            if (element == nullptr || element.PointerCaptures().Size() == 0)
+            {
+                return;
+            }
+
+            double const delta = args.GetCurrentPoint(element).Position().X - *startX;
+            if (onResize)
+            {
+                onResize(*startWidth + delta);
+            }
+        });
+
+        outHandle.PointerReleased([startWidth, onResize](
+                                      winrt::Windows::Foundation::IInspectable const& sender,
+                                      winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+            auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+            if (element == nullptr)
+            {
+                return;
+            }
+            element.ReleasePointerCapture(args.Pointer());
+            (void)startWidth;
+            (void)onResize;
+        });
+
+        return column;
+    }
 }

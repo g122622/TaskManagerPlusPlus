@@ -10,6 +10,7 @@
 #include "UI/WinRTUI.h"
 
 
+#include <functional>
 #include <string_view>
 
 #include "UI/Theming/Theme.h"
@@ -167,5 +168,22 @@ namespace tmpp::ui
          * @param radius Corner radius.
          */
         [[nodiscard]] Border MakeChartFrame(Grid& outContent, double radius = metrics::CHART_CORNER_RADIUS);
+
+        /**
+         * @brief Creates a grid column whose width can be dragged.
+         *
+         * WinUI has no GridSplitter, so the handle is a thin transparent Border carrying a
+         * manipulation handler. The drag is reported through a callback rather than applied to the
+         * column from here: the caller owns both the column and the persisted width, and two places
+         * setting the width is how they drift apart.
+         *
+         * @param outHandle Receives the handle, which the caller must place at the boundary between
+         *        the two columns it separates.
+         * @param onResize Called with the new width as the handle is dragged.
+         * @param initialWidth Starting width, which seeds the drag.
+         */
+        [[nodiscard]] ColumnDefinition MakeResizableColumn(Border& outHandle,
+                                                           std::function<void(double)> onResize,
+                                                           double initialWidth);
     }
 }

@@ -15,6 +15,7 @@
 #include "Core/SamplingCoordinator.h"
 #include "Core/Settings.h"
 #include "UI/Views/PerformanceView.h"
+#include "UI/Views/SettingsPage.h"
 #include "UI/Views/ProcessesView.h"
 
 namespace tmpp
@@ -39,6 +40,22 @@ namespace tmpp
         void _selectPage(int32_t index);
         void _startRefreshTimer();
         void _updateStatusBar();
+
+        /**
+         * @brief Persists everything the session changed.
+         *
+         * Called on close. It writes the current settings rather than the ones loaded at startup, so
+         * a page selection, a sidebar width or a collapsed rail is not silently discarded.
+         */
+        void _saveSettingsOnClose();
+
+        /**
+         * @brief Adopts settings edited on the settings page.
+         *
+         * Applies the ones whose effect is expected immediately, and records the rest for the next
+         * launch.
+         */
+        void _applySettings(core::Settings const& updated);
 
         /**
          * @brief Whether a saved window rectangle would still be visible on some display.
@@ -76,15 +93,28 @@ namespace tmpp
         /// could not be resolved, in which case nothing is persisted.
         std::unique_ptr<core::SettingsStore> m_settingsStore;
 
-        /// Settings as loaded, so saving the window placement on close does not discard
-        /// the user's other choices. Save writes the whole document.
+        /// Settings as loaded at startup.
         core::Settings m_loadedSettings;
+
+        /// Settings as they currently stand, updated as the user changes things. Written on close,
+        /// so the session's choices survive. Save writes the whole document, which is why a single
+        /// copy has to be kept current rather than rebuilt from the loaded one.
+        core::Settings m_currentSettings;
+
+        /// The page currently shown, recorded so LastUsed can resume it.
+        core::StartupPage m_currentPage{core::StartupPage::Processes};
+
+        /// The page index chosen at startup from the settings, applied once the views exist.
+        int32_t m_startupPageIndex{0};
 
         /// The application-wide sampling owner. Declared before the views so it
         /// outlives them.
         std::unique_ptr<core::SamplingCoordinator> m_coordinator;
         std::unique_ptr<ui::ProcessesView> m_processesView;
         std::unique_ptr<ui::PerformanceView> m_performanceView;
+
+        /// The settings page. Recreated on each visit so it reflects the settings in force.
+        std::unique_ptr<ui::SettingsPage> m_settingsPage;
 
         /// The page currently shown, for the refresh timer to update.
         ui::ProcessesView* m_activeProcessesView{nullptr};

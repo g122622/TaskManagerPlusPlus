@@ -2,6 +2,8 @@
 
 #include "Platform/FileSystem.h"
 
+#include <algorithm>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -123,6 +125,36 @@ namespace tmpp::core
             _getNumber<uint32_t>(sampling, "minimizedIntervalMs", settings.minimizedIntervalMs));
         settings.historyWindow = _getEnum(sampling, "historyWindow", settings.historyWindow, 2);
 
+        json const& startup = _subObject(root, "startup");
+        settings.startupPage = _getEnum(startup, "page", settings.startupPage, 3);
+        settings.lastUsedPage = _getEnum(startup, "lastUsedPage", settings.lastUsedPage, 3);
+
+        // Appearance. Each chart's colour is stored as three channels rather than one packed
+        // integer, so the file stays readable and hand-editable.
+        json const& appearance = _subObject(root, "appearance");
+        auto readStyle = [&appearance](char const* key, ChartStyle& style) {
+            json const& node = _subObject(appearance, key);
+            style.red = static_cast<uint8_t>(std::clamp(_getNumber<int>(node, "r", style.red), 0, 255));
+            style.green = static_cast<uint8_t>(std::clamp(_getNumber<int>(node, "g", style.green), 0, 255));
+            style.blue = static_cast<uint8_t>(std::clamp(_getNumber<int>(node, "b", style.blue), 0, 255));
+            style.lineWidth = _getNumber<double>(node, "lineWidth", style.lineWidth);
+            // The getter clamps on use, but clamping here too means a save after a load cannot
+            // write back a value the user never intended.
+            style.lineWidth = style.ClampedLineWidth();
+        };
+
+        readStyle("cpu", settings.cpuChart);
+        readStyle("memory", settings.memoryChart);
+        readStyle("disk", settings.diskChart);
+        readStyle("network", settings.networkChart);
+        readStyle("gpu", settings.gpuChart);
+
+        json const& layout = _subObject(root, "layout");
+        settings.navigationWidth = _getNumber<double>(layout, "navigationWidth", settings.navigationWidth);
+        settings.performanceSidebarWidth =
+            _getNumber<double>(layout, "performanceSidebarWidth", settings.performanceSidebarWidth);
+        settings.navigationExpanded = _getBool(layout, "navigationExpanded", settings.navigationExpanded);
+
         json const& window = _subObject(root, "window");
         settings.windowX = _getNumber<int32_t>(window, "x", settings.windowX);
         settings.windowY = _getNumber<int32_t>(window, "y", settings.windowY);
@@ -164,6 +196,34 @@ namespace tmpp::core
         sampling["minimizedIntervalMs"] = settings.minimizedIntervalMs;
         sampling["historyWindow"] = static_cast<int>(settings.historyWindow);
         root["sampling"] = std::move(sampling);
+
+        json startup;
+        startup["page"] = static_cast<int>(settings.startupPage);
+        startup["lastUsedPage"] = static_cast<int>(settings.lastUsedPage);
+        root["startup"] = std::move(startup);
+
+        json appearance;
+        auto writeStyle = [](ChartStyle const& style) {
+            json node;
+            node["r"] = static_cast<int>(style.red);
+            node["g"] = static_cast<int>(style.green);
+            node["b"] = static_cast<int>(style.blue);
+            node["lineWidth"] = style.lineWidth;
+            return node;
+        };
+
+        appearance["cpu"] = writeStyle(settings.cpuChart);
+        appearance["memory"] = writeStyle(settings.memoryChart);
+        appearance["disk"] = writeStyle(settings.diskChart);
+        appearance["network"] = writeStyle(settings.networkChart);
+        appearance["gpu"] = writeStyle(settings.gpuChart);
+        root["appearance"] = std::move(appearance);
+
+        json layout;
+        layout["navigationWidth"] = settings.navigationWidth;
+        layout["performanceSidebarWidth"] = settings.performanceSidebarWidth;
+        layout["navigationExpanded"] = settings.navigationExpanded;
+        root["layout"] = std::move(layout);
 
         json window;
         window["x"] = settings.windowX;

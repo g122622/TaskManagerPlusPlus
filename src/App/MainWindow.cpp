@@ -67,6 +67,10 @@ namespace tmpp
         /// Height of the page header bar: the strip carrying the page name and the task
         /// actions. The original shows both bars stacked at the top of the window.
         constexpr double PAGE_HEADER_HEIGHT = 48.0;
+
+        /// Index used for the Settings page. Outside the range a navigation item can produce, so it
+        /// cannot collide with a page the user selected from the main list.
+        constexpr int32_t SETTINGS_PAGE_INDEX = 100;
     }
 
     MainWindow::MainWindow()
@@ -98,6 +102,11 @@ namespace tmpp
         }
 
         core::Settings const& settings = m_loadedSettings;
+
+        // The session's working copy. Save writes the whole document, so every change is made to one
+        // copy that is current rather than being layered over the loaded one at close.
+        m_currentSettings = m_loadedSettings;
+
         diag::LogStartup("MainWindow: settings loaded");
 
         // --- Sampling ----------------------------------------------------------
@@ -120,36 +129,12 @@ namespace tmpp
 
         _startRefreshTimer();
 
-        // Remember the window's size and position for the next launch. Recorded on
-        // close rather than continuously, so a crash cannot leave a half-written
-        // placement behind.
+        // Remember the window's size and position, and everything else the session changed, for the
+        // next launch. Recorded on close rather than continuously, so a crash cannot leave a
+        // half-written file behind.
         Closed([this](winrt::Windows::Foundation::IInspectable const&,
                       winrt::Microsoft::UI::Xaml::WindowEventArgs const&) {
-            if (m_settingsStore == nullptr)
-            {
-                return;
-            }
-
-            if (auto const appWindow = this->AppWindow())
-            {
-                auto const size = appWindow.Size();
-                auto const position = appWindow.Position();
-
-                // Start from what was loaded, so saving the placement does not discard
-                // every other setting. Save writes the whole document.
-                core::Settings updated = m_loadedSettings;
-                updated.windowWidth = size.Width;
-                updated.windowHeight = size.Height;
-                updated.windowX = position.X;
-                updated.windowY = position.Y;
-
-                // A failure here is not worth interrupting shutdown for; the defaults
-                // simply apply next time.
-                if (auto const saved = m_settingsStore->Save(updated); !saved.Success())
-                {
-                    diag::LogStartup("MainWindow: could not save window placement");
-                }
-            }
+            _saveSettingsOnClose();
         });
 
         // Restore the remembered window size and position. A position of -1 means the
@@ -187,8 +172,14 @@ namespace tmpp
     void MainWindow::_createPages()
     {
         m_processesView = std::make_unique<ui::ProcessesView>(*m_coordinator);
-        m_performanceView = std::make_unique<ui::PerformanceView>(*m_coordinator);
-        _selectPage(0);
+        // The performance view owns its sidebar width for dragging, but the application owns the
+        // settings file, so the width is reported back here to be remembered.
+        m_performanceView = std::make_unique<ui::PerformanceView>(
+            *m_coordinator,
+            m_currentSettings,
+            [this](double width) { m_currentSettings.performanceSidebarWidth = width; });
+        // The page chosen in the settings, which _createPages resolved before the views existed.
+        _selectPage(m_startupPageIndex);
     }
 
     void MainWindow::_selectPage(int32_t index)
@@ -210,12 +201,15 @@ namespace tmpp
             {
                 case 0:
                     m_pageTitle.Text(L"Processes");
+                    m_currentPage = core::StartupPage::Processes;
                     break;
                 case 1:
                     m_pageTitle.Text(L"Performance");
+                    m_currentPage = core::StartupPage::Performance;
                     break;
                 default:
                     m_pageTitle.Text(L"Details");
+                    m_currentPage = core::StartupPage::Details;
                     break;
             }
         }
@@ -227,6 +221,15 @@ namespace tmpp
 
         switch (index)
         {
+            case SETTINGS_PAGE_INDEX:
+            {
+                // Rebuilt on every visit so it reflects the settings in force, rather than showing
+                // stale controls after a change made elsewhere.
+                m_settingsPage = std::make_unique<ui::SettingsPage>(
+                    m_currentSettings, [this](core::Settings const& updated) { _applySettings(updated); });
+                m_contentHost.Children().Append(m_settingsPage->Root());
+                break;
+            }
             case 0:
                 m_contentHost.Children().Append(m_processesView->Root());
                 m_activeProcessesView = m_processesView.get();
@@ -237,8 +240,8 @@ namespace tmpp
                 break;
             default:
             {
-                // The Details page arrives in M2. The placeholder states that plainly
-                // rather than showing an empty grid.
+                // The Details page arrives in M2. The placeholder states that plainly rather than
+                // showing an empty grid.
                 StackPanel placeholder = ui::controls::MakeStack(8.0);
                 ui::controls::ApplyPageMargin(placeholder);
                 placeholder.Children().Append(ui::controls::MakeHeading(L"Details"));
@@ -250,6 +253,79 @@ namespace tmpp
                 m_contentHost.Children().Append(placeholder);
                 break;
             }
+        }
+    }
+
+    void MainWindow::_applySettings(core::Settings const& updated)
+    {
+        // The settings page edits its own copy, so the application's is brought into line here.
+        m_currentSettings = updated;
+
+        // The topmost state is applied immediately: it is the one setting whose effect is expected
+        // the moment it is changed rather than at the next launch.
+        if (auto const appWindow = this->AppWindow())
+        {
+            if (auto const presenter =
+                    appWindow.Presenter().try_as<winrt::Microsoft::UI::Windowing::OverlappedPresenter>())
+            {
+                presenter.IsAlwaysOnTop(updated.alwaysOnTop);
+            }
+        }
+
+        // The chart styles are pushed to the view so a colour change is visible without a restart.
+        if (m_performanceView != nullptr)
+        {
+            m_performanceView->ApplySettings(updated);
+        }
+    }
+
+    void MainWindow::_saveSettingsOnClose()
+    {
+        if (m_settingsStore == nullptr)
+        {
+            return;
+        }
+
+        // Starts from what the session has been updating rather than from what was loaded, so every
+        // choice made since launch is kept. Saving from the loaded copy is what would silently
+        // discard a page selection or a sidebar width the user changed.
+        core::Settings updated = m_currentSettings;
+
+        // The page in use, so LastUsed can resume it.
+        updated.lastUsedPage = m_currentPage;
+
+        // The rail's state, so the application reopens the way it was left.
+        if (m_navigation != nullptr)
+        {
+            updated.navigationExpanded = m_navigation.IsPaneOpen();
+            if (updated.navigationExpanded)
+            {
+                updated.navigationWidth = m_navigation.OpenPaneLength();
+            }
+        }
+
+        // The window's placement.
+        if (auto const appWindow = this->AppWindow())
+        {
+            updated.windowMaximized = appWindow.Presenter().try_as<winrt::Microsoft::UI::Windowing::OverlappedPresenter>() !=
+                                          nullptr &&
+                                      appWindow.Presenter().try_as<winrt::Microsoft::UI::Windowing::OverlappedPresenter>()
+                                              .State() == winrt::Microsoft::UI::Windowing::OverlappedPresenterState::Maximized;
+
+            // The size and position are taken from the restored bounds, not the current ones: while
+            // maximised the current size is the screen's, and recording that would lose the size the
+            // user chose for the restored window.
+            auto const size = appWindow.Size();
+            auto const position = appWindow.Position();
+            updated.windowWidth = size.Width;
+            updated.windowHeight = size.Height;
+            updated.windowX = position.X;
+            updated.windowY = position.Y;
+        }
+
+        if (auto const saved = m_settingsStore->Save(updated); !saved.Success())
+        {
+            diag::LogStartup("MainWindow: could not save settings on close");
         }
     }
 
@@ -286,7 +362,11 @@ namespace tmpp
         m_navigation = NavigationView();
         m_navigation.IsSettingsVisible(false);
         m_navigation.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
-        m_navigation.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
+        // LeftCompact rather than Left, which matters: with Left the pane is always expanded and
+        // IsPaneOpen is ignored, so the rail could never be collapsed. LeftCompact shows the narrow
+        // icon strip when the pane is closed and the full rail when it is open, which is what the
+        // toggle and the persisted state both need.
+        m_navigation.PaneDisplayMode(NavigationViewPaneDisplayMode::LeftCompact);
         m_navigation.OpenPaneLength(ui::metrics::NAVIGATION_PANE_WIDTH);
         m_navigation.IsTitleBarAutoPaddingEnabled(false);
 
@@ -301,9 +381,20 @@ namespace tmpp
         };
 
         // Segoe Fluent Icons glyphs.
-        auto processesItem = addItem(L"Processes", L"\xE9D9");
+        addItem(L"Processes", L"\xE9D9");
         addItem(L"Performance", L"\xE9D2");
         addItem(L"Details", L"\xE8FD");
+
+        // Settings goes in the footer, which is where the original puts it: a separate list, so the
+        // selection handler can tell it apart from the pages above.
+        {
+            NavigationViewItem settingsItem;
+            settingsItem.Content(winrt::box_value(winrt::hstring{L"Settings"}));
+            FontIcon settingsIcon;
+            settingsIcon.Glyph(L"\xE713");
+            settingsItem.Icon(settingsIcon);
+            m_navigation.FooterMenuItems().Append(settingsItem);
+        }
 
         // Explicit parameter types rather than a generic lambda: with 'auto', the
         // try_as<...> call becomes a dependent template name and needs a 'template'
@@ -323,16 +414,43 @@ namespace tmpp
                     return;
                 }
 
-                // IVector::IndexOf reports the position through an out parameter and
-                // returns a bool, rather than returning the index directly.
+                // IVector::IndexOf reports the position through an out parameter and returns a bool,
+                // rather than returning the index directly. The footer is checked first: a
+                // NavigationView reports its selection through FooterMenuItems for those entries, and
+                // looking only at MenuItems would treat Settings as no selection at all.
                 uint32_t index = 0;
+                if (view.FooterMenuItems().IndexOf(selected, index))
+                {
+                    _selectPage(SETTINGS_PAGE_INDEX);
+                    return;
+                }
+
                 if (view.MenuItems().IndexOf(selected, index))
                 {
                     _selectPage(static_cast<int32_t>(index));
                 }
             });
 
-        m_navigation.SelectedItem(processesItem);
+        // The page to open on. LastUsed resumes whatever was in use at the last close, which the
+        // settings file carries separately so the two cannot contradict each other.
+        core::StartupPage const startupPage = (m_currentSettings.startupPage == core::StartupPage::LastUsed)
+                                                  ? m_currentSettings.lastUsedPage
+                                                  : m_currentSettings.startupPage;
+
+        int32_t const startupIndex = (startupPage == core::StartupPage::Performance) ? 1
+                                       : (startupPage == core::StartupPage::Details) ? 2
+                                                                                     : 0;
+        m_startupPageIndex = startupIndex;
+
+        m_navigation.SelectedItem(m_navigation.MenuItems().GetAt(static_cast<uint32_t>(startupIndex)));
+
+        // The rail's remembered state. A user who collapsed it to gain horizontal space should not
+        // have to collapse it again on every launch.
+        m_navigation.IsPaneOpen(m_currentSettings.navigationExpanded);
+        if (m_currentSettings.navigationExpanded && m_currentSettings.navigationWidth > 0.0)
+        {
+            m_navigation.OpenPaneLength(m_currentSettings.navigationWidth);
+        }
 
         // --- Status bar ---------------------------------------------------------
         Grid statusBar = Grid();

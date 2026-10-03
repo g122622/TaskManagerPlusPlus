@@ -48,7 +48,7 @@ namespace tmpp::ui
 
         m_line = winrt::Microsoft::UI::Xaml::Shapes::Polyline();
         m_line.Stroke(SolidColorBrush(m_color));
-        m_line.StrokeThickness(STROKE_WIDTH);
+        m_line.StrokeThickness(m_thickness);
         m_line.StrokeLineJoin(winrt::Microsoft::UI::Xaml::Media::PenLineJoin::Round);
 
         m_canvas.Children().Append(m_fill);
@@ -78,6 +78,12 @@ namespace tmpp::ui
         double const lineAlpha = muted ? MUTED_OPACITY : 1.0;
         m_line.Stroke(SolidColorBrush(_withAlpha(m_color, lineAlpha)));
         m_fill.Fill(SolidColorBrush(_withAlpha(m_color, muted ? FILL_OPACITY * MUTED_OPACITY : FILL_OPACITY)));
+    }
+
+    void Sparkline::SetThickness(double thickness)
+    {
+        m_thickness = std::clamp(thickness, 0.5, 8.0);
+        m_line.StrokeThickness(m_thickness);
     }
 
     void Sparkline::_redraw()

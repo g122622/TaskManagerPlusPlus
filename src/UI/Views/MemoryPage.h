@@ -38,6 +38,9 @@ namespace tmpp::ui
         /// Applies the series colour, driven by the colour-customisation feature.
         void SetAccentColor(winrt::Windows::UI::Color color);
 
+        /// Applies the configured stroke width to the chart.
+        void SetLineWidth(double width);
+
     private:
         /// One detail row, retaining the value block so it can be updated in place.
         struct DetailRow

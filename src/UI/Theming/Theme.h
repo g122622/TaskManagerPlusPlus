@@ -60,6 +60,9 @@ namespace tmpp::ui
         /// Opacity of a chart outline. Low because a per-core grid puts dozens of frames on screen,
         /// and at full strength they form a mesh that competes with the curves.
         inline constexpr double CHART_BORDER_OPACITY = 0.45;
+
+        /// Hit area of a sidebar resize handle. Wide enough to grab without being visible as a gap.
+        inline constexpr double SPLITTER_WIDTH = 6.0;
     }
 
     namespace theme

@@ -186,6 +186,7 @@
     <ClCompile Include="..\UI\Views\MemoryPage.cpp" />
     <ClCompile Include="..\UI\Views\PerformanceView.cpp" />
     <ClCompile Include="..\UI\Views\ProcessesView.cpp" />
+    <ClCompile Include="..\UI\Views\SettingsPage.cpp" />
     <ClCompile Include="..\UI\Lists\ProcessListModel.cpp">
     </ClCompile>
     <ClCompile Include="..\UI\Lists\RowHost.cpp" />

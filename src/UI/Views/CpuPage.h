@@ -40,6 +40,9 @@ namespace tmpp::ui
         /// Applies the series colour, driven by the colour-customisation feature.
         void SetAccentColor(winrt::Windows::UI::Color color);
 
+        /// Applies the configured stroke width to every chart on the page.
+        void SetLineWidth(double width);
+
     private:
         void _buildLayout();
 

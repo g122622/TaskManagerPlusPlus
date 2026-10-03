@@ -7,6 +7,7 @@
 #include "UI/Theming/Theme.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 using winrt::Microsoft::UI::Xaml::Controls::Border;
@@ -42,23 +43,95 @@ namespace tmpp::ui
 
     std::vector<PerformanceView::SectionSpec> const& PerformanceView::_sections()
     {
-        // The colours are the hook the colour-customisation feature will drive
-        // (docs/ROADMAP.md, M1-6); today they are fixed and chosen to stay legible in
-        // both light and dark themes.
+        // The colour field is left zero here and filled in from the settings by the constructor.
+        // Keeping a second hardcoded copy is exactly what would make a colour changed on the settings
+        // page appear to do nothing.
         static std::vector<SectionSpec> const sections{
-            {L"CPU", L"\xE950", true, winrt::Windows::UI::Color{0xFF, 0x4C, 0xC2, 0xFF}},
-            {L"Memory", L"\xEEA0", true, winrt::Windows::UI::Color{0xFF, 0x9B, 0x8C, 0xFF}},
-            {L"Disk 0 (C:)", L"\xEDA2", false, winrt::Windows::UI::Color{0xFF, 0x6E, 0xD8, 0xB0}},
-            {L"Ethernet", L"\xE968", false, winrt::Windows::UI::Color{0xFF, 0xFF, 0xC1, 0x57}},
-            {L"GPU 0", L"\xE7F4", false, winrt::Windows::UI::Color{0xFF, 0xFF, 0x8A, 0xA8}},
+            {L"CPU", L"\xE950", true, {}},
+            {L"Memory", L"\xEEA0", true, {}},
+            {L"Disk 0 (C:)", L"\xEDA2", false, {}},
+            {L"Ethernet", L"\xE968", false, {}},
+            {L"GPU 0", L"\xE7F4", false, {}},
         };
         return sections;
     }
 
-    PerformanceView::PerformanceView(core::SamplingCoordinator& coordinator) : m_coordinator(coordinator)
+    PerformanceView::PerformanceView(core::SamplingCoordinator& coordinator,
+                                     core::Settings const& settings,
+                                     std::function<void(double)> onSidebarWidthChanged)
+        : m_coordinator(coordinator),
+          m_settings(settings),
+          m_onSidebarWidthChanged(std::move(onSidebarWidthChanged))
     {
         _buildLayout();
         _selectSection(Section::Cpu);
+
+        // Seed every chart from the settings, so the configured colours are what is drawn on the first
+        // frame rather than a hardcoded default that the settings page would later contradict.
+        ApplySettings(m_settings);
+    }
+
+    void PerformanceView::ApplySettings(core::Settings const& settings)
+    {
+        m_settings = settings;
+
+        // The styles are pushed into the sidebar thumbnails and the section pages, so a colour change
+        // is visible without recreating the page.
+        for (size_t i = 0; i < m_rows.size() && i < _sections().size(); ++i)
+        {
+            core::ChartStyle const& style = settings.ChartStyleFor(static_cast<int>(i));
+            winrt::Windows::UI::Color const color{0xFF, style.red, style.green, style.blue};
+
+            if (m_rows[i].sparkline != nullptr)
+            {
+                m_rows[i].sparkline->SetColors(color, /*muted=*/static_cast<int>(m_selected) != static_cast<int>(i));
+                m_rows[i].sparkline->SetThickness(style.ClampedLineWidth());
+            }
+        }
+
+        if (m_cpuPage != nullptr)
+        {
+            core::ChartStyle const& cpu = settings.ChartStyleFor(0);
+            m_cpuPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, cpu.red, cpu.green, cpu.blue});
+            m_cpuPage->SetLineWidth(cpu.ClampedLineWidth());
+        }
+
+        if (m_memoryPage != nullptr)
+        {
+            core::ChartStyle const& memory = settings.ChartStyleFor(1);
+            m_memoryPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, memory.red, memory.green, memory.blue});
+            m_memoryPage->SetLineWidth(memory.ClampedLineWidth());
+        }
+    }
+
+    void PerformanceView::_setSidebarWidth(double width)
+    {
+        // Clamped between a width that still shows the labels and one that leaves the detail area
+        // usable. Without a floor the sidebar can be dragged to nothing and the labels become
+        // unreachable; without a ceiling it can swallow the charts the page exists to show.
+        constexpr double MIN_SIDEBAR = 180.0;
+        constexpr double MAX_SIDEBAR = 520.0;
+
+        double const clamped = std::clamp(width, MIN_SIDEBAR, MAX_SIDEBAR);
+        if (std::abs(clamped - m_sidebarWidth) < 0.5)
+        {
+            return;
+        }
+        m_sidebarWidth = clamped;
+
+        // The column owns the width; the drag reported a value and this is the one place it is
+        // applied, so the column and the persisted width cannot diverge.
+        if (m_root.ColumnDefinitions().Size() > 0)
+        {
+            m_root.ColumnDefinitions().GetAt(0).Width(GridLengthHelper::FromPixels(clamped));
+        }
+
+        // Reported on every applied change: the application decides whether to persist immediately
+        // or wait until the window closes.
+        if (m_onSidebarWidthChanged)
+        {
+            m_onSidebarWidthChanged(clamped);
+        }
     }
 
     void PerformanceView::_buildLayout()
@@ -69,16 +142,34 @@ namespace tmpp::ui
         // card.
         m_root.Padding(ThicknessHelper::FromLengths(metrics::CONTENT_LEFT_INSET, 8.0, metrics::PAGE_MARGIN, 8.0));
 
-        // Two columns: the sidebar at a fixed width, and the detail area taking
-        // everything else. A star column is the equivalent of calc(100% - 300px) and,
-        // unlike a hard-coded width, keeps working when the window is resized.
-        ColumnDefinition sidebarColumn;
-        sidebarColumn.Width(GridLengthHelper::FromPixels(metrics::PERFORMANCE_SIDEBAR_WIDTH));
+        // Two columns separated by a draggable handle: the sidebar at a width the user can change, and
+        // the detail area taking everything that remains. A star column is the equivalent of
+        // calc(100% - sidebarWidth) and, unlike a hard-coded width, keeps working when the window is
+        // resized.
+        double const sidebarWidth = (m_settings.performanceSidebarWidth > 0.0)
+                                        ? m_settings.performanceSidebarWidth
+                                        : metrics::PERFORMANCE_SIDEBAR_WIDTH;
+        m_sidebarWidth = sidebarWidth;
+
+        ColumnDefinition sidebarColumn =
+            controls::MakeResizableColumn(m_sidebarSplitter,
+                                          [this](double width) { _setSidebarWidth(width); },
+                                          sidebarWidth);
         m_root.ColumnDefinitions().Append(sidebarColumn);
+
+        // The handle sits in its own column of zero width, aligned to the boundary. Putting it inside
+        // the sidebar column would let it be clipped when the column narrows.
+        ColumnDefinition splitterColumn;
+        splitterColumn.Width(GridLengthHelper::FromPixels(0.0));
+        m_root.ColumnDefinitions().Append(splitterColumn);
 
         ColumnDefinition detailColumn;
         detailColumn.Width(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
         m_root.ColumnDefinitions().Append(detailColumn);
+
+        m_sidebarSplitter.VerticalAlignment(VerticalAlignment::Stretch);
+        Grid::SetColumn(m_sidebarSplitter, 1);
+        m_root.Children().Append(m_sidebarSplitter);
 
         // --- Sidebar -----------------------------------------------------------
         //
@@ -166,7 +257,7 @@ namespace tmpp::ui
 
         // --- Detail area -------------------------------------------------------
         m_detailHost = Grid();
-        Grid::SetColumn(m_detailHost, 1);
+        Grid::SetColumn(m_detailHost, 2);
         m_root.Children().Append(m_detailHost);
     }
 

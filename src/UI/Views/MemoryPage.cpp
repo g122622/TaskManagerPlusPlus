@@ -219,6 +219,14 @@ namespace tmpp::ui
         }
     }
 
+    void MemoryPage::SetLineWidth(double width)
+    {
+        if (m_chart != nullptr)
+        {
+            m_chart->SetLineWidth(width);
+        }
+    }
+
     void MemoryPage::Refresh()
     {
         uint64_t const version = m_coordinator.SystemVersion();

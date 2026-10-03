@@ -22,6 +22,7 @@
 #include "UI/WinRTUI.h"
 
 #include "Core/SamplingCoordinator.h"
+#include "Core/Settings.h"
 #include "UI/Views/CpuPage.h"
 #include "UI/Views/MemoryPage.h"
 #include "UI/Charts/Sparkline.h"
@@ -34,12 +35,29 @@ namespace tmpp::ui
     class PerformanceView
     {
     public:
-        explicit PerformanceView(core::SamplingCoordinator& coordinator);
+        /**
+         * @param coordinator Supplies snapshots; owned by the application.
+         * @param settings The loaded settings, for the sidebar width and the chart styles.
+         * @param onSidebarWidthChanged Called when the user drags the sidebar, so the application can
+         *        persist the new width. The view does not write settings itself: the application owns
+         *        the file and decides when to save.
+         */
+        PerformanceView(core::SamplingCoordinator& coordinator,
+                        core::Settings const& settings,
+                        std::function<void(double)> onSidebarWidthChanged);
 
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::Grid Root() const { return m_root; }
 
         /// Pulls a new sample and updates the charts. Cheap when nothing changed.
         void Refresh();
+
+        /**
+         * @brief Adopts changed settings.
+         *
+         * Applies the per-metric chart colours and line widths, so a change made on the settings page
+         * is visible without a restart.
+         */
+        void ApplySettings(core::Settings const& settings);
 
     private:
         /**
@@ -80,6 +98,10 @@ namespace tmpp::ui
 
         void _buildLayout();
 
+        /// Applies a dragged width, clamped so the sidebar cannot be collapsed to nothing or grown
+        /// past the detail area.
+        void _setSidebarWidth(double width);
+
         /// Rebuilds the detail area for a section.
         void _selectSection(Section section);
 
@@ -95,6 +117,18 @@ namespace tmpp::ui
         [[nodiscard]] static std::vector<SectionSpec> const& _sections();
 
         core::SamplingCoordinator& m_coordinator;
+
+        /// The settings as loaded, for the sidebar width and per-metric chart styles.
+        core::Settings m_settings;
+
+        /// Called when the user drags the sidebar, so the width can be persisted.
+        std::function<void(double)> m_onSidebarWidthChanged;
+
+        /// The sidebar's current width, clamped on every change.
+        double m_sidebarWidth{0.0};
+
+        /// The drag handle at the sidebar's right edge.
+        winrt::Microsoft::UI::Xaml::Controls::Border m_sidebarSplitter{nullptr};
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::StackPanel m_sidebar{nullptr};
