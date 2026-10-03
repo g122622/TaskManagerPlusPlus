@@ -152,7 +152,12 @@ namespace tmpp::ui
         std::unique_ptr<DiskPage> m_diskPage;
 
         /// The label the disk page's heading uses, taken from the sidebar row.
-        std::wstring m_diskLabel{L"0 (C:)"};
+        std::wstring m_diskLabel;
+
+        /// Which physical device the disk row and page report. The sidebar lists one row for the
+        /// first device; a machine with several would need a row each, which the section list does
+        /// not yet carry.
+        size_t m_diskRowIndex{0};
 
         /// Detail card for sections that have data but no dedicated page yet.
         winrt::Microsoft::UI::Xaml::Controls::Border m_detailsCard{nullptr};

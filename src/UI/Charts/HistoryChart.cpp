@@ -116,11 +116,30 @@ namespace tmpp::ui
         m_line.StrokeThickness(m_lineWidth);
         m_line.StrokeLineJoin(PenLineJoin::Round);
 
+        // The optional second line, dashed. It is constructed here rather than lazily because every
+        // redraw clears its points, and a lazily-created shape would leave that path dereferencing a
+        // null pointer on every chart that does not use it.
+        m_secondaryLine = winrt::Microsoft::UI::Xaml::Shapes::Polyline();
+        m_secondaryLine.Stroke(SolidColorBrush(m_color));
+        m_secondaryLine.StrokeThickness(m_lineWidth);
+        m_secondaryLine.StrokeLineJoin(PenLineJoin::Round);
+
+        // A dash pattern in stroke-width units, so it stays legible at any configured width; a fixed
+        // pixel pattern would close up at a thin width and blur at a thick one.
+        m_secondaryDashes = winrt::Microsoft::UI::Xaml::Media::DoubleCollection();
+        m_secondaryDashes.Append(4.0);
+        m_secondaryDashes.Append(3.0);
+        m_secondaryLine.StrokeDashArray(m_secondaryDashes);
+
+        // Hidden until a secondary series is supplied, so a chart that does not use one is unchanged.
+        m_secondaryLine.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
         // The area fill goes in first so the line draws over it. Adding the line without these two
         // appends is what left the chart drawing its frame and grid but no curve: the shapes existed
         // and had their points set, but were never part of the visual tree.
         m_canvas.Children().Append(m_fill);
         m_canvas.Children().Append(m_line);
+        m_canvas.Children().Append(m_secondaryLine);
 
         // The canvas is not a child of the frame directly: the frame holds a host so the grid layer
         // and the plot can coexist inside one outline.

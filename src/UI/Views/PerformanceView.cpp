@@ -422,13 +422,139 @@ namespace tmpp::ui
             m_rows[1].sparkline->SetSeries(series, 100.0);
         }
 
-        // Sections without a probe keep the note set at construction, and their charts
-        // stay clear so the difference between "idle" and "not measured" remains visible.
-        for (size_t i = 2; i < m_rows.size(); ++i)
+        // Disk: the device's own name, which carries every volume it backs.
+        //
+        // A device with two partitions is mounted under two letters and has one set of counters. The
+        // row was labelled "Disk 0 (C:)" from a fixed string, so the second letter was invisible and
+        // the reader would take it for a separate disk.
+        if (m_rows.size() > 2 && m_rows[2].title != nullptr)
         {
-            if (m_rows[i].sparkline != nullptr)
+            if (!system.disks.empty())
             {
-                m_rows[i].sparkline->Clear();
+                size_t const index = (m_diskRowIndex < system.disks.size()) ? m_diskRowIndex : 0;
+
+                // The instance name is already the form the original uses: the device index followed
+                // by the volumes it backs, as in "2 C: D:".
+                m_diskLabel = winrt::to_hstring(system.disks[index].instanceName);
+                m_rows[2].title.Text(winrt::hstring{L"Disk "} + m_diskLabel);
+
+                if (m_diskPage != nullptr)
+                {
+                    m_diskPage->SetDeviceIndex(index);
+                    m_diskPage->SetDeviceLabel(m_diskLabel);
+                }
+            }
+            else if (m_rows[2].sparkline != nullptr)
+            {
+                m_rows[2].sparkline->Clear();
+            }
+        }
+
+        // Disk sparkline: total throughput as a trend, since the row has no room for two lines.
+        if (m_rows.size() > 2 && m_rows[2].sparkline != nullptr && !history.diskReadBytesPerSecond.empty())
+        {
+            ChartSeries series;
+            series.values = history.diskReadBytesPerSecond;
+            for (size_t i = 0; i < series.values.size() && i < history.diskWriteBytesPerSecond.size(); ++i)
+            {
+                series.values[i] += history.diskWriteBytesPerSecond[i];
+            }
+            series.windowSamples = history.windowSamples;
+
+            double peak = 0.0;
+            for (double const value : series.values)
+            {
+                peak = (std::max)(peak, value);
+            }
+
+            double const activePercent = !system.disks.empty() ? system.disks[0].activePercent : 0.0;
+            std::string subtitle = FormatPercent(activePercent) + "  active";
+
+            if (m_rows[2].subtitle != nullptr)
+            {
+                m_rows[2].subtitle.Text(winrt::to_hstring(subtitle));
+            }
+
+            m_rows[2].sparkline->SetSeries(series, peak > 0.0 ? peak : 1.0);
+        }
+
+        // Network and GPU are named from their adapter's own description, which is only known after
+        // the first sample. A fixed "Ethernet" would be wrong on a machine whose connection is Wi-Fi.
+        if (m_rows.size() > 3 && m_rows[3].title != nullptr && !system.networks.empty())
+        {
+            m_rows[3].title.Text(winrt::to_hstring(system.networks[0].adapterName));
+        }
+        if (m_rows.size() > 4 && m_rows[4].title != nullptr && system.gpu.available && !system.gpu.adapterName.empty())
+        {
+            m_rows[4].title.Text(winrt::to_hstring(system.gpu.adapterName));
+        }
+
+        // Network: the send and receive rates, with the aggregate trend.
+        if (m_rows.size() > 3)
+        {
+            std::string networkText;
+            if (system.networks.empty())
+            {
+                networkText = std::string(UnavailableValue()) + " not collected yet";
+            }
+            else
+            {
+                double send = 0.0;
+                double receive = 0.0;
+                for (domain::NetworkActivity const& iface : system.networks)
+                {
+                    send += iface.sentBytesPerSecond;
+                    receive += iface.receivedBytesPerSecond;
+                }
+                networkText = "S: " + FormatBytes(static_cast<uint64_t>(send)) + "/s  R: " +
+                              FormatBytes(static_cast<uint64_t>(receive)) + "/s";
+            }
+            setSubtitle(3, networkText);
+
+            if (m_rows[3].sparkline != nullptr && !history.networkReceiveBytesPerSecond.empty())
+            {
+                ChartSeries series;
+                series.values = history.networkReceiveBytesPerSecond;
+                for (size_t i = 0; i < series.values.size() && i < history.networkSendBytesPerSecond.size(); ++i)
+                {
+                    series.values[i] += history.networkSendBytesPerSecond[i];
+                }
+                series.windowSamples = history.windowSamples;
+
+                double peak = 0.0;
+                for (double const value : series.values)
+                {
+                    peak = (std::max)(peak, value);
+                }
+
+                m_rows[3].sparkline->SetSeries(series, peak > 0.0 ? peak : 1.0);
+            }
+        }
+
+        // GPU: utilisation and dedicated memory, with the utilisation trend.
+        if (m_rows.size() > 4)
+        {
+            std::string gpuText;
+            if (!system.gpu.available)
+            {
+                gpuText = std::string(UnavailableValue()) + " not collected yet";
+            }
+            else
+            {
+                gpuText = FormatPercent(system.gpu.utilizationPercent);
+                if (system.gpu.dedicatedTotalBytes > 0)
+                {
+                    gpuText += "  " + FormatBytes(system.gpu.dedicatedUsedBytes);
+                }
+            }
+            setSubtitle(4, gpuText);
+
+            if (m_rows[4].sparkline != nullptr && !history.gpuUtilization.empty())
+            {
+                ChartSeries series;
+                series.values = history.gpuUtilization;
+                series.windowSamples = history.windowSamples;
+                m_rows[4].sparkline->SetSeries(series, 100.0);
             }
         }
     }
