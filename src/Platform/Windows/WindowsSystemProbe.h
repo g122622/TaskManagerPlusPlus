@@ -67,9 +67,43 @@ namespace tmpp::platform
                                                       uint32_t threadCount,
                                                       uint32_t handleCount) const;
 
+        /**
+         * @brief Reads cumulative counters for every physical disk.
+         *
+         * Returns one entry per device rather than per volume. The drive letter a user sees is a
+         * mounting detail; the load belongs to the hardware, and a device with two partitions has
+         * one set of counters covering both.
+         */
+        [[nodiscard]] Result<std::vector<SystemDiskCounters>> ReadDiskCounters() const;
+
+        /**
+         * @brief Reads cumulative counters for every network interface.
+         *
+         * Interfaces that cannot carry user traffic -- loopback, tunnels, adapters that are down --
+         * are excluded, so the reported figures describe the connection rather than the machine's
+         * internal plumbing.
+         */
+        [[nodiscard]] Result<std::vector<SystemNetworkCounters>> ReadNetworkCounters() const;
+
+        /**
+         * @brief Reads GPU utilisation and memory.
+         *
+         * Uses the GPU Engine and GPU Adapter Memory performance counter sets, which Windows
+         * provides for every WDDM adapter. A counter query is comparatively expensive, so the
+         * returned value is kept and re-read only when the caller asks.
+         */
+        [[nodiscard]] Result<SystemGpuInfo> ReadGpuInfo() const;
+
         [[nodiscard]] SystemCapabilities Capabilities() const noexcept { return m_capabilities; }
 
     private:
         SystemCapabilities m_capabilities;
+
+        /// Cached GPU adapter totals, filled on the first successful query. The dedicated memory
+        /// total does not change while the adapter is present, and querying it on every sample
+        /// costs as much as the utilisation does.
+        mutable uint64_t m_gpuDedicatedTotalCache{0};
+        mutable std::string m_gpuNameCache;
+        mutable bool m_gpuTotalsResolved{false};
     };
 }

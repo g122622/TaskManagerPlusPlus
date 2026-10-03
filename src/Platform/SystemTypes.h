@@ -177,6 +177,132 @@ namespace tmpp::platform
     };
 
     /**
+     * @brief One physical disk's cumulative counters.
+     *
+     * Cumulative rather than rates, so the Domain layer derives every rate the same way it does for
+     * CPU: by differencing two samples and dividing by the elapsed time. The alternative is to let
+     * the platform's own rate counters do the differencing, which would leave the disk figures
+     * computed on a different clock from everything else on the page and make the first sample
+     * impossible to show honestly.
+     *
+     * These come from IOCTL_DISK_PERFORMANCE, which reports genuinely cumulative values. PDH's
+     * PhysicalDisk counters look simpler but are pre-computed rates, and mixing the two conventions
+     * in one struct is how a rate ends up differenced twice.
+     */
+    struct SystemDiskCounters
+    {
+        /// Cumulative bytes read since the counters started, including reads served from cache.
+        uint64_t readBytes{0};
+
+        /// Cumulative bytes written since the counters started.
+        uint64_t writeBytes{0};
+
+        /// Cumulative time spent servicing reads, in milliseconds.
+        uint64_t readTimeMs{0};
+
+        /// Cumulative time spent servicing writes, in milliseconds.
+        uint64_t writeTimeMs{0};
+
+        /// Completed operations, cumulative.
+        uint64_t readCount{0};
+        uint64_t writeCount{0};
+
+        /// Average request size in bytes, reported directly because it is a mean rather than a
+        /// total: differencing two means would not give the mean over the interval.
+        uint32_t averageReadBytes{0};
+        uint32_t averageWriteBytes{0};
+
+        /// Nominal sector size, needed to interpret the byte counts on some drivers.
+        uint32_t sectorSize{512};
+
+        /// Requests outstanding at the moment of the query.
+        ///
+        /// A level rather than a total, so it is reported as read instead of being differenced: the
+        /// difference of two queue depths is not a queue depth.
+        uint32_t queueDepth{0};
+
+        /// Device capacity in bytes, from the geometry query rather than from a volume, so it
+        /// covers the whole device even when only part of it is mounted.
+        uint64_t capacityBytes{0};
+
+        /// The device's model string, e.g. "Samsung SSD 990 PRO 2TB".
+        std::string modelName;
+
+        /// The device's instance name as reported, e.g. "0 C: D:". Used to identify it between
+        /// samples. Shown to the user, since it is what names the row.
+        std::string instanceName;
+
+        /// Index of the physical device this came from, parsed from the instance name.
+        uint32_t deviceIndex{0};
+
+        /// True when the counters were read successfully.
+        bool available{false};
+    };
+
+    /**
+     * @brief Cumulative counters for one network interface, in bytes.
+     */
+    struct SystemNetworkCounters
+    {
+        uint64_t receivedBytes{0};
+        uint64_t sentBytes{0};
+        uint64_t receivedPackets{0};
+        uint64_t sentPackets{0};
+
+        /// Bytes discarded because of an error or a full buffer.
+        uint64_t receiveErrors{0};
+        uint64_t sendErrors{0};
+
+        /// Receive and transmit link speed in bits per second, from the adapter.
+        uint64_t receiveLinkSpeedBps{0};
+        uint64_t transmitLinkSpeedBps{0};
+
+        /// The adapter's description, e.g. "Intel(R) Ethernet Controller I225-V".
+        std::string adapterName;
+
+        /// True when the interface is operationally up.
+        bool connected{false};
+
+        /// True for a virtual adapter, such as a Hyper-V switch or a VPN tunnel. Real interface, but
+        /// not the machine's connection, so it is hidden when a physical adapter is present.
+        bool virtualAdapter{false};
+
+        /// True when the counters were read successfully.
+        bool available{false};
+    };
+
+    /**
+     * @brief One GPU's utilisation and memory, as reported by the performance counters.
+     *
+     * Read through PDH rather than through a vendor API: the GPU Engine and GPU Adapter Memory
+     * counter sets are provided by Windows itself for every WDDM adapter, so this works on any
+     * GPU, including integrated ones and those whose vendor SDK is not installed.
+     */
+    struct SystemGpuInfo
+    {
+        /// Busiest engine's utilisation, as a percentage. A GPU runs several engines at once
+        /// (3D, copy, video decode), and the original's single figure is the busiest of them.
+        double utilizationPercent{0.0};
+
+        /// Dedicated video memory in use, in bytes. This is the GPU's own memory, not the
+        /// shared system memory an integrated GPU borrows.
+        uint64_t dedicatedUsedBytes{0};
+
+        /// Total dedicated video memory, in bytes. Zero when the adapter has none, which is the
+        /// case for integrated GPUs.
+        uint64_t dedicatedTotalBytes{0};
+
+        /// Shared system memory in use, in bytes.
+        uint64_t sharedUsedBytes{0};
+
+        /// The adapter's description, e.g. "NVIDIA GeForce RTX 4070".
+        std::string adapterName;
+
+        /// True when at least one counter was readable.
+        bool available{false};
+    };
+
+    /**
      * @brief Which system metrics this machine can provide.
      */
     struct SystemCapabilities
@@ -193,5 +319,14 @@ namespace tmpp::platform
         /// True when the memory page lists are queryable, which is what makes the
         /// composition breakdown available.
         bool hasMemoryComposition{false};
+
+        /// True when at least one physical disk's counters were readable.
+        bool hasDiskCounters{false};
+
+        /// True when at least one network interface's counters were readable.
+        bool hasNetworkCounters{false};
+
+        /// True when the GPU performance counters were queryable.
+        bool hasGpuCounters{false};
     };
 }

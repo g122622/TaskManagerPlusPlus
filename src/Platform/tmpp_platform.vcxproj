@@ -92,6 +92,7 @@
   <ItemGroup>
     <ClCompile Include="Windows\NtdllApi.cpp" />
     <ClCompile Include="Windows\ProcessorSpeedProbe.cpp" />
+    <ClCompile Include="Windows\HardwareCounterProbe.cpp" />
     <ClCompile Include="Windows\WindowsClock.cpp" />
     <ClCompile Include="Windows\WindowsFileSystem.cpp" />
     <ClCompile Include="Windows\WindowsProcessProbe.cpp" />
