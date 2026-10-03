@@ -82,11 +82,16 @@
   </ItemDefinitionGroup>
 
   <ItemGroup>
-    <ClCompile Include="test_platform_probes.cpp" />
+    <ClCompile Include="test_domain_models.cpp" />
+    <ClCompile Include="test_domain_rates.cpp" />
     <ClCompile Include="test_main.cpp" />
+    <ClCompile Include="test_platform_probes.cpp" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Domain\tmpp_domain.vcxproj">
+      <Project>{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Platform\tmpp_platform.vcxproj">
       <Project>{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}</Project>
     </ProjectReference>

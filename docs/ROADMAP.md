@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | M1-0 | **构建链路验证**：NuGet 还原、MIDL/mdmerge/cppwinrt 投影、MSBuild 构建、自包含部署 | ✅ **已完成** |
 | M1-1 | Platform 层：进程枚举探针（`NtQuerySystemInformation`）+ 系统 CPU/内存探针 | ✅ **已完成**（20 个单测通过） |
-| M1-2 | Domain 层：`RateMath`、`RingBuffer`、`ProcessModel`、`SystemModel` + 单测 | 待开始 |
+| M1-2 | Domain 层：`RateMath`、`RingBuffer`、`ProcessModel`、`SystemModel` + 单测 | ✅ **已完成**（77 个单测通过） |
 | M1-3 | Core 层：`BackgroundSampler`、`Settings`、`PathService` | 待开始 |
 | M1-4 | UI 层：外壳 + 进程列表（虚拟化 + 排序 + 搜索） | 待开始 |
 | M1-5 | UI 层：Win2D 图表控件 + 性能页 CPU/内存块 | 待开始 |
@@ -43,6 +43,28 @@
 - `SYSTEM_PROCESS_INFORMATION` 使用完整布局声明，并以 `static_assert` 逐字段校验
   偏移量与总大小，SDK 布局变更会在**编译期**失败而非静默读出垃圾数据。
 - ntdll 入口运行时解析（`GetProcAddress`），缺失时降级为"能力不可用"而非启动失败。
+
+### M1-2 交付内容
+
+- `src/Domain/` 静态库（`tmpp_domain`）
+  - `SamplingConfig.h` —— 采样间隔与历史窗口的默认值、范围与钳制（唯一定义处）
+  - `RateMath.h` —— 纯函数：差值、回绕检测、百分比、速率、CPU 换算
+  - `RingBuffer.h` —— 固定容量环形缓冲（历史内存恒定）
+  - `ProcessModel.{h,cpp}` —— 进程速率、PID 复用处理、进程树、聚合
+  - `SystemModel.{h,cpp}` —— 系统 CPU/内存、每核心 CPU、图表历史
+- `src/Platform/Clock.h` + `Windows/WindowsClock.cpp` —— 单调时钟接口
+- 测试新增 57 例（合计 77 例），全部为纯计算测试
+
+**关键实现决策**：
+
+- **Domain 层不包含 `windows.h`。** 单调时钟经 `Platform/Clock.h` 接口注入，
+  使 Domain 层保持"只依赖 Platform 接口 + 标准库"，也让速率计算完全可测。
+- **PID 复用用「PID + 创建时间」复合键处理。** 复用 PID 会得到不同的键，
+  因而从零建立基线，不会继承前一个进程的计数器而报出巨大的假速率。
+- **任一计数器回绕则该进程本轮速率标记为不可用。** 报"部分正确、部分乱码"的数字
+  比报"不可用"更糟；UI 应显示空白而非 0。
+- **`GetSystemTimes` 的 kernel 时间包含 idle**，必须先逐字段做差再扣除 idle，
+  否则空闲机器会显示为高负载。该扣除逻辑集中在 `RateMath` 中。
 
 ## 里程碑二：功能补全
 

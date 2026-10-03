@@ -13,9 +13,9 @@
   </ItemGroup>
 
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}</ProjectGuid>
-    <ProjectName>tmpp_platform</ProjectName>
-    <RootNamespace>tmpp_platform</RootNamespace>
+    <ProjectGuid>{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}</ProjectGuid>
+    <ProjectName>tmpp_domain</ProjectName>
+    <RootNamespace>tmpp_domain</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformMinVersion>10.0.22000.0</WindowsTargetPlatformMinVersion>
   </PropertyGroup>
@@ -42,8 +42,6 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
 
-  <!-- This library is compiled for the command line; the VC targets otherwise
-       derive OutDir from SolutionDir. -->
   <PropertyGroup>
     <OutDir>$(MSBuildThisFileDirectory)..\..\build\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(MSBuildThisFileDirectory)..\..\build\obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
@@ -56,7 +54,6 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500</AdditionalOptions>
-      <!-- Headers are included as "Platform/...", so src\ is the include root. -->
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -74,20 +71,22 @@
   </ItemDefinitionGroup>
 
   <ItemGroup>
-    <ClInclude Include="Clock.h" />
-    <ClInclude Include="Result.h" />
-    <ClInclude Include="Windows\NtdllApi.h" />
-    <ClInclude Include="Windows\WindowsProcessProbe.h" />
-    <ClInclude Include="Windows\WindowsString.h" />
-    <ClInclude Include="Windows\WindowsSystemProbe.h" />
+    <ClInclude Include="ProcessModel.h" />
+    <ClInclude Include="RateMath.h" />
+    <ClInclude Include="RingBuffer.h" />
+    <ClInclude Include="SamplingConfig.h" />
+    <ClInclude Include="SystemModel.h" />
   </ItemGroup>
 
   <ItemGroup>
-    <ClCompile Include="Windows\NtdllApi.cpp" />
-    <ClCompile Include="Windows\WindowsClock.cpp" />
-    <ClCompile Include="Windows\WindowsProcessProbe.cpp" />
-    <ClCompile Include="Windows\WindowsString.cpp" />
-    <ClCompile Include="Windows\WindowsSystemProbe.cpp" />
+    <ClCompile Include="ProcessModel.cpp" />
+    <ClCompile Include="SystemModel.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform\tmpp_platform.vcxproj">
+      <Project>{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}</Project>
+    </ProjectReference>
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

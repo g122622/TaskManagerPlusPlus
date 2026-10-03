@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "tmpp_platform", "src\Platform\tmpp_platform.vcxproj", "{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "tmpp_domain", "src\Domain\tmpp_domain.vcxproj", "{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "tmpp_tests", "tests\unit\tmpp_tests.vcxproj", "{9B7D1F52-4A68-4E03-B5C9-3D2E6F809A14}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TaskManagerPlusPlus", "src\App\TaskManagerPlusPlus.vcxproj", "{2F1A4C7E-9D33-4B62-8A15-7C4E5D9B1A20}"
@@ -21,6 +23,10 @@ Global
 		{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}.Debug|x64.Build.0 = Debug|x64
 		{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}.Release|x64.ActiveCfg = Release|x64
 		{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}.Release|x64.Build.0 = Release|x64
+		{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}.Debug|x64.ActiveCfg = Debug|x64
+		{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}.Debug|x64.Build.0 = Debug|x64
+		{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}.Release|x64.ActiveCfg = Release|x64
+		{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}.Release|x64.Build.0 = Release|x64
 		{9B7D1F52-4A68-4E03-B5C9-3D2E6F809A14}.Debug|x64.ActiveCfg = Debug|x64
 		{9B7D1F52-4A68-4E03-B5C9-3D2E6F809A14}.Debug|x64.Build.0 = Debug|x64
 		{9B7D1F52-4A68-4E03-B5C9-3D2E6F809A14}.Release|x64.ActiveCfg = Release|x64
