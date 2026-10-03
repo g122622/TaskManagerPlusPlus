@@ -421,26 +421,68 @@ namespace tmpp::platform
         return disks;
     }
 
-    Result<std::vector<SystemNetworkCounters>> HardwareCounterProbe::ReadNetwork() const
+    bool HardwareCounterProbe::_enumerateInterfaceIndices()
     {
-        std::vector<SystemNetworkCounters> interfaces;
+        m_interfaceIndices.clear();
 
-        // GetIfTable2 is the modern replacement for GetIfTable and reports 64-bit octet counts
-        // directly, along with the operational state and the link speed, in one call.
+        // GetIfTable2 is the only call that enumerates reliably, but it asks every adapter's driver
+        // for its row, including the ones that are not present. On this machine that is 76 entries
+        // and 433 ms, which is most of a one-second sampling interval and was the cause of the
+        // sampler falling behind.
+        //
+        // It is therefore used once, to learn which indices exist. Each sample then polls those
+        // indices individually with GetIfEntry2, which touches one driver and measures at 2 ms.
         PMIB_IF_TABLE2 table = nullptr;
-        DWORD const status = GetIfTable2(&table);
-        if (status != NO_ERROR || table == nullptr)
+        if (GetIfTable2(&table) != NO_ERROR || table == nullptr)
         {
-            return Error{ErrorCode::NativeFailure,
-                         "GetIfTable2 failed with " + std::to_string(status),
-                         "HardwareCounterProbe::ReadNetwork"};
+            return false;
         }
 
         auto const cleanup = std::unique_ptr<MIB_IF_TABLE2, decltype(&FreeMibTable)>(table, &FreeMibTable);
 
         for (ULONG i = 0; i < table->NumEntries; ++i)
         {
-            MIB_IF_ROW2 const& row = table->Table[i];
+            m_interfaceIndices.push_back(static_cast<uint32_t>(table->Table[i].InterfaceIndex));
+        }
+
+        return !m_interfaceIndices.empty();
+    }
+
+    Result<std::vector<SystemNetworkCounters>> HardwareCounterProbe::ReadNetwork()
+    {
+        std::vector<SystemNetworkCounters> interfaces;
+
+        // Enumerated once for the lifetime of the probe. The set of adapters does not need to be
+        // tracked live: a machine's network hardware does not change during a session, and the
+        // enumeration costs hundreds of milliseconds because it queries every driver, including the
+        // ones that are not present.
+        if (!m_interfacesEnumerated)
+        {
+            m_interfacesEnumerated = true;
+            if (!_enumerateInterfaceIndices())
+            {
+                return Error{ErrorCode::NativeFailure,
+                             "no network interfaces could be enumerated",
+                             "HardwareCounterProbe::ReadNetwork"};
+            }
+        }
+
+        if (m_interfaceIndices.empty())
+        {
+            return interfaces;
+        }
+
+        for (uint32_t const interfaceIndex : m_interfaceIndices)
+        {
+            MIB_IF_ROW2 row{};
+            row.InterfaceIndex = interfaceIndex;
+
+            if (GetIfEntry2(&row) != NO_ERROR)
+            {
+                // The adapter did not answer. It is skipped for this sample: rebuilding the list here
+                // is what put a multi-hundred-millisecond enumeration back into every sample.
+                continue;
+            }
 
             // An allow-list of interface types rather than a deny-list. Enumerating the kinds that
             // cannot carry user traffic is a list that is never complete: the first attempt excluded

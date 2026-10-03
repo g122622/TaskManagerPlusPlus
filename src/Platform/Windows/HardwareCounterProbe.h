@@ -54,7 +54,7 @@ namespace tmpp::platform
          * cumulative 64-bit octet counts directly, along with the link speed and the operational
          * state, in one call.
          */
-        [[nodiscard]] Result<std::vector<SystemNetworkCounters>> ReadNetwork() const;
+        [[nodiscard]] Result<std::vector<SystemNetworkCounters>> ReadNetwork();
 
         /**
          * @brief Reads GPU utilisation and memory.
@@ -80,6 +80,11 @@ namespace tmpp::platform
         /// may be removed.
         void _openGpu();
 
+        /// Builds the interface index cache by enumerating once. Called lazily and again after an
+        /// adapter disappears, never on every sample: the enumeration is what costs hundreds of
+        /// milliseconds, while polling a known index costs two.
+        bool _enumerateInterfaceIndices();
+
         void _close() noexcept;
 
         /// Reads the adapter totals that do not change while the adapter is present.
@@ -92,9 +97,16 @@ namespace tmpp::platform
 
         bool m_disksAvailable{false};
 
-        /// Cached availability. Mutable because ReadNetwork is const but records what it observed, so
-        /// that the capability can be reported without reading the table again.
-        mutable bool m_networkAvailable{false};
+        bool m_networkAvailable{false};
+
+        /// Interface indices, enumerated once and then polled individually. Reading every interface
+        /// through the bulk call took hundreds of milliseconds per sample, which made the sampling
+        /// interval a fiction; polling one index at a time costs two.
+        std::vector<uint32_t> m_interfaceIndices;
+
+        /// Whether the interface list has been built. It is built once and kept: the enumeration is
+        /// the expensive part and the set of adapters does not change during a session.
+        bool m_interfacesEnumerated{false};
 
         bool m_gpuAvailable{false};
 
