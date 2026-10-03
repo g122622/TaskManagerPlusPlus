@@ -8,7 +8,7 @@
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | M1-0 | **构建链路验证**：NuGet 还原、MIDL/mdmerge/cppwinrt 投影、MSBuild 构建、自包含部署 | ✅ **已完成** |
-| M1-1 | Platform 层：进程枚举探针（`NtQuerySystemInformation`）+ 系统 CPU/内存探针 | 待开始 |
+| M1-1 | Platform 层：进程枚举探针（`NtQuerySystemInformation`）+ 系统 CPU/内存探针 | ✅ **已完成**（20 个单测通过） |
 | M1-2 | Domain 层：`RateMath`、`RingBuffer`、`ProcessModel`、`SystemModel` + 单测 | 待开始 |
 | M1-3 | Core 层：`BackgroundSampler`、`Settings`、`PathService` | 待开始 |
 | M1-4 | UI 层：外壳 + 进程列表（虚拟化 + 排序 + 搜索） | 待开始 |
@@ -25,6 +25,24 @@
 - 构建脚本 `tools/m1build.bat`
 - 文档：`README.md`、`README.zh-CN.md`、`docs/ARCHITECTURE.md`、`docs/BUILD.md`、
   `docs/METRICS.md`、`docs/CODE_CONVENTIONS.md`、`docs/ROADMAP.md`
+
+### M1-1 交付内容
+
+- `src/Platform/` 静态库（`tmpp_platform`）
+  - `Result.h` —— `Result<T>` / `Error` / `ErrorCode`（不依赖异常的错误处理）
+  - `Windows/NtdllApi.{h,cpp}` —— ntdll 入口动态加载 + 增长式缓冲区查询
+  - `Windows/WindowsString.{h,cpp}` —— UTF-16 ↔ UTF-8 转换
+  - `Windows/WindowsProcessProbe.{h,cpp}` —— 进程枚举（单次批量快照）
+  - `Windows/WindowsSystemProbe.{h,cpp}` —— 系统 CPU / 每核心 CPU / 内存 / 处理器信息
+- `tests/unit/` GTest 工程（`tmpp_tests`），20 个测试用例
+
+**关键实现决策**：
+
+- 进程枚举走**单次** `NtQuerySystemInformation(SystemProcessInformation)` 批量快照，
+  不逐进程 `OpenProcess`；这使采集开销与进程数近似无关。
+- `SYSTEM_PROCESS_INFORMATION` 使用完整布局声明，并以 `static_assert` 逐字段校验
+  偏移量与总大小，SDK 布局变更会在**编译期**失败而非静默读出垃圾数据。
+- ntdll 入口运行时解析（`GetProcAddress`），缺失时降级为"能力不可用"而非启动失败。
 
 ## 里程碑二：功能补全
 

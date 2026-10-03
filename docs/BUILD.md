@@ -26,6 +26,9 @@
 ## 2. 构建
 
 ```powershell
+# 安装第三方依赖（首次，或改动 vcpkg.json 之后）
+tools\m1build.bat Debug deps
+
 # Debug
 tools\m1build.bat Debug
 
@@ -33,13 +36,23 @@ tools\m1build.bat Debug
 tools\m1build.bat Release
 ```
 
-`tools\m1build.bat` 依次执行三步：
+`tools\m1build.bat` 依次执行：
 
-1. 调用 `vcvars64.bat` 建立 MSVC 环境。
+1. 调用 `tools\vsenv.bat` 建立 VS 开发环境（经 `VsDevCmd.bat`）并设置 vcpkg 根目录。
 2. `MSBuild /t:Restore` 还原 NuGet 包。
 3. `MSBuild` 构建解决方案。
 
-产物：`build\x64\<Configuration>\tmpp.exe`。
+产物：`build\x64\<Configuration>\`，含 `tmpp.exe` 与 `tmpp_tests.exe`。
+
+### 运行单元测试
+
+```powershell
+build\x64\Debug\tmpp_tests.exe
+# 只看失败摘要
+build\x64\Debug\tmpp_tests.exe --gtest_brief=1
+# 只跑某个套件
+build\x64\Debug\tmpp_tests.exe --gtest_filter=WindowsProcessProbeTest.*
+```
 
 ### 通过 Visual Studio 构建
 
@@ -83,29 +96,67 @@ WinUI 3 桌面应用只需 `UseWinUI` 与 `DesktopCompatible`。
 **修复。** 工程**不使用预编译头**。`WinRT.h` 是普通共享头文件，
 并用 `/Zm500` 提高编译器堆上限。
 
-### 3.5 vcpkg：`Unable to find a valid Visual Studio instance`
+### 3.5 vcpkg：`Unable to find a valid Visual Studio instance`（已解决）
 
-**原因。** Visual Studio 虽已安装，但**未向 Visual Studio Installer 注册**。
-`vswhere` 报告 0 个实例，`HKLM\SOFTWARE\Microsoft\VisualStudio\Setup\Instances`
-与 `HKLM\SOFTWARE\WOW6432Node\...\Instances` 均不存在，因此 vcpkg 无法发现工具集，
-也就无法构建包。
+**现象。** 直接调用 `vcvars64.bat` 后执行 `vcpkg install`，报：
 
-**规避措施。** `triplets\x64-windows-tmpp.cmake` 显式设置
-`VCPKG_VISUAL_STUDIO_PATH`。这能满足路径查找，但**无法**满足"实例完整"校验，
-因此本机上 `vcpkg install` 仍然失败。
+```
+error: in triplet x64-windows: Unable to find a valid Visual Studio instance
+Could not locate a complete Visual Studio instance
+```
 
-**当前状态。** MSBuild ↔ vcpkg 集成本身已验证可用：`vcpkg integrate install`
-执行成功，引用 vcpkg 提供的头文件（`nlohmann/json.hpp`）无需任何手动
-include 路径配置即可编译通过。阻塞点仅在于 vcpkg 的**包构建**环节，
-它需要已注册的实例。
+**根因。** 本机的 Visual Studio **未向 Visual Studio Installer 注册**：
+`vswhere` 返回 0 个实例，且
+`HKLM\SOFTWARE\Microsoft\VisualStudio\Setup\Instances` 与
+`HKLM\SOFTWARE\WOW6432Node\...\Instances` 均不存在。
 
-**解决方案。**
+**解决方案（参考 Cubium 项目）。** 关键在于**用 `VsDevCmd.bat` 而非 `vcvars64.bat`
+建立完整开发环境**。vcpkg 的编译器探测使用 **Ninja 生成器**
+（`CMAKE_GENERATOR=Ninja`），它读取 `INCLUDE` / `LIB` / `WindowsSdkDir` 等环境变量，
+**不查询注册的 VS 实例**。`VsDevCmd.bat` 会完整设置这些变量，`vcvars64.bat` 则不足以
+让 vcpkg 完成探测。
 
-1. 修复 Visual Studio 安装使其完成注册，然后执行
-   `vcpkg install --triplet x64-windows-tmpp --overlay-triplets=./triplets`。
-2. 在 VS 已注册的机器上安装所需包，再把 `vcpkg_installed` 复制过来。
-3. 将少量头文件-only 依赖（spdlog、nlohmann-json）内置到 `third_party/`，
-   GTest 改用普通 `packages.config` 或子模块。
+`tools\vsenv.bat` 已封装该逻辑：
+
+```bat
+call "D:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64 -no_logo
+set "VCPKG_ROOT=E:\vcpkg"
+set "VCPKG_DEFAULT_BINARY_CACHE=E:\vcpkg\binary-cache"
+```
+
+安装依赖：
+
+```powershell
+tools\m1build.bat Debug deps
+```
+
+依赖会安装到**清单模式**位置 `TaskManagerPlusPlus\vcpkg_installed\x64-windows\`。
+
+### 3.6 vcpkg 清单模式路径重复（已绕过）
+
+**现象。** 启用清单模式后，MSBuild 把 include 路径解析成
+`vcpkg_installed\x64-windows\x64-windows\include`（三元组出现两次），
+导致 `Cannot open include file: 'spdlog/spdlog.h'`。
+
+**根因。** 本机 vcpkg 版本中 `vcpkg.targets` 的一个缺陷：
+
+- 第 79 行推导 `_ZVcpkgInstalledDir` 时**已包含** `$(VcpkgTriplet)`：
+  `$(_ZVcpkgManifestRoot)vcpkg_installed\$(VcpkgTriplet)\`
+- 第 90 行又在拼接 `_ZVcpkgCurrentInstalledDir` 时**再次追加** `$(VcpkgTriplet)`
+
+**规避措施。** 在 vcxproj 中显式给出 `VcpkgInstalledDir`，跳过产生重复的那次推导：
+
+```xml
+<PropertyGroup>
+  <VcpkgEnableManifest>true</VcpkgEnableManifest>
+  <VcpkgManifestInstall>false</VcpkgManifestInstall>
+  <VcpkgInstalledDir>$(MSBuildThisFileDirectory)..\..\vcpkg_installed\</VcpkgInstalledDir>
+</PropertyGroup>
+```
+
+> **说明**：MSBuild 的 vcpkg 集成默认是**经典模式**（`VcpkgEnableManifest=false`），
+> 只查 `<vcpkg-root>\installed`。必须显式开启清单模式，它才会消费
+> `<repo>\vcpkg_installed\<triplet>`。
 
 ## 4. XAML 支持
 

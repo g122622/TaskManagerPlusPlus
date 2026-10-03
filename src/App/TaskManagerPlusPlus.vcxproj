@@ -60,6 +60,22 @@
     <PackageReference Include="Microsoft.Windows.CppWinRT" />
   </ItemGroup>
 
+  <!-- vcpkg manifest mode. MSBuild's vcpkg integration defaults to classic mode,
+       which only looks in <vcpkg-root>\installed. Enabling the manifest makes it
+       consume <repo>\vcpkg_installed\<triplet>, where this project's manifest
+       dependencies (spdlog, nlohmann-json, gtest) are installed.
+
+       VcpkgInstalledDir is set explicitly to work around a bug in this vcpkg
+       version: vcpkg.targets:79 already appends $(VcpkgTriplet) when deriving
+       _ZVcpkgInstalledDir, and line 90 appends the triplet again, producing the
+       doubled path vcpkg_installed\x64-windows\x64-windows\include. Supplying the
+       value directly skips the derivation. -->
+  <PropertyGroup>
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+    <VcpkgManifestInstall>false</VcpkgManifestInstall>
+    <VcpkgInstalledDir>$(MSBuildThisFileDirectory)..\..\vcpkg_installed\</VcpkgInstalledDir>
+  </PropertyGroup>
+
   <!-- Explicit intermediate and output locations. The VC targets assign
        OutputPath from OutDir unconditionally (Microsoft.CppCommon.Targets) and only
        default OutDir to $(SolutionDir)..., which is undefined when a project is built
