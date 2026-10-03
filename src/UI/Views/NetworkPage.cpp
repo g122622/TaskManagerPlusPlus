@@ -7,6 +7,7 @@
 #include "UI/Theming/Theme.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
 using winrt::Microsoft::UI::Xaml::Controls::Grid;
@@ -32,18 +33,29 @@ namespace tmpp::ui
         }
 
         /// A link speed in the unit a user recognises: Mbps for most links, Gbps for fast ones.
+        ///
+        /// Formatted here rather than through the shared helpers because a link speed is in bits
+        /// while every other figure on the page is in bytes, and bending the byte formatter to cover
+        /// it would make one of the two wrong.
         [[nodiscard]] std::string _linkSpeedText(uint64_t bitsPerSecond)
         {
             if (bitsPerSecond == 0)
             {
                 return UnavailableValue();
             }
+
             double const mbps = static_cast<double>(bitsPerSecond) / 1.0e6;
+
+            char buffer[32]{};
             if (mbps >= 1000.0)
             {
-                return FormatDouble(mbps / 1000.0, 1) + " Gbps";
+                std::snprintf(buffer, sizeof(buffer), "%.1f Gbps", mbps / 1000.0);
             }
-            return FormatDouble(mbps, 0) + " Mbps";
+            else
+            {
+                std::snprintf(buffer, sizeof(buffer), "%.0f Mbps", mbps);
+            }
+            return std::string{buffer};
         }
     }
 

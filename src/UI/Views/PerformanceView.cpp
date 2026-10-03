@@ -50,8 +50,8 @@ namespace tmpp::ui
             {L"CPU", L"\xE950", true},
             {L"Memory", L"\xEEA0", true},
             {L"Disk 0 (C:)", L"\xEDA2", true},
-            {L"Ethernet", L"\xE968", false},
-            {L"GPU 0", L"\xE7F4", false},
+            {L"Ethernet", L"\xE968", true},
+            {L"GPU 0", L"\xE7F4", true},
         };
         return sections;
     }
@@ -101,6 +101,20 @@ namespace tmpp::ui
             core::ChartStyle const& disk = settings.ChartStyleFor(2);
             m_diskPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, disk.red, disk.green, disk.blue});
             m_diskPage->SetLineWidth(disk.ClampedLineWidth());
+        }
+
+        if (m_networkPage != nullptr)
+        {
+            core::ChartStyle const& network = settings.ChartStyleFor(3);
+            m_networkPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, network.red, network.green, network.blue});
+            m_networkPage->SetLineWidth(network.ClampedLineWidth());
+        }
+
+        if (m_gpuPage != nullptr)
+        {
+            core::ChartStyle const& gpu = settings.ChartStyleFor(4);
+            m_gpuPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, gpu.red, gpu.green, gpu.blue});
+            m_gpuPage->SetLineWidth(gpu.ClampedLineWidth());
         }
 
         if (m_memoryPage != nullptr)
@@ -359,6 +373,28 @@ namespace tmpp::ui
             return;
         }
 
+        if (section == Section::Gpu)
+        {
+            if (m_gpuPage == nullptr)
+            {
+                m_gpuPage = std::make_unique<GpuPage>(m_coordinator);
+            }
+            m_detailHost.Children().Append(m_gpuPage->Root());
+            m_renderedVersion = 0;
+            return;
+        }
+
+        if (section == Section::Network)
+        {
+            if (m_networkPage == nullptr)
+            {
+                m_networkPage = std::make_unique<NetworkPage>(m_coordinator);
+            }
+            m_detailHost.Children().Append(m_networkPage->Root());
+            m_renderedVersion = 0;
+            return;
+        }
+
         if (section == Section::Memory)
         {
             // The memory page carries its own usage chart. Building only a details card
@@ -584,6 +620,16 @@ namespace tmpp::ui
         if (m_diskPage != nullptr && m_selected == Section::Disk)
         {
             m_diskPage->Refresh();
+        }
+
+        if (m_networkPage != nullptr && m_selected == Section::Network)
+        {
+            m_networkPage->Refresh();
+        }
+
+        if (m_gpuPage != nullptr && m_selected == Section::Gpu)
+        {
+            m_gpuPage->Refresh();
         }
 
         if (m_memoryPage != nullptr && m_selected == Section::Memory)

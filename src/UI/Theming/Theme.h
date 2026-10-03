@@ -40,7 +40,7 @@ namespace tmpp::ui
 
         /// Width of the performance page's own hardware sidebar. Wider than the
         /// navigation rail because each row carries a name, a qualifier and a chart.
-        inline constexpr double PERFORMANCE_SIDEBAR_WIDTH = 300.0;
+        inline constexpr double PERFORMANCE_SIDEBAR_WIDTH = 260.0;
 
         /// Height of a performance sidebar row.
         inline constexpr double SIDEBAR_ROW_HEIGHT = 58.0;

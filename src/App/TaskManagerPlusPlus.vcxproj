@@ -179,12 +179,14 @@
     <ClCompile Include="..\UI\Charts\CoreGrid.cpp" />
     <ClCompile Include="..\UI\Views\CpuPage.cpp" />
     <ClCompile Include="..\UI\Views\DiskPage.cpp" />
+    <ClCompile Include="..\UI\Views\GpuPage.cpp" />
     <ClCompile Include="..\UI\Diagnostics.cpp" />
     <ClCompile Include="..\UI\Theming\Formatting.cpp">
     </ClCompile>
     <ClCompile Include="..\UI\Charts\HistoryChart.cpp" />
     <ClCompile Include="..\UI\Charts\MemoryCompositionBar.cpp" />
     <ClCompile Include="..\UI\Views\MemoryPage.cpp" />
+    <ClCompile Include="..\UI\Views\NetworkPage.cpp" />
     <ClCompile Include="..\UI\Views\PerformanceView.cpp" />
     <ClCompile Include="..\UI\Views\ProcessesView.cpp" />
     <ClCompile Include="..\UI\Views\SettingsPage.cpp" />

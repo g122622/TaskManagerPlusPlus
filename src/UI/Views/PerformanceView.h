@@ -25,7 +25,9 @@
 #include "Core/Settings.h"
 #include "UI/Views/CpuPage.h"
 #include "UI/Views/DiskPage.h"
+#include "UI/Views/GpuPage.h"
 #include "UI/Views/MemoryPage.h"
+#include "UI/Views/NetworkPage.h"
 #include "UI/Charts/Sparkline.h"
 
 namespace tmpp::ui
@@ -150,6 +152,12 @@ namespace tmpp::ui
 
         /// The disk page. Created on first selection and reused, so its chart is not rebuilt.
         std::unique_ptr<DiskPage> m_diskPage;
+
+        /// The network page. Created on first selection and reused.
+        std::unique_ptr<NetworkPage> m_networkPage;
+
+        /// The GPU page. Created on first selection and reused.
+        std::unique_ptr<GpuPage> m_gpuPage;
 
         /// The label the disk page's heading uses, taken from the sidebar row.
         std::wstring m_diskLabel;
