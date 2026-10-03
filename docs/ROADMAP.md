@@ -10,9 +10,9 @@
 | M1-0 | **构建链路验证**：NuGet 还原、MIDL/mdmerge/cppwinrt 投影、MSBuild 构建、自包含部署 | ✅ **已完成** |
 | M1-1 | Platform 层：进程枚举探针（`NtQuerySystemInformation`）+ 系统 CPU/内存探针 | ✅ **已完成**（20 个单测通过） |
 | M1-2 | Domain 层：`RateMath`、`RingBuffer`、`ProcessModel`、`SystemModel` + 单测 | ✅ **已完成**（77 个单测通过） |
-| M1-3 | Core 层：`BackgroundSampler`、`Settings`、`PathService` | 待开始 |
-| M1-4 | UI 层：外壳 + 进程列表（虚拟化 + 排序 + 搜索） | 待开始 |
-| M1-5 | UI 层：Win2D 图表控件 + 性能页 CPU/内存块 | 待开始 |
+| M1-3 | Core 层：`BackgroundSampler`、`Settings`、`PathService` | ✅ **已完成** |
+| M1-4 | UI 层：外壳 + 进程列表（虚拟化 + 排序 + 搜索） | ✅ **已完成**（134 个单测通过，窗口实测运行） |
+| M1-5 | UI 层：Win2D 图表控件 + 性能页 CPU/内存块 | ⚠️ **部分完成**（图表用 Polyline 实现，Win2D 待 M2） |
 | M1-6 | 图表颜色自定义 + 预设主题 | 待开始 |
 | M1-7 | 多语言（中/英）+ 主题切换 + 窗口状态记忆 + 单实例 | 待开始 |
 
@@ -65,6 +65,55 @@
   比报"不可用"更糟；UI 应显示空白而非 0。
 - **`GetSystemTimes` 的 kernel 时间包含 idle**，必须先逐字段做差再扣除 idle，
   否则空闲机器会显示为高负载。该扣除逻辑集中在 `RateMath` 中。
+
+### M1-4 交付内容
+
+- `src/UI/` 界面层
+  - `Theme.h` / `Controls.{h,cpp}` —— 样式常量与控件构建辅助
+  - `Formatting.{h,cpp}` —— 字节/速率/百分比/计数格式化（纯逻辑，可测）
+  - `ProcessListModel.{h,cpp}` —— 排序/过滤**缓存**（纯逻辑，可测）
+  - `HistoryChart.{h,cpp}` —— Polyline 折线图
+  - `ProcessesView.{h,cpp}` —— 虚拟化进程列表 + 搜索 + 列头排序
+  - `PerformanceView.{h,cpp}` —— 性能页（CPU / 内存图表 + 硬件信息）
+- `src/Core/SamplingCoordinator.{h,cpp}` —— 组合根：探针 + 模型 + 采样线程
+- `src/Core/Logging.{h,cpp}` —— 日志门面
+- `src/Platform/FileSystem.h` + `StoragePaths.h` —— 文件与路径接口
+- 测试新增 28 例（合计 134 例）
+
+**性能设计要点**：
+
+- **进程列表用 `ListView` + `ContainerContentChanging` 虚拟化**。只为进入视口的行
+  构建控件树，因此一帧的开销与可见行数成正比，而不是与进程数成正比。
+  实测系统有 736 个进程。
+- **排序/过滤结果缓存**，仅在快照版本号、排序列、方向或过滤文本变化时重建；
+  渲染循环只需遍历可见索引。
+- **UI 通过版本号轮询采样结果**：先比较一个整数，仅在变化时才深拷贝快照。
+  这是修复内存泄漏的关键（见下）。
+
+**实测发现并修复的两个真实缺陷**：
+
+1. **内存泄漏（8 秒增长 13.6 MB，约 1.7 MB/s，一小时将达 6 GB）**。两个根因：
+   - `SamplingCoordinator::CurrentProcesses()` 在锁内**深拷贝全部 736 个进程**
+     （每个含字符串），而 UI 每 100 ms 调用一次；采样仅 1 Hz，即每秒 9 次无效拷贝。
+     违反需求文档约束 P-004「渲染循环禁止加锁、禁止深拷贝」。
+     **修复**：新增 `ProcessVersion()` / `SystemVersion()`，UI 先比版本号，
+     仅在变化时才拷贝。
+   - `PerformanceView::_updateDetails()` 每次刷新**追加一张新卡片**却不清除旧的，
+     每秒累积 10 张卡片。
+     **修复**：详情卡片改为在切换分区时创建一次，刷新时只更新已保留的数值控件。
+
+   修复后实测：**25 秒增长 0.3 MB**（正常波动），改善约 1000 倍。
+
+2. **`FormatBytes` 产生"1024.0 KB"这类自相矛盾的输出**。`1024*1024-1` 字节
+   按除法缩放后是 1023.99 KB，四舍五入显示为 "1024.0 KB"。已修复为在该阈值
+   进位到下一单位（"1.0 MB"），并补了测试。
+
+**已知待优化项**：
+
+- 空闲时单核 CPU 占用约 3.9%，高于需求目标的 <1%。需用性能分析定位
+  （候选：进程枚举本身的成本、UI 刷新频率、每帧重建 ItemsSource）。
+  记录在此，留待 M1-6/M1-7 用剖析数据决定优化方向。
+- 窗口位置恢复未实现（仅恢复了尺寸）。
 
 ## 里程碑二：功能补全
 

@@ -129,6 +129,8 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500</AdditionalOptions>
+      <!-- Headers are included as "Core/...", "UI/...", so src\ is the include root. -->
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
 
@@ -156,16 +158,36 @@
     <ClInclude Include="App.h" />
     <ClInclude Include="MainWindow.h" />
     <ClInclude Include="StartupLog.h" />
-    <ClInclude Include="UiHelpers.h" />
     <ClInclude Include="WinRT.h" />
   </ItemGroup>
 
   <!-- The UI is composed in C++. No Page or ApplicationDefinition items exist,
-       so no XAML compiler step is required. -->
+       so no XAML compiler step is required. The UI layer's sources are compiled
+       into this project rather than into a separate library, because there is one
+       consumer and a project would add no boundary. -->
   <ItemGroup>
     <ClCompile Include="App.cpp" />
     <ClCompile Include="MainWindow.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="..\UI\Controls.cpp" />
+    <ClCompile Include="..\UI\Formatting.cpp" />
+    <ClCompile Include="..\UI\HistoryChart.cpp" />
+    <ClCompile Include="..\UI\PerformanceView.cpp" />
+    <ClCompile Include="..\UI\ProcessesView.cpp" />
+    <ClCompile Include="..\UI\ProcessListModel.cpp" />
+    <ClCompile Include="..\UI\RowHost.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\tmpp_core.vcxproj">
+      <Project>{3A8C6F27-5E94-4B71-A0D3-8F2C9E4B6D15}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\Domain\tmpp_domain.vcxproj">
+      <Project>{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\Platform\tmpp_platform.vcxproj">
+      <Project>{5C3E8A41-7B92-4D18-9E63-1A8F2D4C7E30}</Project>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>

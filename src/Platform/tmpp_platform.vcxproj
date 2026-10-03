@@ -96,5 +96,17 @@
     <ClCompile Include="Windows\WindowsSystemProbe.cpp" />
   </ItemGroup>
 
+  <!-- ole32 for CoTaskMemFree and shell32 for SHGetKnownFolderPath: storage path
+       resolution uses the known-folder API, which is what lets an unpackaged
+       application find %LOCALAPPDATA%. -->
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalDependencies>ole32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <Lib>
+      <AdditionalDependencies>ole32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Lib>
+  </ItemDefinitionGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

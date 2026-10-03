@@ -80,13 +80,17 @@
 
   <ItemGroup>
     <ClInclude Include="BackgroundSampler.h" />
+    <ClInclude Include="Logging.h" />
     <ClInclude Include="PathService.h" />
+    <ClInclude Include="SamplingCoordinator.h" />
     <ClInclude Include="Settings.h" />
   </ItemGroup>
 
   <ItemGroup>
     <ClCompile Include="BackgroundSampler.cpp" />
+    <ClCompile Include="Logging.cpp" />
     <ClCompile Include="PathService.cpp" />
+    <ClCompile Include="SamplingCoordinator.cpp" />
     <ClCompile Include="Settings.cpp" />
   </ItemGroup>
 

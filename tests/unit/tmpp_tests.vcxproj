@@ -90,6 +90,12 @@
     <ClCompile Include="test_domain_rates.cpp" />
     <ClCompile Include="test_main.cpp" />
     <ClCompile Include="test_platform_probes.cpp" />
+    <ClCompile Include="test_row_host_math.cpp" />
+    <ClCompile Include="test_ui_logic.cpp" />
+    <!-- The UI layer is compiled into consumers rather than a library; pull its
+         sources in here so the formatting and list-cache logic is testable. -->
+    <ClCompile Include="..\..\src\UI\Formatting.cpp" />
+    <ClCompile Include="..\..\src\UI\ProcessListModel.cpp" />
   </ItemGroup>
 
   <ItemGroup>

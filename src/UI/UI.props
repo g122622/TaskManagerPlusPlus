@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The UI layer is compiled into the application project rather than its own
+  static library, because it is the only consumer and splitting it would add a
+  project without adding a boundary. This file exists so the layer's sources are
+  listed in one place and can be shared with the test project.
+-->
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClInclude Include="Formatting.h" />
+    <ClInclude Include="ProcessListModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Formatting.cpp" />
+    <ClCompile Include="ProcessListModel.cpp" />
+  </ItemGroup>
+</Project>
