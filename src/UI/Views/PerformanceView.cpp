@@ -43,15 +43,15 @@ namespace tmpp::ui
 
     std::vector<PerformanceView::SectionSpec> const& PerformanceView::_sections()
     {
-        // The colour field is left zero here and filled in from the settings by the constructor.
-        // Keeping a second hardcoded copy is exactly what would make a colour changed on the settings
-        // page appear to do nothing.
+        // No colour here: it comes from the settings through _sectionColor, which is the only source.
+        // A second hardcoded copy is what makes a colour changed on the settings page appear to do
+        // nothing, and reading a stale one is what drew the thumbnails black.
         static std::vector<SectionSpec> const sections{
-            {L"CPU", L"\xE950", true, {}},
-            {L"Memory", L"\xEEA0", true, {}},
-            {L"Disk 0 (C:)", L"\xEDA2", false, {}},
-            {L"Ethernet", L"\xE968", false, {}},
-            {L"GPU 0", L"\xE7F4", false, {}},
+            {L"CPU", L"\xE950", true},
+            {L"Memory", L"\xEEA0", true},
+            {L"Disk 0 (C:)", L"\xEDA2", false},
+            {L"Ethernet", L"\xE968", false},
+            {L"GPU 0", L"\xE7F4", false},
         };
         return sections;
     }
@@ -204,7 +204,10 @@ namespace tmpp::ui
 
             // Rows with no probe keep their chart empty, which reads as "no data" rather
             // than as a flat measurement of zero.
-            auto sparkline = std::make_unique<Sparkline>(spec.color, SPARKLINE_WIDTH, SPARKLINE_HEIGHT);
+            // Constructed with the settings colour, not the spec table's empty placeholder: the table
+            // deliberately carries no colour, and reading its zero value is what drew the thumbnail
+            // black until a selection change repainted it.
+            auto sparkline = std::make_unique<Sparkline>(_sectionColor(i), SPARKLINE_WIDTH, SPARKLINE_HEIGHT);
             sparkline->Root().VerticalAlignment(VerticalAlignment::Center);
             Grid::SetColumn(sparkline->Root(), 0);
             rowContent.Children().Append(sparkline->Root());
@@ -261,6 +264,15 @@ namespace tmpp::ui
         m_root.Children().Append(m_detailHost);
     }
 
+    winrt::Windows::UI::Color PerformanceView::_sectionColor(size_t index) const
+    {
+        // Read from the settings rather than the spec table, which carries no colour: the table's
+        // field is deliberately empty so there is only one source for these values. Reading it here
+        // is what turned a sparkline black the moment its row was selected.
+        core::ChartStyle const& style = m_settings.ChartStyleFor(static_cast<int>(index));
+        return winrt::Windows::UI::Color{0xFF, style.red, style.green, style.blue};
+    }
+
     void PerformanceView::_updateSelectionVisuals()
     {
         for (size_t i = 0; i < m_rows.size(); ++i)
@@ -275,9 +287,9 @@ namespace tmpp::ui
             m_rows[i].button.CornerRadius(
                 winrt::Microsoft::UI::Xaml::CornerRadiusHelper::FromUniformRadius(metrics::CONTROL_RADIUS));
 
-            if (m_rows[i].sparkline != nullptr && i < _sections().size())
+            if (m_rows[i].sparkline != nullptr)
             {
-                m_rows[i].sparkline->SetColors(_sections()[i].color, /*muted=*/!selected);
+                m_rows[i].sparkline->SetColors(_sectionColor(i), /*muted=*/!selected);
             }
         }
     }

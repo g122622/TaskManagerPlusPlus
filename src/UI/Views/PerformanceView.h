@@ -84,7 +84,6 @@ namespace tmpp::ui
             wchar_t const* title;
             wchar_t const* glyph; ///< Segoe Fluent Icons glyph.
             bool hasData;
-            winrt::Windows::UI::Color color;
         };
 
         /// One sidebar row: its parts are retained so values can be updated in place.
@@ -107,6 +106,9 @@ namespace tmpp::ui
 
         /// Applies the selected/unselected styling to every sidebar row.
         void _updateSelectionVisuals();
+
+        /// The configured colour for a section, read from the settings rather than the spec table.
+        [[nodiscard]] winrt::Windows::UI::Color _sectionColor(size_t index) const;
 
         /// Feeds the sidebar rows from the current sample.
         void _updateSidebarValues(domain::SystemView const& system, domain::HistoryView const& history);
