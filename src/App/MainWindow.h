@@ -57,6 +57,9 @@ namespace tmpp
          */
         void _applySettings(core::Settings const& updated);
 
+        /// Repositions the navigation rail's resize handle over the pane's right edge.
+        void _updateNavigationSplitter();
+
         /**
          * @brief Whether a saved window rectangle would still be visible on some display.
          *
@@ -83,6 +86,10 @@ namespace tmpp
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_pageTitle{nullptr};
 
         winrt::Microsoft::UI::Xaml::Controls::NavigationView m_navigation{nullptr};
+
+        /// The navigation rail's resize handle. A NavigationView has no splitter, so this is an
+        /// overlaid strip at the pane's right edge.
+        winrt::Microsoft::UI::Xaml::Controls::Border m_navigationSplitter{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_contentHost{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_statusText{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::InfoBar m_permissionBar{nullptr};

@@ -279,6 +279,22 @@ namespace tmpp
         }
     }
 
+    void MainWindow::_updateNavigationSplitter()
+    {
+        if (m_navigationSplitter == nullptr || m_navigation == nullptr)
+        {
+            return;
+        }
+
+        // The handle straddles the pane's right edge, so its left offset is the open length less half
+        // its own width. It is hidden while the rail is collapsed, where there is no width to drag.
+        double const width = m_navigation.IsPaneOpen() ? m_navigation.OpenPaneLength() : 0.0;
+        m_navigationSplitter.Margin(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(
+            width - (ui::metrics::SPLITTER_WIDTH / 2.0), 0.0, 0.0, 0.0));
+        m_navigationSplitter.Visibility(m_navigation.IsPaneOpen() ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                                                                 : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+    }
+
     void MainWindow::_saveSettingsOnClose()
     {
         if (m_settingsStore == nullptr)
@@ -612,6 +628,114 @@ namespace tmpp
         m_rootGrid = Grid();
         m_rootGrid.Background(ui::controls::ThemedBrush(ui::theme::PAGE_BACKGROUND));
         m_rootGrid.Children().Append(m_navigation);
+
+        // --- Navigation rail resize handle -------------------------------------
+        //
+        // A NavigationView has no splitter, so the handle is a narrow transparent strip overlaid on
+        // the pane's right edge. It is a sibling of the navigation view rather than a child because
+        // the pane's own content area clips what it contains, and the strip has to straddle the edge
+        // to be grabbable from either side.
+        //
+        // A transparent brush rather than none: a null Background is not hit-testable in WinUI, so a
+        // handle without one would never receive the pointer.
+        m_navigationSplitter = winrt::Microsoft::UI::Xaml::Controls::Border();
+        m_navigationSplitter.Width(ui::metrics::SPLITTER_WIDTH);
+        m_navigationSplitter.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
+        m_navigationSplitter.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Stretch);
+        m_navigationSplitter.Background(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+        _updateNavigationSplitter();
+
+        m_navigationSplitter.PointerEntered(
+            [this](winrt::Windows::Foundation::IInspectable const&,
+                   winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) {
+                // Only offer the affordance when the rail is open: a collapsed rail has no width to
+                // drag, and showing a resize cursor over the icon strip would be misleading.
+                if (m_navigation.IsPaneOpen())
+                {
+                    m_navigationSplitter.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                        winrt::Windows::UI::Color{0x40, 0x80, 0x80, 0x80}));
+                }
+            });
+        m_navigationSplitter.PointerExited(
+            [this](winrt::Windows::Foundation::IInspectable const&,
+                   winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) {
+                m_navigationSplitter.Background(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+            });
+
+        // The drag is measured as movement from where it began rather than from the absolute pointer
+        // position, so the boundary stays under the cursor wherever the drag starts.
+        auto const dragStartWidth = std::make_shared<double>(0.0);
+        auto const dragStartX = std::make_shared<double>(0.0);
+
+        m_navigationSplitter.PointerPressed(
+            [this, dragStartWidth, dragStartX](
+                winrt::Windows::Foundation::IInspectable const& sender,
+                winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (element == nullptr)
+                {
+                    return;
+                }
+
+                *dragStartWidth = m_navigation.OpenPaneLength();
+                *dragStartX = args.GetCurrentPoint(element).Position().X;
+                element.CapturePointer(args.Pointer());
+            });
+
+        m_navigationSplitter.PointerMoved(
+            [this, dragStartWidth, dragStartX](
+                winrt::Windows::Foundation::IInspectable const& sender,
+                winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (element == nullptr || element.PointerCaptures().Size() == 0)
+                {
+                    return;
+                }
+
+                // Clamped between a width that still shows the labels and one that leaves the content
+                // usable. A rail narrower than its longest label is unreadable, and one wider than
+                // this crowds the page it exists to navigate.
+                constexpr double MIN_RAIL = 180.0;
+                constexpr double MAX_RAIL = 420.0;
+
+                double const delta = args.GetCurrentPoint(element).Position().X - *dragStartX;
+                double const width = std::clamp(*dragStartWidth + delta, MIN_RAIL, MAX_RAIL);
+
+                m_navigation.OpenPaneLength(width);
+                m_currentSettings.navigationWidth = width;
+                _updateNavigationSplitter();
+            });
+
+        // The toggle changes the pane's state without going through the drag path, so the handle is
+        // realigned whenever it opens or closes.
+        m_navigation.PaneOpening([this](winrt::Microsoft::UI::Xaml::Controls::NavigationView const&,
+                                        winrt::Windows::Foundation::IInspectable const&) {
+            _updateNavigationSplitter();
+        });
+        m_navigation.PaneClosing([this](winrt::Microsoft::UI::Xaml::Controls::NavigationView const&,
+                                        winrt::Microsoft::UI::Xaml::Controls::NavigationViewPaneClosingEventArgs const&) {
+            _updateNavigationSplitter();
+        });
+
+        m_navigationSplitter.PointerReleased(
+            [this](winrt::Windows::Foundation::IInspectable const& sender,
+                   winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (element == nullptr)
+                {
+                    return;
+                }
+                element.ReleasePointerCapture(args.Pointer());
+
+                // The width is recorded as it is dragged, so there is nothing to commit here. The
+                // settings are written when the window closes.
+                m_navigationSplitter.Background(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+            });
+
+        m_rootGrid.Children().Append(m_navigationSplitter);
 
         Content(m_rootGrid);
 
