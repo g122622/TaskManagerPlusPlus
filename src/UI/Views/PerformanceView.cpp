@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 
 using winrt::Microsoft::UI::Xaml::Controls::Border;
 using winrt::Microsoft::UI::Xaml::Controls::Button;
@@ -29,31 +30,17 @@ namespace tmpp::ui
     {
         /// Sparkline size inside a sidebar row.
         ///
-        /// The aspect is about 2:3, matching the original's thumbnails, which are considerably
-        /// less wide than the row they sit in. A wider thumbnail crowds the label beside it.
+        /// The aspect is about 2:3, matching the original's thumbnails, which are considerably less
+        /// wide than the row they sit in. A wider thumbnail crowds the label beside it.
         constexpr double SPARKLINE_WIDTH = 56.0;
         constexpr double SPARKLINE_HEIGHT = 36.0;
 
         /// Accent fill for the selected sidebar row.
         constexpr winrt::Windows::UI::Color SELECTION_FILL{0x33, 0x4C, 0xC2, 0xFF};
 
-        /// Caption for a section that has data but no page of its own yet.
-        constexpr wchar_t const* SECTIONS_LABEL_UNKNOWN = L"Not built yet";
-    }
-
-    std::vector<PerformanceView::SectionSpec> const& PerformanceView::_sections()
-    {
-        // No colour here: it comes from the settings through _sectionColor, which is the only source.
-        // A second hardcoded copy is what makes a colour changed on the settings page appear to do
-        // nothing, and reading a stale one is what drew the thumbnails black.
-        static std::vector<SectionSpec> const sections{
-            {L"CPU", L"\xE950", true},
-            {L"Memory", L"\xEEA0", true},
-            {L"Disk 0 (C:)", L"\xEDA2", true},
-            {L"Ethernet", L"\xE968", true},
-            {L"GPU 0", L"\xE7F4", true},
-        };
-        return sections;
+        /// Sentinel for "this row reports no particular device", used where a section carries no
+        /// sub-index.
+        constexpr size_t NO_SUB_INDEX = static_cast<size_t>(-1);
     }
 
     PerformanceView::PerformanceView(core::SamplingCoordinator& coordinator,
@@ -64,10 +51,10 @@ namespace tmpp::ui
           m_onSidebarWidthChanged(std::move(onSidebarWidthChanged))
     {
         _buildLayout();
-        _selectSection(Section::Cpu);
+        _selectRow(0);
 
-        // Seed every chart from the settings, so the configured colours are what is drawn on the first
-        // frame rather than a hardcoded default that the settings page would later contradict.
+        // Seed every chart from the settings, so the configured colours are what is drawn on the
+        // first frame rather than a hardcoded default the settings page would later contradict.
         ApplySettings(m_settings);
     }
 
@@ -75,16 +62,16 @@ namespace tmpp::ui
     {
         m_settings = settings;
 
-        // The styles are pushed into the sidebar thumbnails and the section pages, so a colour change
-        // is visible without recreating the page.
-        for (size_t i = 0; i < m_rows.size() && i < _sections().size(); ++i)
+        // The styles are pushed into the sidebar thumbnails and the pages, so a colour change is
+        // visible without recreating anything.
+        for (size_t i = 0; i < m_rows.size() && i < m_sections.size(); ++i)
         {
-            core::ChartStyle const& style = settings.ChartStyleFor(static_cast<int>(i));
+            core::ChartStyle const& style = settings.ChartStyleFor(static_cast<int>(m_sections[i].kind));
             winrt::Windows::UI::Color const color{0xFF, style.red, style.green, style.blue};
 
             if (m_rows[i].sparkline != nullptr)
             {
-                m_rows[i].sparkline->SetColors(color, /*muted=*/static_cast<int>(m_selected) != static_cast<int>(i));
+                m_rows[i].sparkline->SetColors(color, /*muted=*/i != m_selectedRow);
                 m_rows[i].sparkline->SetThickness(style.ClampedLineWidth());
             }
         }
@@ -96,11 +83,21 @@ namespace tmpp::ui
             m_cpuPage->SetLineWidth(cpu.ClampedLineWidth());
         }
 
-        if (m_diskPage != nullptr)
+        if (m_memoryPage != nullptr)
         {
-            core::ChartStyle const& disk = settings.ChartStyleFor(2);
-            m_diskPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, disk.red, disk.green, disk.blue});
-            m_diskPage->SetLineWidth(disk.ClampedLineWidth());
+            core::ChartStyle const& memory = settings.ChartStyleFor(1);
+            m_memoryPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, memory.red, memory.green, memory.blue});
+            m_memoryPage->SetLineWidth(memory.ClampedLineWidth());
+        }
+
+        for (auto const& page : m_diskPages)
+        {
+            if (page != nullptr)
+            {
+                core::ChartStyle const& disk = settings.ChartStyleFor(2);
+                page->SetAccentColor(winrt::Windows::UI::Color{0xFF, disk.red, disk.green, disk.blue});
+                page->SetLineWidth(disk.ClampedLineWidth());
+            }
         }
 
         if (m_networkPage != nullptr)
@@ -115,13 +112,6 @@ namespace tmpp::ui
             core::ChartStyle const& gpu = settings.ChartStyleFor(4);
             m_gpuPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, gpu.red, gpu.green, gpu.blue});
             m_gpuPage->SetLineWidth(gpu.ClampedLineWidth());
-        }
-
-        if (m_memoryPage != nullptr)
-        {
-            core::ChartStyle const& memory = settings.ChartStyleFor(1);
-            m_memoryPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, memory.red, memory.green, memory.blue});
-            m_memoryPage->SetLineWidth(memory.ClampedLineWidth());
         }
     }
 
@@ -140,15 +130,13 @@ namespace tmpp::ui
         }
         m_sidebarWidth = clamped;
 
-        // The column owns the width; the drag reported a value and this is the one place it is
+        // The column owns the width; the drag reports a value and this is the one place it is
         // applied, so the column and the persisted width cannot diverge.
         if (m_root.ColumnDefinitions().Size() > 0)
         {
             m_root.ColumnDefinitions().GetAt(0).Width(GridLengthHelper::FromPixels(clamped));
         }
 
-        // Reported on every applied change: the application decides whether to persist immediately
-        // or wait until the window closes.
         if (m_onSidebarWidthChanged)
         {
             m_onSidebarWidthChanged(clamped);
@@ -163,8 +151,8 @@ namespace tmpp::ui
         // card.
         m_root.Padding(ThicknessHelper::FromLengths(metrics::CONTENT_LEFT_INSET, 8.0, metrics::PAGE_MARGIN, 8.0));
 
-        // Two columns separated by a draggable handle: the sidebar at a width the user can change, and
-        // the detail area taking everything that remains. A star column is the equivalent of
+        // Two columns separated by a draggable handle: the sidebar at a width the user can change,
+        // and the detail area taking everything that remains. A star column is the equivalent of
         // calc(100% - sidebarWidth) and, unlike a hard-coded width, keeps working when the window is
         // resized.
         double const sidebarWidth = (m_settings.performanceSidebarWidth > 0.0)
@@ -194,25 +182,85 @@ namespace tmpp::ui
 
         // --- Sidebar -----------------------------------------------------------
         //
-        // No ScrollViewer: five rows always fit, and a ScrollViewer here would give its
-        // content unlimited height, which is what makes star sizing fail elsewhere.
+        // The card is created here and its row container is filled by _rebuildSidebarIfNeeded, which
+        // is what lets the list follow the machine's devices.
         Border sidebarCard = controls::MakeCard();
         sidebarCard.Padding(ThicknessHelper::FromLengths(3.0, 3.0, 3.0, 3.0));
         sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
         sidebarCard.VerticalAlignment(VerticalAlignment::Top);
         sidebarCard.HorizontalAlignment(HorizontalAlignment::Stretch);
 
+        // No ScrollViewer: the rows always fit, and a ScrollViewer here would give its content
+        // unlimited height, which is what makes star sizing fail elsewhere.
         m_sidebar = controls::MakeStack(1.0);
+        sidebarCard.Child(m_sidebar);
 
-        for (size_t i = 0; i < _sections().size(); ++i)
+        Grid::SetColumn(sidebarCard, 0);
+        m_root.Children().Append(sidebarCard);
+
+        // --- Detail area -------------------------------------------------------
+        m_detailHost = Grid();
+        Grid::SetColumn(m_detailHost, 2);
+        m_root.Children().Append(m_detailHost);
+    }
+
+    bool PerformanceView::_rebuildSidebarIfNeeded(domain::SystemView const& system)
+    {
+        // Builds the row list from the machine. CPU, memory and GPU are single rows because there is
+        // one of each; disks and network adapters are one row per device, because a machine has any
+        // number of them and showing only the first reads as though the others did not exist.
+        std::vector<SectionSpec> next;
+
+        next.push_back(SectionSpec{L"CPU", L"\xE950", SectionKind::Cpu, true, 0});
+        next.push_back(SectionSpec{L"Memory", L"\xEEA0", SectionKind::Memory, true, 0});
+
+        for (size_t i = 0; i < system.disks.size(); ++i)
         {
-            SectionSpec const& spec = _sections()[i];
-            Section const section = static_cast<Section>(i);
+            core::Settings const& settings = m_settings;
+            (void)settings;
 
-            // Row layout: the row's chart on the left, then the name and its qualifier
-            // stacked. This is the arrangement the original uses, and it is what lets one
-            // row carry a name, a current value and a trend without any of them crowding
-            // the others.
+            // The instance name is already the form the original uses: the device index followed by
+            // the volumes it backs, as in "2 C: D:".
+            std::wstring title = L"Disk ";
+            title += winrt::to_hstring(system.disks[i].instanceName).c_str();
+            next.push_back(SectionSpec{std::move(title), L"\xEDA2", SectionKind::Disk, true, i});
+        }
+
+        for (size_t i = 0; i < system.networks.size(); ++i)
+        {
+            std::wstring const name = system.networks[i].adapterName.empty()
+                                          ? std::wstring{L"Network"}
+                                          : winrt::to_hstring(system.networks[i].adapterName).c_str();
+            next.push_back(SectionSpec{name, L"\xE968", SectionKind::Network, true, i});
+        }
+
+        next.push_back(SectionSpec{L"GPU", L"\xE7F4", SectionKind::Gpu, true, 0});
+
+        // Compared by title and sub-index rather than rebuilt unconditionally: rebuilding tears down
+        // the buttons, which would lose the selection and reset every thumbnail on each frame.
+        bool const same = next.size() == m_sections.size() &&
+                          std::equal(next.begin(), next.end(), m_sections.begin(),
+                                     [](SectionSpec const& a, SectionSpec const& b) {
+                                         return a.title == b.title && a.kind == b.kind && a.subIndex == b.subIndex;
+                                     });
+        if (same)
+        {
+            return false;
+        }
+
+        m_sections = std::move(next);
+
+        m_sidebar.Children().Clear();
+        m_rows.clear();
+        m_rows.reserve(m_sections.size());
+
+        for (size_t i = 0; i < m_sections.size(); ++i)
+        {
+            SectionSpec const& spec = m_sections[i];
+
+            // Row layout: the row's chart on the left, then the name and its qualifier stacked. This
+            // is the arrangement the original uses, and it is what lets one row carry a name, a
+            // current value and a trend without any of them crowding the others.
             Grid rowContent = Grid();
 
             ColumnDefinition thumbColumn;
@@ -223,12 +271,9 @@ namespace tmpp::ui
             textColumn.Width(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
             rowContent.ColumnDefinitions().Append(textColumn);
 
-            // Rows with no probe keep their chart empty, which reads as "no data" rather
-            // than as a flat measurement of zero.
-            // Constructed with the settings colour, not the spec table's empty placeholder: the table
-            // deliberately carries no colour, and reading its zero value is what drew the thumbnail
-            // black until a selection change repainted it.
-            auto sparkline = std::make_unique<Sparkline>(_sectionColor(i), SPARKLINE_WIDTH, SPARKLINE_HEIGHT);
+            // Constructed with the configured colour rather than a placeholder, which is what had
+            // drawn the thumbnails black until a selection change repainted them.
+            auto sparkline = std::make_unique<Sparkline>(_sectionColor(spec.kind), SPARKLINE_WIDTH, SPARKLINE_HEIGHT);
             sparkline->Root().VerticalAlignment(VerticalAlignment::Center);
             Grid::SetColumn(sparkline->Root(), 0);
             rowContent.Children().Append(sparkline->Root());
@@ -239,11 +284,13 @@ namespace tmpp::ui
 
             TextBlock title = controls::MakeText(spec.title, 14.0);
             title.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            title.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
 
-            // The qualifier line carries the current reading, or says plainly that the
-            // metric is not collected yet.
+            // The qualifier line carries the current reading, or says plainly that the metric is not
+            // collected yet.
             TextBlock subtitle = controls::MakeText(spec.hasData ? L"" : L"-- not collected yet", 12.0, true);
             subtitle.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            subtitle.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
 
             text.Children().Append(title);
             text.Children().Append(subtitle);
@@ -260,37 +307,46 @@ namespace tmpp::ui
             button.Background(SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
             button.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
 
-            button.Click([this, section](winrt::Windows::Foundation::IInspectable const&,
-                                         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
-                _selectSection(section);
-            });
+            // The row index is captured by value: the handler must open the row it was built for, and
+            // the list can be rebuilt after it is attached.
+            button.Click([this, i](winrt::Windows::Foundation::IInspectable const&,
+                                   winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) { _selectRow(i); });
 
             SidebarRow row;
             row.button = button;
             row.title = title;
             row.subtitle = subtitle;
             row.sparkline = std::move(sparkline);
-            m_rows.push_back(std::move(row));
+            row.kind = spec.kind;
+            row.subIndex = spec.subIndex;
 
+            m_rows.push_back(std::move(row));
             m_sidebar.Children().Append(button);
         }
 
-        sidebarCard.Child(m_sidebar);
-        Grid::SetColumn(sidebarCard, 0);
-        m_root.Children().Append(sidebarCard);
+        // The selection is restored by kind and sub-index, so rebuilding the list does not move the
+        // user to a different page.
+        m_selectedRow = 0;
+        for (size_t i = 0; i < m_sections.size(); ++i)
+        {
+            if (m_sections[i].kind == m_selectedKind &&
+                (m_sections[i].subIndex == m_selectedSubIndex || m_sections[i].kind == SectionKind::Cpu ||
+                 m_sections[i].kind == SectionKind::Memory || m_sections[i].kind == SectionKind::Gpu))
+            {
+                m_selectedRow = i;
+                break;
+            }
+        }
 
-        // --- Detail area -------------------------------------------------------
-        m_detailHost = Grid();
-        Grid::SetColumn(m_detailHost, 2);
-        m_root.Children().Append(m_detailHost);
+        _updateSelectionVisuals();
+        return true;
     }
 
-    winrt::Windows::UI::Color PerformanceView::_sectionColor(size_t index) const
+    winrt::Windows::UI::Color PerformanceView::_sectionColor(SectionKind kind) const
     {
-        // Read from the settings rather than the spec table, which carries no colour: the table's
-        // field is deliberately empty so there is only one source for these values. Reading it here
-        // is what turned a sparkline black the moment its row was selected.
-        core::ChartStyle const& style = m_settings.ChartStyleFor(static_cast<int>(index));
+        // Read from the settings rather than a table: the settings page is the only source, and a
+        // second hardcoded copy is what makes a colour change appear to do nothing.
+        core::ChartStyle const& style = m_settings.ChartStyleFor(static_cast<int>(kind));
         return winrt::Windows::UI::Color{0xFF, style.red, style.green, style.blue};
     }
 
@@ -298,11 +354,11 @@ namespace tmpp::ui
     {
         for (size_t i = 0; i < m_rows.size(); ++i)
         {
-            bool const selected = (static_cast<int>(m_selected) == static_cast<int>(i));
+            bool const selected = (i == m_selectedRow);
 
-            // The selected row is filled with a translucent accent. Its sparkline goes to
-            // full opacity and the others are muted, so the current section's trend is the
-            // one that stands out.
+            // The selected row is filled with a translucent accent. Its sparkline goes to full
+            // opacity and the others are muted, so the current section's trend is the one that
+            // stands out.
             m_rows[i].button.Background(
                 SolidColorBrush(selected ? SELECTION_FILL : winrt::Windows::UI::Colors::Transparent()));
             m_rows[i].button.CornerRadius(
@@ -310,113 +366,84 @@ namespace tmpp::ui
 
             if (m_rows[i].sparkline != nullptr)
             {
-                m_rows[i].sparkline->SetColors(_sectionColor(i), /*muted=*/!selected);
+                m_rows[i].sparkline->SetColors(_sectionColor(m_rows[i].kind), /*muted=*/!selected);
             }
         }
     }
 
-    void PerformanceView::_selectSection(Section section)
+    void PerformanceView::_selectRow(size_t rowIndex)
     {
-        m_selected = section;
+        if (rowIndex >= m_sections.size())
+        {
+            return;
+        }
+
+        m_selectedRow = rowIndex;
+        m_selectedKind = m_sections[rowIndex].kind;
+        m_selectedSubIndex = m_sections[rowIndex].subIndex;
+
         m_detailHost.Children().Clear();
         m_detailsCard = nullptr;
         m_detailValues.clear();
 
         _updateSelectionVisuals();
 
-        auto const index = static_cast<size_t>(section);
-        bool const hasData = (index < _sections().size()) && _sections()[index].hasData;
-
-        if (!hasData)
+        // One page per kind, created on first selection and reused, so switching away and back does
+        // not rebuild a chart and flash it empty.
+        switch (m_selectedKind)
         {
-            // These probes do not exist yet (docs/ROADMAP.md, M2/M3). Saying so is better
-            // than an empty chart, which would read as "measured zero".
-            Border card = controls::MakeCard();
-            StackPanel content = controls::MakeStack(6.0);
-            content.Children().Append(controls::MakeHeading(L"Not collected yet", 16.0));
-            content.Children().Append(controls::MakeText(
-                L"This section's metrics are not implemented yet. The collection path is described "
-                L"in docs/METRICS.md and the work is listed in docs/ROADMAP.md.",
-                13.0,
-                true));
-            card.Child(content);
-            m_detailHost.Children().Append(card);
+            case SectionKind::Cpu:
+                if (m_cpuPage == nullptr)
+                {
+                    m_cpuPage = std::make_unique<CpuPage>(m_coordinator);
+                }
+                m_detailHost.Children().Append(m_cpuPage->Root());
+                break;
 
-            m_renderedVersion = 0;
-            return;
-        }
+            case SectionKind::Memory:
+                if (m_memoryPage == nullptr)
+                {
+                    m_memoryPage = std::make_unique<MemoryPage>(m_coordinator);
+                }
+                m_detailHost.Children().Append(m_memoryPage->Root());
+                break;
 
-        if (section == Section::Cpu)
-        {
-            // The CPU page is created once and reused. Rebuilding it would discard the
-            // per-core charts it holds, which would flash empty on every reselection.
-            if (m_cpuPage == nullptr)
+            case SectionKind::Disk:
             {
-                m_cpuPage = std::make_unique<CpuPage>(m_coordinator);
+                // One page per device, grown on demand. A machine's disk count does not change, so
+                // the vector only ever grows.
+                while (m_diskPages.size() <= m_selectedSubIndex)
+                {
+                    m_diskPages.push_back(std::make_unique<DiskPage>(m_coordinator));
+                }
+
+                DiskPage& page = *m_diskPages[m_selectedSubIndex];
+                page.SetDeviceIndex(m_selectedSubIndex);
+                page.SetDeviceLabel(m_sections[rowIndex].title);
+                m_detailHost.Children().Append(page.Root());
+                break;
             }
-            m_detailHost.Children().Append(m_cpuPage->Root());
-            m_renderedVersion = 0;
-            return;
+
+            case SectionKind::Network:
+                if (m_networkPage == nullptr)
+                {
+                    m_networkPage = std::make_unique<NetworkPage>(m_coordinator);
+                }
+                m_networkPage->SetAdapterIndex(m_selectedSubIndex);
+                m_networkPage->SetAdapterLabel(m_sections[rowIndex].title);
+                m_detailHost.Children().Append(m_networkPage->Root());
+                break;
+
+            case SectionKind::Gpu:
+                if (m_gpuPage == nullptr)
+                {
+                    m_gpuPage = std::make_unique<GpuPage>(m_coordinator);
+                }
+                m_detailHost.Children().Append(m_gpuPage->Root());
+                break;
         }
 
-        if (section == Section::Disk)
-        {
-            // Created once and reused, so reselecting the section does not rebuild its chart and
-            // flash it empty.
-            if (m_diskPage == nullptr)
-            {
-                m_diskPage = std::make_unique<DiskPage>(m_coordinator);
-            }
-            m_diskPage->SetDeviceLabel(m_diskLabel);
-            m_detailHost.Children().Append(m_diskPage->Root());
-            m_renderedVersion = 0;
-            return;
-        }
-
-        if (section == Section::Gpu)
-        {
-            if (m_gpuPage == nullptr)
-            {
-                m_gpuPage = std::make_unique<GpuPage>(m_coordinator);
-            }
-            m_detailHost.Children().Append(m_gpuPage->Root());
-            m_renderedVersion = 0;
-            return;
-        }
-
-        if (section == Section::Network)
-        {
-            if (m_networkPage == nullptr)
-            {
-                m_networkPage = std::make_unique<NetworkPage>(m_coordinator);
-            }
-            m_detailHost.Children().Append(m_networkPage->Root());
-            m_renderedVersion = 0;
-            return;
-        }
-
-        if (section == Section::Memory)
-        {
-            // The memory page carries its own usage chart. Building only a details card
-            // here, as an earlier version did, left the section with figures and no graph.
-            if (m_memoryPage == nullptr)
-            {
-                m_memoryPage = std::make_unique<MemoryPage>(m_coordinator);
-            }
-            m_detailHost.Children().Append(m_memoryPage->Root());
-            m_renderedVersion = 0;
-            return;
-        }
-
-        // Any future section that has data but no dedicated page yet gets a bare card, so
-        // the page is never empty even before its content exists.
-        m_detailsCard = controls::MakeCard();
-        StackPanel details = controls::MakeStack(3.0);
-        details.Children().Append(controls::MakeHeading(SECTIONS_LABEL_UNKNOWN, 16.0));
-
-        m_detailsCard.Child(details);
-        m_detailHost.Children().Append(m_detailsCard);
-
+        // The newly opened page has not drawn anything yet, so the version check must not skip it.
         m_renderedVersion = 0;
     }
 
@@ -430,176 +457,153 @@ namespace tmpp::ui
             }
         };
 
-        // CPU: load and current clock, with the aggregate trend.
-        std::string cpuText;
-        cpuText += system.ratesUnavailable ? UnavailableValue() : FormatPercent(system.cpuPercent);
-        cpuText += "  ";
-        cpuText += system.processorSpeed.available ? std::to_string(system.processorSpeed.currentMhz) + " MHz"
-                                                   : UnavailableValue();
-        setSubtitle(0, cpuText);
-        if (!m_rows.empty() && m_rows[0].sparkline != nullptr)
+        for (size_t i = 0; i < m_rows.size() && i < m_sections.size(); ++i)
         {
-            ChartSeries series;
-            series.values = history.cpuTotal;
-            series.windowSamples = history.windowSamples;
-            m_rows[0].sparkline->SetSeries(series, 100.0);
-        }
-
-        // Memory: usage against the total, which is what the original shows.
-        std::string memoryText =
-            FormatBytes(system.memoryUsedBytes) + " / " + FormatBytes(system.memory.totalPhysical);
-        memoryText += " (" + FormatPercent(system.memoryUsedPercent) + ")";
-        setSubtitle(1, memoryText);
-        if (m_rows.size() > 1 && m_rows[1].sparkline != nullptr)
-        {
-            ChartSeries series;
-            series.values = history.memoryUsed;
-            series.windowSamples = history.windowSamples;
-            m_rows[1].sparkline->SetSeries(series, 100.0);
-        }
-
-        // Disk: the device's own name, which carries every volume it backs.
-        //
-        // A device with two partitions is mounted under two letters and has one set of counters. The
-        // row was labelled "Disk 0 (C:)" from a fixed string, so the second letter was invisible and
-        // the reader would take it for a separate disk.
-        if (m_rows.size() > 2 && m_rows[2].title != nullptr)
-        {
-            if (!system.disks.empty())
+            SectionSpec const& spec = m_sections[i];
+            if (m_rows[i].sparkline == nullptr)
             {
-                size_t const index = (m_diskRowIndex < system.disks.size()) ? m_diskRowIndex : 0;
+                continue;
+            }
 
-                // The instance name is already the form the original uses: the device index followed
-                // by the volumes it backs, as in "2 C: D:".
-                m_diskLabel = winrt::to_hstring(system.disks[index].instanceName);
-                m_rows[2].title.Text(winrt::hstring{L"Disk "} + m_diskLabel);
+            std::string subtitle;
 
-                if (m_diskPage != nullptr)
+            switch (spec.kind)
+            {
+                case SectionKind::Cpu:
                 {
-                    m_diskPage->SetDeviceIndex(index);
-                    m_diskPage->SetDeviceLabel(m_diskLabel);
-                }
-            }
-            else if (m_rows[2].sparkline != nullptr)
-            {
-                m_rows[2].sparkline->Clear();
-            }
-        }
+                    subtitle = system.ratesUnavailable ? UnavailableValue() : FormatPercent(system.cpuPercent);
+                    subtitle += "  ";
+                    subtitle += system.processorSpeed.available
+                                    ? std::to_string(system.processorSpeed.currentMhz) + " MHz"
+                                    : std::string{UnavailableValue()};
 
-        // Disk sparkline: total throughput as a trend, since the row has no room for two lines.
-        if (m_rows.size() > 2 && m_rows[2].sparkline != nullptr && !history.diskReadBytesPerSecond.empty())
-        {
-            ChartSeries series;
-            series.values = history.diskReadBytesPerSecond;
-            for (size_t i = 0; i < series.values.size() && i < history.diskWriteBytesPerSecond.size(); ++i)
-            {
-                series.values[i] += history.diskWriteBytesPerSecond[i];
-            }
-            series.windowSamples = history.windowSamples;
-
-            double peak = 0.0;
-            for (double const value : series.values)
-            {
-                peak = (std::max)(peak, value);
-            }
-
-            double const activePercent = !system.disks.empty() ? system.disks[0].activePercent : 0.0;
-            std::string subtitle = FormatPercent(activePercent) + "  active";
-
-            if (m_rows[2].subtitle != nullptr)
-            {
-                m_rows[2].subtitle.Text(winrt::to_hstring(subtitle));
-            }
-
-            m_rows[2].sparkline->SetSeries(series, peak > 0.0 ? peak : 1.0);
-        }
-
-        // Network and GPU are named from their adapter's own description, which is only known after
-        // the first sample. A fixed "Ethernet" would be wrong on a machine whose connection is Wi-Fi.
-        if (m_rows.size() > 3 && m_rows[3].title != nullptr && !system.networks.empty())
-        {
-            m_rows[3].title.Text(winrt::to_hstring(system.networks[0].adapterName));
-        }
-        if (m_rows.size() > 4 && m_rows[4].title != nullptr && system.gpu.available && !system.gpu.adapterName.empty())
-        {
-            m_rows[4].title.Text(winrt::to_hstring(system.gpu.adapterName));
-        }
-
-        // Network: the send and receive rates, with the aggregate trend.
-        if (m_rows.size() > 3)
-        {
-            std::string networkText;
-            if (system.networks.empty())
-            {
-                networkText = std::string(UnavailableValue()) + " not collected yet";
-            }
-            else
-            {
-                double send = 0.0;
-                double receive = 0.0;
-                for (domain::NetworkActivity const& iface : system.networks)
-                {
-                    send += iface.sentBytesPerSecond;
-                    receive += iface.receivedBytesPerSecond;
-                }
-                networkText = "S: " + FormatBytes(static_cast<uint64_t>(send)) + "/s  R: " +
-                              FormatBytes(static_cast<uint64_t>(receive)) + "/s";
-            }
-            setSubtitle(3, networkText);
-
-            if (m_rows[3].sparkline != nullptr && !history.networkReceiveBytesPerSecond.empty())
-            {
-                ChartSeries series;
-                series.values = history.networkReceiveBytesPerSecond;
-                for (size_t i = 0; i < series.values.size() && i < history.networkSendBytesPerSecond.size(); ++i)
-                {
-                    series.values[i] += history.networkSendBytesPerSecond[i];
-                }
-                series.windowSamples = history.windowSamples;
-
-                double peak = 0.0;
-                for (double const value : series.values)
-                {
-                    peak = (std::max)(peak, value);
+                    ChartSeries series;
+                    series.values = history.cpuTotal;
+                    series.windowSamples = history.windowSamples;
+                    m_rows[i].sparkline->SetSeries(series, 100.0);
+                    break;
                 }
 
-                m_rows[3].sparkline->SetSeries(series, peak > 0.0 ? peak : 1.0);
-            }
-        }
-
-        // GPU: utilisation and dedicated memory, with the utilisation trend.
-        if (m_rows.size() > 4)
-        {
-            std::string gpuText;
-            if (!system.gpu.available)
-            {
-                gpuText = std::string(UnavailableValue()) + " not collected yet";
-            }
-            else
-            {
-                gpuText = FormatPercent(system.gpu.utilizationPercent);
-                if (system.gpu.dedicatedTotalBytes > 0)
+                case SectionKind::Memory:
                 {
-                    gpuText += "  " + FormatBytes(system.gpu.dedicatedUsedBytes);
+                    subtitle = FormatBytes(system.memoryUsedBytes) + " / " +
+                               FormatBytes(system.memory.totalPhysical);
+                    subtitle += " (" + FormatPercent(system.memoryUsedPercent) + ")";
+
+                    ChartSeries series;
+                    series.values = history.memoryUsed;
+                    series.windowSamples = history.windowSamples;
+                    m_rows[i].sparkline->SetSeries(series, 100.0);
+                    break;
+                }
+
+                case SectionKind::Disk:
+                {
+                    if (spec.subIndex >= system.disks.size())
+                    {
+                        setSubtitle(i, std::string{UnavailableValue()} + " unavailable");
+                        m_rows[i].sparkline->Clear();
+                        break;
+                    }
+
+                    domain::DiskActivity const& disk = system.disks[spec.subIndex];
+                    subtitle = FormatPercent(disk.activePercent) + "  active";
+
+                    // The device's own series, looked up by instance name. Every disk has its own
+                    // history, so a machine with several disks shows each one's trend rather than one
+                    // trend repeated on every row.
+                    auto const seriesForDevice = history.diskBytesPerSecondByDevice.find(disk.instanceName);
+                    if (seriesForDevice != history.diskBytesPerSecondByDevice.end())
+                    {
+                        ChartSeries series;
+                        series.values = seriesForDevice->second;
+                        series.windowSamples = history.windowSamples;
+
+                        double peak = 0.0;
+                        for (double const value : series.values)
+                        {
+                            peak = (std::max)(peak, value);
+                        }
+                        m_rows[i].sparkline->SetSeries(series, peak > 0.0 ? peak : 1.0);
+                    }
+                    else
+                    {
+                        m_rows[i].sparkline->Clear();
+                    }
+                    break;
+                }
+
+                case SectionKind::Network:
+                {
+                    if (spec.subIndex >= system.networks.size())
+                    {
+                        setSubtitle(i, std::string{UnavailableValue()} + " unavailable");
+                        m_rows[i].sparkline->Clear();
+                        break;
+                    }
+
+                    domain::NetworkActivity const& iface = system.networks[spec.subIndex];
+                    subtitle = "S: " + FormatBytes(static_cast<uint64_t>(iface.sentBytesPerSecond)) + "/s";
+                    subtitle += "  R: " + FormatBytes(static_cast<uint64_t>(iface.receivedBytesPerSecond)) + "/s";
+
+                    // The adapter's own series, looked up by name, for the same reason the disk rows
+                    // use theirs.
+                    auto const seriesForAdapter = history.networkBytesPerSecondByAdapter.find(iface.adapterName);
+                    if (seriesForAdapter != history.networkBytesPerSecondByAdapter.end())
+                    {
+                        ChartSeries series;
+                        series.values = seriesForAdapter->second;
+                        series.windowSamples = history.windowSamples;
+
+                        double peak = 0.0;
+                        for (double const value : series.values)
+                        {
+                            peak = (std::max)(peak, value);
+                        }
+                        m_rows[i].sparkline->SetSeries(series, peak > 0.0 ? peak : 1.0);
+                    }
+                    else
+                    {
+                        m_rows[i].sparkline->Clear();
+                    }
+                    break;
+                }
+
+                case SectionKind::Gpu:
+                {
+                    if (!system.gpu.available)
+                    {
+                        setSubtitle(i, std::string{UnavailableValue()} + " not collected yet");
+                        m_rows[i].sparkline->Clear();
+                        break;
+                    }
+
+                    subtitle = FormatPercent(system.gpu.utilizationPercent);
+                    if (system.gpu.dedicatedTotalBytes > 0)
+                    {
+                        subtitle += "  " + FormatBytes(system.gpu.dedicatedUsedBytes);
+                    }
+
+                    ChartSeries series;
+                    series.values = history.gpuUtilization;
+                    series.windowSamples = history.windowSamples;
+                    m_rows[i].sparkline->SetSeries(series, 100.0);
+                    break;
                 }
             }
-            setSubtitle(4, gpuText);
 
-            if (m_rows[4].sparkline != nullptr && !history.gpuUtilization.empty())
+            if (!subtitle.empty())
             {
-                ChartSeries series;
-                series.values = history.gpuUtilization;
-                series.windowSamples = history.windowSamples;
-                m_rows[4].sparkline->SetSeries(series, 100.0);
+                setSubtitle(i, subtitle);
             }
         }
     }
 
     void PerformanceView::Refresh()
     {
-        // Version first, for the same reason as the process list: the copies below are
-        // far more expensive than comparing a number, and the UI polls much more often
-        // than the sampler publishes.
+        // Version first, for the same reason as the process list: the copies below are far more
+        // expensive than comparing a number, and the UI polls much more often than the sampler
+        // publishes.
         uint64_t const version = m_coordinator.SystemVersion();
         if (version == m_renderedVersion && m_renderedVersion != 0)
         {
@@ -610,60 +614,53 @@ namespace tmpp::ui
         domain::HistoryView const history = m_coordinator.CurrentHistory();
         m_renderedVersion = system.version;
 
-        _updateSidebarValues(system, history);
-        _updateDetails(system, history);
-
-        if (m_cpuPage != nullptr && m_selected == Section::Cpu)
+        // The list follows the machine: an empty device list on the first frames becomes a row per
+        // disk once the counters are readable.
+        if (_rebuildSidebarIfNeeded(system))
         {
-            m_cpuPage->Refresh();
-        }
-        if (m_diskPage != nullptr && m_selected == Section::Disk)
-        {
-            m_diskPage->Refresh();
-        }
-
-        if (m_networkPage != nullptr && m_selected == Section::Network)
-        {
-            m_networkPage->Refresh();
-        }
-
-        if (m_gpuPage != nullptr && m_selected == Section::Gpu)
-        {
-            m_gpuPage->Refresh();
-        }
-
-        if (m_memoryPage != nullptr && m_selected == Section::Memory)
-        {
-            m_memoryPage->Refresh();
-        }
-    }
-
-    void PerformanceView::_updateDetails(domain::SystemView const& system, domain::HistoryView const& history)
-    {
-        (void)history;
-
-        if (m_detailValues.empty())
-        {
+            // A rebuilt list has fresh, empty charts, so the values are written before returning.
+            _updateSidebarValues(system, history);
             return;
         }
 
-        // Values are written into the rows created by _selectSection. Adding rows per
-        // refresh would append controls several times a second and grow without bound,
-        // which is the defect this pattern exists to avoid.
-        size_t index = 0;
-        auto assign = [this, &index](std::string const& text) {
-            if (index < m_detailValues.size())
-            {
-                m_detailValues[index++].Text(winrt::to_hstring(text));
-            }
-        };
+        _updateSidebarValues(system, history);
 
-        if (m_selected == Section::Memory)
+        switch (m_selectedKind)
         {
-            assign(FormatBytes(system.memoryUsedBytes));
-            assign(FormatBytes(system.memory.availablePhysical));
-            assign(FormatBytes(system.memory.totalPhysical));
-            assign(FormatBytes(system.memory.totalPageFile));
+            case SectionKind::Cpu:
+                if (m_cpuPage != nullptr)
+                {
+                    m_cpuPage->Refresh();
+                }
+                break;
+
+            case SectionKind::Memory:
+                if (m_memoryPage != nullptr)
+                {
+                    m_memoryPage->Refresh();
+                }
+                break;
+
+            case SectionKind::Disk:
+                if (m_selectedSubIndex < m_diskPages.size() && m_diskPages[m_selectedSubIndex] != nullptr)
+                {
+                    m_diskPages[m_selectedSubIndex]->Refresh();
+                }
+                break;
+
+            case SectionKind::Network:
+                if (m_networkPage != nullptr)
+                {
+                    m_networkPage->Refresh();
+                }
+                break;
+
+            case SectionKind::Gpu:
+                if (m_gpuPage != nullptr)
+                {
+                    m_gpuPage->Refresh();
+                }
+                break;
         }
     }
 }

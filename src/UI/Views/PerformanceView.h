@@ -64,35 +64,47 @@ namespace tmpp::ui
 
     private:
         /**
-         * @brief Sections the left-hand list offers.
+         * @brief Which kind of page a sidebar row opens.
          *
-         * Only the first two have probes today. The rest are listed because the
-         * structure is what the user expects, and each states plainly that its metrics
-         * are not collected yet rather than showing an empty chart, which would read as
-         * a measurement of zero.
+         * The row list is built from the machine rather than fixed, because a machine can have any
+         * number of disks: a fixed set showed one disk row and hid the rest, which reads as though
+         * the other devices did not exist.
          */
-        enum class Section
+        enum class SectionKind
         {
-            Cpu = 0,
+            Cpu,
             Memory,
             Disk,
             Network,
             Gpu,
-            Count,
         };
 
-        /// Description of one section, so the sidebar and the detail area agree.
+        /// Description of one sidebar row, so the list and the detail area agree.
         struct SectionSpec
         {
-            wchar_t const* title;
+            /// The title shown in the row and in the page heading. A string rather than a literal
+            /// because a disk's title is built from the volumes the device backs.
+            std::wstring title;
+
             wchar_t const* glyph; ///< Segoe Fluent Icons glyph.
+            SectionKind kind;
             bool hasData;
+
+            /// Which device or adapter this row reports, for the kinds that have more than one.
+            /// Unused by CPU, memory and GPU, and zero for those.
+            size_t subIndex{0};
         };
 
         /// One sidebar row: its parts are retained so values can be updated in place.
         struct SidebarRow
         {
             winrt::Microsoft::UI::Xaml::Controls::Button button{nullptr};
+
+            /// Which page this row opens, so a row's target survives the list being rebuilt.
+            SectionKind kind{SectionKind::Cpu};
+
+            /// Which device or adapter the row reports.
+            size_t subIndex{0};
             winrt::Microsoft::UI::Xaml::Controls::TextBlock title{nullptr};
             winrt::Microsoft::UI::Xaml::Controls::TextBlock subtitle{nullptr};
             std::unique_ptr<Sparkline> sparkline;
@@ -105,21 +117,28 @@ namespace tmpp::ui
         void _setSidebarWidth(double width);
 
         /// Rebuilds the detail area for a section.
-        void _selectSection(Section section);
+        /// Opens the page a row refers to.
+        void _selectRow(size_t rowIndex);
 
         /// Applies the selected/unselected styling to every sidebar row.
         void _updateSelectionVisuals();
 
-        /// The configured colour for a section, read from the settings rather than the spec table.
-        [[nodiscard]] winrt::Windows::UI::Color _sectionColor(size_t index) const;
+        /// The configured colour for a page, by the kind of metric it shows.
+        [[nodiscard]] winrt::Windows::UI::Color _sectionColor(SectionKind kind) const;
 
         /// Feeds the sidebar rows from the current sample.
         void _updateSidebarValues(domain::SystemView const& system, domain::HistoryView const& history);
 
-        /// Writes the current values into the existing detail rows.
-        void _updateDetails(domain::SystemView const& system, domain::HistoryView const& history);
-
-        [[nodiscard]] static std::vector<SectionSpec> const& _sections();
+        /**
+         * @brief Rebuilds the sidebar from the devices the machine actually has.
+         *
+         * The list is not fixed because a machine can have any number of disks. Rebuilding is driven
+         * by the sample that first reports them, and does nothing once the list matches, so a row's
+         * selection is not disturbed on every frame.
+         *
+         * @return True when the list changed.
+         */
+        bool _rebuildSidebarIfNeeded(domain::SystemView const& system);
 
         core::SamplingCoordinator& m_coordinator;
 
@@ -143,6 +162,9 @@ namespace tmpp::ui
 
         std::vector<SidebarRow> m_rows;
 
+        /// The rows as they currently stand, so a rebuild can be skipped when nothing changed.
+        std::vector<SectionSpec> m_sections;
+
         /// The CPU section's page. Retained across selections so switching away and back
         /// does not discard the per-core history it is displaying.
         std::unique_ptr<CpuPage> m_cpuPage;
@@ -150,8 +172,9 @@ namespace tmpp::ui
         /// The Memory section's page. Retained for the same reason.
         std::unique_ptr<MemoryPage> m_memoryPage;
 
-        /// The disk page. Created on first selection and reused, so its chart is not rebuilt.
-        std::unique_ptr<DiskPage> m_diskPage;
+        /// One page per disk, indexed by the device's position in the sample. A machine has any
+        /// number of disks and each gets its own page, so this is not a single member.
+        std::vector<std::unique_ptr<DiskPage>> m_diskPages;
 
         /// The network page. Created on first selection and reused.
         std::unique_ptr<NetworkPage> m_networkPage;
@@ -159,19 +182,19 @@ namespace tmpp::ui
         /// The GPU page. Created on first selection and reused.
         std::unique_ptr<GpuPage> m_gpuPage;
 
-        /// The label the disk page's heading uses, taken from the sidebar row.
-        std::wstring m_diskLabel;
+        /// Which row is open, as an index into m_rows. Reset when the list is rebuilt.
+        size_t m_selectedRow{0};
 
-        /// Which physical device the disk row and page report. The sidebar lists one row for the
-        /// first device; a machine with several would need a row each, which the section list does
-        /// not yet carry.
-        size_t m_diskRowIndex{0};
+        /// Which kind of metric is open, so the refresh path knows which page to drive.
+        SectionKind m_selectedKind{SectionKind::Cpu};
+
+        /// Which device or adapter is open, for the kinds that have more than one.
+        size_t m_selectedSubIndex{0};
 
         /// Detail card for sections that have data but no dedicated page yet.
         winrt::Microsoft::UI::Xaml::Controls::Border m_detailsCard{nullptr};
         std::vector<winrt::Microsoft::UI::Xaml::Controls::TextBlock> m_detailValues;
 
-        Section m_selected{Section::Cpu};
         uint64_t m_renderedVersion{0};
     };
 }

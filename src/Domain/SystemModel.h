@@ -161,6 +161,16 @@ namespace tmpp::domain
         std::vector<double> networkReceiveBytesPerSecond;
         std::vector<double> networkSendBytesPerSecond;
 
+        /// Per-device disk throughput, in bytes per second, keyed by the device's instance name.
+        ///
+        /// One aggregate series is not enough for the sidebar: every disk has its own row, and a row
+        /// showing the machine's total rather than its own device would be the same trend repeated
+        /// once per disk.
+        std::map<std::string, std::vector<double>> diskBytesPerSecondByDevice;
+
+        /// Per-adapter network throughput, in bytes per second, keyed by the adapter's name.
+        std::map<std::string, std::vector<double>> networkBytesPerSecondByAdapter;
+
         /// GPU utilisation, as a percentage.
         std::vector<double> gpuUtilization;
 
@@ -295,6 +305,14 @@ namespace tmpp::domain
 
         RingBuffer<double> m_diskReadHistory;
         RingBuffer<double> m_diskWriteHistory;
+
+        /// One ring per disk, keyed by instance name. Keyed rather than indexed because the device
+        /// enumeration order is not guaranteed between samples, and a series attached to the wrong
+        /// device would be worse than no series.
+        std::map<std::string, RingBuffer<double>> m_diskHistoryByDevice;
+
+        /// One ring per network adapter, keyed by name for the same reason.
+        std::map<std::string, RingBuffer<double>> m_networkHistoryByAdapter;
         RingBuffer<double> m_networkReceiveHistory;
         RingBuffer<double> m_networkSendHistory;
         RingBuffer<double> m_gpuHistory;

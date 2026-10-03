@@ -323,6 +323,60 @@ namespace tmpp::domain
         m_networkReceiveHistory.Push(canDerive ? totalReceiveBps : 0.0);
         m_networkSendHistory.Push(canDerive ? totalSendBps : 0.0);
 
+        // Per-device rings, so each sidebar row shows its own trend rather than the machine's total.
+        //
+        // The buffer is found or emplace-constructed rather than reached through operator[]:
+        // RingBuffer has no default constructor, because a buffer without a capacity would have
+        // nowhere to store anything, and a map of them cannot be built empty.
+        for (DiskActivity const& activity : diskActivities)
+        {
+            auto const found = m_diskHistoryByDevice.find(activity.instanceName);
+            auto& ring = (found != m_diskHistoryByDevice.end())
+                             ? found->second
+                             : m_diskHistoryByDevice
+                                   .emplace(activity.instanceName, RingBuffer<double>(m_historyCapacity))
+                                   .first->second;
+            ring.Push(activity.readBytesPerSecond + activity.writeBytesPerSecond);
+        }
+
+        // Every device's ring advances on every sample, including the ones absent from this sample, so
+        // the per-device series stay the same length as the aggregate and share its axis. A ring that
+        // missed a push would be plotted against a different window.
+        for (auto& entry : m_diskHistoryByDevice)
+        {
+            bool const present = std::any_of(diskActivities.begin(), diskActivities.end(),
+                                             [&entry](DiskActivity const& activity) {
+                                                 return activity.instanceName == entry.first;
+                                             });
+            if (!present)
+            {
+                entry.second.Push(0.0);
+            }
+        }
+
+        for (NetworkActivity const& activity : networkActivities)
+        {
+            auto const found = m_networkHistoryByAdapter.find(activity.adapterName);
+            auto& ring = (found != m_networkHistoryByAdapter.end())
+                             ? found->second
+                             : m_networkHistoryByAdapter
+                                   .emplace(activity.adapterName, RingBuffer<double>(m_historyCapacity))
+                                   .first->second;
+            ring.Push(activity.receivedBytesPerSecond + activity.sentBytesPerSecond);
+        }
+
+        for (auto& entry : m_networkHistoryByAdapter)
+        {
+            bool const present = std::any_of(networkActivities.begin(), networkActivities.end(),
+                                             [&entry](NetworkActivity const& activity) {
+                                                 return activity.adapterName == entry.first;
+                                             });
+            if (!present)
+            {
+                entry.second.Push(0.0);
+            }
+        }
+
         // The GPU counters are already rates, so nothing is differenced. A reading that could not be
         // taken pushes a zero for the same reason the others do: the axis has to stay consistent.
         m_gpuHistory.Push(gpu.available ? gpu.utilizationPercent : 0.0);
@@ -343,6 +397,16 @@ namespace tmpp::domain
         HistoryView view;
         view.cpuTotal = m_cpuHistory.ToVector();
         view.memoryUsed = m_memoryHistory.ToVector();
+
+        for (auto const& entry : m_diskHistoryByDevice)
+        {
+            view.diskBytesPerSecondByDevice[entry.first] = entry.second.ToVector();
+        }
+
+        for (auto const& entry : m_networkHistoryByAdapter)
+        {
+            view.networkBytesPerSecondByAdapter[entry.first] = entry.second.ToVector();
+        }
 
         view.diskReadBytesPerSecond = m_diskReadHistory.ToVector();
         view.diskWriteBytesPerSecond = m_diskWriteHistory.ToVector();
