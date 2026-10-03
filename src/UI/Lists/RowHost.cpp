@@ -1,6 +1,6 @@
-#include "UI/RowHost.h"
+#include "UI/Lists/RowHost.h"
 
-#include "UI/Theme.h"
+#include "UI/Theming/Theme.h"
 
 #include <algorithm>
 #include <cmath>

@@ -71,6 +71,72 @@ namespace tmpp::platform
         uint32_t logicalProcessorCount{0};
         uint32_t physicalCoreCount{0};
         std::string architecture; ///< e.g. "x64", "ARM64".
+
+        /// Marketing name, e.g. "Intel(R) Core(TM) i7-14700KF". Empty when the
+        /// registry value is absent or unreadable.
+        std::string modelName;
+
+        /// Nominal (rated) clock in MHz, from the registry. Zero when unknown.
+        uint32_t baseClockMhz{0};
+
+        /// Maximum clock in MHz as reported by the firmware, zero when unknown.
+        uint32_t maxClockMhz{0};
+
+        /// Number of physical processor packages (sockets).
+        uint32_t socketCount{0};
+
+        /// Last-level cache size in bytes; zero when the topology query failed.
+        uint64_t l3CacheBytes{0};
+
+        uint32_t l2CacheBytes{0};
+        uint32_t l1CacheBytes{0};
+
+        /// True when a hypervisor is present, whether or not this process can see
+        /// through it. "Enabled" in Task Manager means firmware virtualisation
+        /// extensions are on, which is a separate question and is reported
+        /// separately below.
+        bool hypervisorPresent{false};
+
+        /// Whether the firmware reports virtualisation extensions as enabled.
+        bool virtualizationFirmwareEnabled{false};
+
+        /// Whether second-level address translation is available.
+        bool secondLevelAddressTranslation{false};
+
+        /// Whether DEP is available.
+        bool depAvailable{false};
+    };
+
+    /**
+     * @brief Live clock speed of the processor.
+     *
+     * Separate from SystemProcessorInfo because it changes every sample while the
+     * topology does not, and because its source (a performance counter) can be
+     * unavailable where the registry values are not.
+     */
+    struct SystemProcessorSpeed
+    {
+        /// Current effective clock in MHz, zero when it could not be read.
+        uint32_t currentMhz{0};
+
+        /// True when currentMhz came from a counter rather than being derived.
+        bool available{false};
+    };
+
+    /**
+     * @brief Rolling system-wide totals that are not per-process.
+     *
+     * The counts are read from the same bulk process snapshot the process list
+     * uses, so they cost nothing extra; the uptime comes from the tick count.
+     */
+    struct SystemTotals
+    {
+        uint32_t processCount{0};
+        uint32_t threadCount{0};
+        uint32_t handleCount{0};
+
+        /// Seconds since the system started.
+        uint64_t uptimeSeconds{0};
     };
 
     /**
@@ -82,5 +148,9 @@ namespace tmpp::platform
         bool hasPerProcessorCpuTimes{false};
         bool hasMemoryInfo{false};
         bool hasProcessorTopology{false};
+
+        /// True when a processor performance counter is queryable, which is what
+        /// makes the live clock speed available.
+        bool hasProcessorPerformance{false};
     };
 }

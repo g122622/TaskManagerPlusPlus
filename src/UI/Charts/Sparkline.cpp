@@ -1,8 +1,8 @@
 #include "UI/WinRTUI.h"
 
-#include "UI/Sparkline.h"
+#include "UI/Charts/Sparkline.h"
 
-#include "UI/Theme.h"
+#include "UI/Theming/Theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -56,9 +56,10 @@ namespace tmpp::ui
         m_root.Children().Append(m_canvas);
     }
 
-    void Sparkline::SetSeries(std::vector<double> const& values, double maximum)
+    void Sparkline::SetSeries(ChartSeries const& series, double maximum)
     {
-        m_values = values;
+        m_values = series.values;
+        m_timeSpan = series.windowSamples;
         m_maximum = (maximum > 0.0) ? maximum : 1.0;
         _redraw();
     }
@@ -91,7 +92,16 @@ namespace tmpp::ui
             return;
         }
 
-        double const step = m_width / static_cast<double>(m_values.size() - 1);
+        // Right-anchored, like the full charts: the newest sample sits at the right edge and
+        // older samples extend leftwards, so a partly filled window occupies only its
+        // right-hand part. A sparkline with no window fits its data to the width, which is
+        // what a sidebar thumbnail wants.
+        size_t const span = (m_timeSpan > 1) ? m_timeSpan : m_values.size();
+        double const step = (span > 1) ? (m_width / static_cast<double>(span - 1)) : m_width;
+
+        size_t const samplesHeld = m_values.size();
+        double const leadingGap = (span > samplesHeld) ? (m_width - (static_cast<double>(samplesHeld - 1) * step))
+                                                       : 0.0;
 
         winrt::Windows::Foundation::Collections::IVector<winrt::Windows::Foundation::Point> linePoints =
             m_line.Points();
@@ -104,15 +114,18 @@ namespace tmpp::ui
             double const ratio = clamped / m_maximum;
 
             // Y grows downward in a canvas, so the ratio is inverted.
-            auto const x = static_cast<float>(static_cast<double>(i) * step);
+            auto const x = static_cast<float>(leadingGap + (static_cast<double>(i) * step));
             auto const y = static_cast<float>(m_height * (1.0 - ratio));
 
             linePoints.Append(winrt::Windows::Foundation::Point{x, y});
             fillPoints.Append(winrt::Windows::Foundation::Point{x, y});
         }
 
-        // Close the shape along the baseline to make it an area chart.
-        fillPoints.Append(winrt::Windows::Foundation::Point{static_cast<float>(m_width), static_cast<float>(m_height)});
-        fillPoints.Append(winrt::Windows::Foundation::Point{0.0f, static_cast<float>(m_height)});
+        // Close the shape along the baseline, spanning only the samples that exist so the
+        // empty part of the window is not shaded as though it held readings.
+        auto const firstX = static_cast<float>(leadingGap);
+        auto const lastX = static_cast<float>(leadingGap + (static_cast<double>(samplesHeld - 1) * step));
+        fillPoints.Append(winrt::Windows::Foundation::Point{lastX, static_cast<float>(m_height)});
+        fillPoints.Append(winrt::Windows::Foundation::Point{firstX, static_cast<float>(m_height)});
     }
 }

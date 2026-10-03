@@ -1,9 +1,10 @@
 #include "UI/WinRTUI.h"
 
-#include "UI/HistoryChart.h"
+#include "UI/Charts/HistoryChart.h"
 
-#include "UI/Controls.h"
-#include "UI/Theme.h"
+#include "UI/Theming/Controls.h"
+#include "UI/Diagnostics.h"
+#include "UI/Theming/Theme.h"
 
 #include <algorithm>
 
@@ -33,6 +34,9 @@ namespace tmpp::ui
         /// empty rather than drawing a squashed line.
         constexpr double MIN_PLOT_HEIGHT = 24.0;
 
+        /// How many times a failing redraw reports itself before going quiet.
+        constexpr uint32_t MAX_REPORTS = 6;
+
         [[nodiscard]] winrt::Windows::UI::Color _withAlpha(winrt::Windows::UI::Color color, double alpha)
         {
             color.A = static_cast<uint8_t>(std::clamp(alpha, 0.0, 1.0) * 255.0);
@@ -45,18 +49,20 @@ namespace tmpp::ui
     {
         m_root = Grid();
 
-        // Row 0 is the header, sized to its content. Row 1 is the plot and takes all
-        // remaining space, which is what makes the chart fill its cell instead of
-        // being a fixed-height band inside it.
-        m_root.RowDefinitions().Append(RowDefinition{});
-        RowDefinition plotRow;
-        plotRow.Height(GridLengthHelper::FromValueAndType(1.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star));
-        m_root.RowDefinitions().Append(plotRow);
+        // MakeAutoRow, not a default-constructed RowDefinition: GridLength defaults to
+        // 1* (Star), so a default row takes an equal share of the height regardless of
+        // what its content measures. Two defaults here split the cell in half and left the
+        // plot canvas 16 pixels of its cell's 33 -- below the minimum needed to draw, so
+        // every core chart silently rendered blank.
+        m_root.RowDefinitions().Append(controls::MakeAutoRow());
+        m_root.RowDefinitions().Append(controls::MakeStarRow());
 
         // Header: title on the left, current value on the right.
         m_header = Grid();
-        m_header.ColumnDefinitions().Append(ColumnDefinition{});
-        m_header.ColumnDefinitions().Append(ColumnDefinition{});
+        // The title takes what it needs; the readout takes the rest, so a long value is
+        // never clipped by a fixed column.
+        m_header.ColumnDefinitions().Append(controls::MakeAutoColumn());
+        m_header.ColumnDefinitions().Append(controls::MakeStarColumn());
         m_header.Margin(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 6.0));
 
         m_title = controls::MakeText(title, 13.0, true);
@@ -104,9 +110,10 @@ namespace tmpp::ui
                                     winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const&) { _redraw(); });
     }
 
-    void HistoryChart::SetSeries(std::vector<double> const& values)
+    void HistoryChart::SetSeries(ChartSeries const& series)
     {
-        m_values = values;
+        m_values = series.values;
+        m_timeSpan = series.windowSamples;
         _redraw();
     }
 
@@ -138,7 +145,9 @@ namespace tmpp::ui
 
         // A single point cannot describe a line. Leaving the plot empty is honest;
         // drawing a flat line would claim a reading that does not exist.
-        if (m_values.size() < 2 || width <= 1.0 || height < MIN_PLOT_HEIGHT)
+        bool const canDraw = (m_values.size() >= 2) && width > 1.0 && height >= MIN_PLOT_HEIGHT;
+
+        if (!canDraw)
         {
             return;
         }
@@ -149,9 +158,25 @@ namespace tmpp::ui
             return;
         }
 
-        // Points span the full width regardless of the sample count, so the time axis
-        // always covers the whole history window.
-        double const step = width / static_cast<double>(m_values.size() - 1);
+        // The x axis is a fixed time window, right-anchored: the newest sample sits at the right
+        // edge and older samples extend leftwards. A chart holding three of sixty samples
+        // therefore draws a short line against the right edge with the rest of the window
+        // empty, and the line grows leftwards as history accumulates until the window is full
+        // and it scrolls.
+        //
+        // This is how the original behaves, and both alternatives are wrong. Fitting the
+        // samples to the width drew three points across the whole chart, which reads as a
+        // settled history that does not exist yet. Left-anchoring, which this did first, put
+        // the newest sample at the left edge, so the chart appeared to be losing data as the
+        // empty space moved rightwards.
+        size_t const span = (m_timeSpan > 1) ? m_timeSpan : m_values.size();
+        double const step = (span > 1) ? (width / static_cast<double>(span - 1)) : width;
+
+        // The oldest sample's x offset: the line occupies the rightmost part of the window
+        // when the data is shorter than the window, and the whole of it once full.
+        size_t const samplesHeld = m_values.size();
+        double const leadingGap = (span > samplesHeld) ? (width - (static_cast<double>(samplesHeld - 1) * step))
+                                                       : 0.0;
 
         winrt::Windows::Foundation::Collections::IVector<winrt::Windows::Foundation::Point> linePoints =
             m_line.Points();
@@ -164,16 +189,19 @@ namespace tmpp::ui
             double const ratio = clamped / m_maximum;
 
             // Y grows downward in a canvas, so the ratio is inverted.
-            auto const x = static_cast<float>(static_cast<double>(i) * step);
+            auto const x = static_cast<float>(leadingGap + (static_cast<double>(i) * step));
             auto const y = static_cast<float>(PLOT_PADDING + (drawableHeight * (1.0 - ratio)));
 
             linePoints.Append(winrt::Windows::Foundation::Point{x, y});
             fillPoints.Append(winrt::Windows::Foundation::Point{x, y});
         }
 
-        // Close the shape along the baseline, turning the line into an area chart the
-        // way Task Manager draws it.
-        fillPoints.Append(winrt::Windows::Foundation::Point{static_cast<float>(width), static_cast<float>(height)});
-        fillPoints.Append(winrt::Windows::Foundation::Point{0.0f, static_cast<float>(height)});
+        // Close the shape along the baseline. The fill spans only from the oldest sample to
+        // the newest, so the part of the window that holds no readings yet stays visibly
+        // empty rather than being shaded as though it held data.
+        auto const firstX = static_cast<float>(leadingGap);
+        auto const lastX = static_cast<float>(leadingGap + (static_cast<double>(samplesHeld - 1) * step));
+        fillPoints.Append(winrt::Windows::Foundation::Point{lastX, static_cast<float>(height)});
+        fillPoints.Append(winrt::Windows::Foundation::Point{firstX, static_cast<float>(height)});
     }
 }

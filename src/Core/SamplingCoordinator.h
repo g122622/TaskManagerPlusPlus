@@ -15,6 +15,7 @@
 #include "Core/Settings.h"
 #include "Domain/ProcessModel.h"
 #include "Domain/SystemModel.h"
+#include "Platform/Windows/ProcessorSpeedProbe.h"
 #include "Platform/Windows/WindowsProcessProbe.h"
 #include "Platform/Windows/WindowsSystemProbe.h"
 
@@ -32,6 +33,10 @@ namespace tmpp::core
         bool cpuReadSucceeded{false};
         bool memoryReadSucceeded{false};
         bool perProcessorReadSucceeded{false};
+
+        /// False when the speed counter is missing, which is normal on some systems
+        /// and is not counted towards the failure streak.
+        bool processorSpeedReadSucceeded{false};
 
         /// Consecutive failures, used to throttle logging in the caller.
         uint32_t consecutiveFailures{0};
@@ -136,6 +141,10 @@ namespace tmpp::core
 
         [[nodiscard]] uint32_t IntervalMs() const noexcept { return m_sampler.IntervalMs(); }
 
+        /// Seconds of history retained, so a chart caption can describe its own window
+        /// instead of hard-coding the default.
+        [[nodiscard]] uint32_t HistorySeconds() const noexcept { return m_settings.HistorySeconds(); }
+
         /// Samples taken since construction, for the status bar.
         [[nodiscard]] uint64_t SampleCount() const noexcept { return m_sampler.SampleCount(); }
 
@@ -150,6 +159,10 @@ namespace tmpp::core
 
         platform::WindowsProcessProbe m_processProbe;
         platform::WindowsSystemProbe m_systemProbe;
+
+        /// Live clock speed. Declared after the system probe because it is
+        /// constructed with the rated clock that probe reads.
+        std::unique_ptr<platform::ProcessorSpeedProbe> m_speedProbe;
 
         domain::ProcessModel m_processModel;
         domain::SystemModel m_systemModel;

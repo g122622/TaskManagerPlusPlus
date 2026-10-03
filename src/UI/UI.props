@@ -2,16 +2,46 @@
 <!--
   The UI layer is compiled into the application project rather than its own
   static library, because it is the only consumer and splitting it would add a
-  project without adding a boundary. This file exists so the layer's sources are
-  listed in one place and can be shared with the test project.
+  project without adding a boundary. This file is kept as a map of the layer's
+  structure: the sources are listed in the application project itself.
+
+  Layout:
+    Charts/   everything that draws a series
+    Lists/    list presentation logic, including row virtualisation
+    Theming/  appearance constants, control construction, value formatting
+    Views/    the pages
+    *.h       shared infrastructure (WinRT projections, diagnostics)
 -->
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClInclude Include="Formatting.h" />
-    <ClInclude Include="ProcessListModel.h" />
+    <ClInclude Include="WinRTUI.h" />
+    <ClInclude Include="Diagnostics.h" />
+    <ClInclude Include="Charts\ChartSeries.h" />
+    <ClInclude Include="Charts\CoreGrid.h" />
+    <ClInclude Include="Charts\HistoryChart.h" />
+    <ClInclude Include="Charts\Sparkline.h" />
+    <ClInclude Include="Lists\ProcessListModel.h" />
+    <ClInclude Include="Lists\RowHost.h" />
+    <ClInclude Include="Theming\Controls.h" />
+    <ClInclude Include="Theming\Formatting.h" />
+    <ClInclude Include="Theming\Theme.h" />
+    <ClInclude Include="Views\CpuPage.h" />
+    <ClInclude Include="Views\MemoryPage.h" />
+    <ClInclude Include="Views\PerformanceView.h" />
+    <ClInclude Include="Views\ProcessesView.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Formatting.cpp" />
-    <ClCompile Include="ProcessListModel.cpp" />
+    <ClCompile Include="Diagnostics.cpp" />
+    <ClCompile Include="Charts\CoreGrid.cpp" />
+    <ClCompile Include="Charts\HistoryChart.cpp" />
+    <ClCompile Include="Charts\Sparkline.cpp" />
+    <ClCompile Include="Lists\ProcessListModel.cpp" />
+    <ClCompile Include="Lists\RowHost.cpp" />
+    <ClCompile Include="Theming\Controls.cpp" />
+    <ClCompile Include="Theming\Formatting.cpp" />
+    <ClCompile Include="Views\CpuPage.cpp" />
+    <ClCompile Include="Views\MemoryPage.cpp" />
+    <ClCompile Include="Views\PerformanceView.cpp" />
+    <ClCompile Include="Views\ProcessesView.cpp" />
   </ItemGroup>
 </Project>

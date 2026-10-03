@@ -44,6 +44,21 @@ namespace tmpp::platform
          */
         [[nodiscard]] Result<SystemProcessorInfo> ReadProcessorInfo() const;
 
+        /**
+         * @brief Reads rolling system-wide totals.
+         *
+         * @param processCount Processes in the latest snapshot.
+         * @param threadCount Threads across those processes.
+         * @param handleCount Handles across those processes.
+         *
+         * The counts are passed in rather than enumerated again: they are already
+         * known from the bulk process snapshot, and re-walking the process list here
+         * would double the cost of every sample.
+         */
+        [[nodiscard]] Result<SystemTotals> ReadTotals(uint32_t processCount,
+                                                      uint32_t threadCount,
+                                                      uint32_t handleCount) const;
+
         [[nodiscard]] SystemCapabilities Capabilities() const noexcept { return m_capabilities; }
 
     private:

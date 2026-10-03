@@ -55,7 +55,10 @@
       <WarningLevel>Level4</WarningLevel>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500 /FS</AdditionalOptions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <MinimalRebuild>false</MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <!-- Headers are included as "Platform/...", so src\ is the include root. -->
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -88,6 +91,7 @@
 
   <ItemGroup>
     <ClCompile Include="Windows\NtdllApi.cpp" />
+    <ClCompile Include="Windows\ProcessorSpeedProbe.cpp" />
     <ClCompile Include="Windows\WindowsClock.cpp" />
     <ClCompile Include="Windows\WindowsFileSystem.cpp" />
     <ClCompile Include="Windows\WindowsProcessProbe.cpp" />
@@ -101,10 +105,10 @@
        application find %LOCALAPPDATA%. -->
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalDependencies>ole32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ole32.lib;shell32.lib;pdh.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Lib>
-      <AdditionalDependencies>ole32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ole32.lib;shell32.lib;pdh.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
 

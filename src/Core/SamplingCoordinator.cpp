@@ -64,6 +64,14 @@ namespace tmpp::core
     {
         m_logicalProcessorCount = _processorInfo().logicalProcessorCount;
         m_systemModel.SetProcessorInfo(_processorInfo().info);
+
+        // The live speed counter is a percentage of the rated clock, so the probe
+        // cannot be built before the topology has been read.
+        m_speedProbe = std::make_unique<platform::ProcessorSpeedProbe>(_processorInfo().info.baseClockMhz);
+        if (!m_speedProbe->Available())
+        {
+            spdlog::info("Processor speed counter unavailable; the speed readout will be blank");
+        }
     }
 
     SamplingCoordinator::~SamplingCoordinator()
@@ -168,7 +176,15 @@ namespace tmpp::core
             m_hasCpuBaseline = true;
         }
 
-        // --- Publish memory and CPU together so the charts stay in step.
+        // --- Per-processor CPU is optional; its absence must not affect the totals.
+        //
+        // Read before the publish below so the whole sample -- aggregate and per-core --
+        // is recorded by one Update call. When these were separate calls a failed probe
+        // skipped its push and left the per-core series longer than the aggregate.
+        auto const perProcessor = m_systemProbe.ReadPerProcessorCpuTimes();
+        status.perProcessorReadSucceeded = perProcessor.Success();
+
+        // --- Publish memory, CPU and per-processor together so every series advances once.
         {
             std::lock_guard const lock(m_mutex);
 
@@ -178,28 +194,60 @@ namespace tmpp::core
                 memoryInfo = memory.Value();
             }
 
-            // On a CPU read failure the previous reading is re-published rather than
-            // a zeroed one, so the model records no elapsed progress instead of a
-            // fabricated idle period.
-            m_systemModel.Update(cpu.Success() ? cpu.Value() : m_previousCpu, memoryInfo, now);
-        }
+            static std::vector<platform::ProcessorCpuTimes> const noPerProcessor;
 
-        // --- Per-processor CPU is optional; its absence must not affect the totals.
-        auto const perProcessor = m_systemProbe.ReadPerProcessorCpuTimes();
-        status.perProcessorReadSucceeded = perProcessor.Success();
-        if (perProcessor.Success())
-        {
-            std::lock_guard const lock(m_mutex);
-            m_systemModel.UpdatePerProcessor(perProcessor.Value());
+            // On a CPU read failure the previous reading is re-published rather than a
+            // zeroed one, so the model records no elapsed progress instead of a fabricated
+            // idle period.
+            m_systemModel.Update(cpu.Success() ? cpu.Value() : m_previousCpu,
+                                 memoryInfo,
+                                 now,
+                                 perProcessor.Success() ? perProcessor.Value() : noPerProcessor);
         }
 
         // --- Processes: one bulk snapshot for the whole system.
         auto const processes = m_processProbe.Enumerate();
         status.processEnumerationSucceeded = processes.Success();
+
+        uint32_t threadTotal = 0;
+        uint32_t handleTotal = 0;
+        uint32_t processTotal = 0;
+
         if (processes.Success())
         {
+            // The thread and handle counts come from the snapshot already in hand, so
+            // the totals cost nothing beyond this summation. Re-walking the process
+            // list for them would double the cost of every sample.
+            for (auto const& process : processes.Value().processes)
+            {
+                threadTotal += process.threadCount;
+                handleTotal += process.handleCount;
+            }
+            processTotal = static_cast<uint32_t>(processes.Value().processes.size());
+
             std::lock_guard const lock(m_mutex);
             m_processModel.Update(processes.Value(), haveCpuDelta ? processCpuDelta : domain::SystemCpuDelta{});
+        }
+
+        // --- Live clock speed. Independent of everything above: a missing counter must
+        // not disturb the other readings.
+        if (m_speedProbe != nullptr)
+        {
+            auto const speed = m_speedProbe->Read();
+            status.processorSpeedReadSucceeded = speed.Success();
+
+            if (speed.Success())
+            {
+                std::lock_guard const lock(m_mutex);
+                m_systemModel.SetProcessorSpeed(speed.Value());
+            }
+        }
+
+        // --- Rolling totals.
+        if (auto const totals = m_systemProbe.ReadTotals(processTotal, threadTotal, handleTotal); totals.Success())
+        {
+            std::lock_guard const lock(m_mutex);
+            m_systemModel.SetTotals(totals.Value());
         }
 
         // --- Failure accounting. Only failures are counted; a fully successful round

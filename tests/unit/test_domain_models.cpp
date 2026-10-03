@@ -424,17 +424,18 @@ namespace tmpp::domain
     {
         SystemModel model(2, 1000, 60);
 
-        // Establish a baseline for two processors.
+        // Establish a baseline for two processors. Both go through Update, so the
+        // aggregate advances alongside the per-core series.
         std::vector<platform::ProcessorCpuTimes> baseline(2);
         baseline[0] = platform::ProcessorCpuTimes{0, 1000000, 0, 0, 0};
         baseline[1] = platform::ProcessorCpuTimes{0, 1000000, 0, 0, 0};
-        model.UpdatePerProcessor(baseline);
+        model.Update(_makeCpuTimes(0, 1000000, 0), _makeMemory(100, 50), T0, baseline);
 
         // Processor 0 fully busy, processor 1 fully idle.
         std::vector<platform::ProcessorCpuTimes> next(2);
         next[0] = platform::ProcessorCpuTimes{0, 2000000, 1000000, 0, 0};
         next[1] = platform::ProcessorCpuTimes{1000000, 2000000, 0, 0, 0};
-        model.UpdatePerProcessor(next);
+        model.Update(_makeCpuTimes(0, 2000000, 0), _makeMemory(100, 50), T1, next);
 
         auto const& percentages = model.Latest().perProcessorCpuPercent;
         ASSERT_EQ(percentages.size(), 2u);
@@ -446,20 +447,130 @@ namespace tmpp::domain
     {
         // Processor count is fixed on real hardware, but a stale vector must not be
         // differenced against a differently sized one.
+        //
+        // The published vector is sized to the model's own ring count rather than to
+        // whatever the probe reported: the rings come from the topology and never change,
+        // so a probe that disagrees with it cannot make the series ragged.
         SystemModel model(2, 1000, 60);
 
         std::vector<platform::ProcessorCpuTimes> two(2);
-        model.UpdatePerProcessor(two);
+        model.Update(_makeCpuTimes(0, 1000000, 0), _makeMemory(100, 50), T0, two);
 
+        // A probe reporting four processors against a two-processor model.
         std::vector<platform::ProcessorCpuTimes> four(4);
         four[0].kernelTime = 5000000;
-        model.UpdatePerProcessor(four);
+        model.Update(_makeCpuTimes(0, 2000000, 0), _makeMemory(100, 50), T1, four);
 
         auto const& percentages = model.Latest().perProcessorCpuPercent;
-        EXPECT_EQ(percentages.size(), 4u);
+        EXPECT_EQ(percentages.size(), 2u) << "the published count follows the topology, not the probe";
         for (double value : percentages)
         {
             EXPECT_DOUBLE_EQ(value, 0.0) << "no baseline exists for the new processor set";
+        }
+    }
+
+    TEST(SystemModelTest, PerProcessorHistoryIsPopulatedPerCore)
+    {
+        // The per-core chart grid needs a history series per logical processor, not just
+        // current values. This pins that History() carries them, because an empty series
+        // renders as a blank chart -- which looks identical to a chart that has data but
+        // no size, so the two must be told apart here rather than on screen.
+        constexpr uint32_t CORES = 4;
+        SystemModel model(CORES, 1000, 60);
+
+        // Four samples, each through the single Update entry point so the aggregate and
+        // the per-core series advance together.
+        for (uint32_t sample = 0; sample < 4; ++sample)
+        {
+            std::vector<platform::ProcessorCpuTimes> times(CORES);
+            for (uint32_t core = 0; core < CORES; ++core)
+            {
+                uint64_t const busy = static_cast<uint64_t>(sample) * 1000000 * (core + 1);
+                uint64_t const idle = static_cast<uint64_t>(sample) * 1000000 * (CORES - core);
+                times[core].kernelTime = 1000000 + busy;
+                times[core].userTime = busy;
+                times[core].idleTime = idle;
+            }
+
+            model.Update(_makeCpuTimes(sample * 1000000, (sample + 1) * 1000000, 0),
+                         _makeMemory(100, 50),
+                         T0 + (sample * 1000000),
+                         times);
+        }
+
+        HistoryView const history = model.History();
+
+        // One series per logical processor, which is what the grid indexes.
+        ASSERT_EQ(history.perProcessorCpu.size(), CORES)
+            << "History() must carry one series per logical processor";
+
+        // Every series must be the same length as the aggregate, so the grid can index
+        // them in step and the time axes line up.
+        for (size_t core = 0; core < history.perProcessorCpu.size(); ++core)
+        {
+            EXPECT_EQ(history.perProcessorCpu[core].size(), history.cpuTotal.size())
+                << "core " << core << " series length differs from the aggregate";
+            EXPECT_GE(history.perProcessorCpu[core].size(), 2u)
+                << "core " << core << " has too few points for a chart to draw a line";
+        }
+    }
+
+    TEST(SystemModelTest, PerProcessorHistoryKeepsLengthWhenTheProbeFails)
+    {
+        // If a probe failure skipped pushing to the per-core rings, their series would
+        // fall behind the aggregate and the grid would plot the wrong samples against the
+        // axis. The invariant is that every series stays the same length.
+        //
+        // This is the defect that made every core chart blank: the per-core series held
+        // four points while the aggregate held none, because the two were advanced by
+        // separate calls and the per-core one was skipped when its probe failed.
+        constexpr uint32_t CORES = 2;
+        SystemModel model(CORES, 1000, 60);
+
+        std::vector<platform::ProcessorCpuTimes> times(CORES);
+        times[0].kernelTime = 1000000;
+        times[1].kernelTime = 1000000;
+        model.Update(_makeCpuTimes(0, 1000000, 0), _makeMemory(100, 50), T0, times);
+
+        // A failed per-processor read arrives as an empty vector.
+        model.Update(_makeCpuTimes(0, 2000000, 0), _makeMemory(100, 50), T1, {});
+
+        // And one more healthy sample.
+        times[0].kernelTime = 3000000;
+        times[1].kernelTime = 3000000;
+        model.Update(_makeCpuTimes(0, 3000000, 0), _makeMemory(100, 50), T1 + 1000000, times);
+
+        HistoryView const history = model.History();
+
+        ASSERT_EQ(history.perProcessorCpu.size(), CORES);
+        ASSERT_GE(history.cpuTotal.size(), 3u) << "three samples were taken";
+        for (size_t core = 0; core < history.perProcessorCpu.size(); ++core)
+        {
+            EXPECT_EQ(history.perProcessorCpu[core].size(), history.cpuTotal.size())
+                << "a failed per-processor read must not desynchronise core " << core;
+        }
+    }
+    TEST(SystemModelTest, PerProcessorHistoryIsBounded)
+    {
+        // A resident monitor must not accumulate history without bound; the per-core
+        // rings are subject to the same capacity as the aggregate.
+        SystemModel model(2, 1000, 60);
+        size_t const capacity = model.HistoryCapacity();
+        ASSERT_GT(capacity, 2u);
+
+        for (size_t i = 0; i < capacity * 3; ++i)
+        {
+            std::vector<platform::ProcessorCpuTimes> times(2);
+            times[0].kernelTime = 1000000 + (i * 1000);
+            times[1].kernelTime = 1000000 + (i * 500);
+            model.UpdatePerProcessor(times);
+        }
+
+        HistoryView const history = model.History();
+        ASSERT_EQ(history.perProcessorCpu.size(), 2u);
+        for (auto const& series : history.perProcessorCpu)
+        {
+            EXPECT_EQ(series.size(), capacity);
         }
     }
 

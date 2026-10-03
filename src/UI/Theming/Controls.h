@@ -12,7 +12,7 @@
 
 #include <string_view>
 
-#include "UI/Theme.h"
+#include "UI/Theming/Theme.h"
 
 namespace tmpp::ui
 {
@@ -92,5 +92,34 @@ namespace tmpp::ui
          * @brief Applies the standard page padding to a panel.
          */
         void ApplyPageMargin(FrameworkElement const& element);
+
+        // --- Grid sizing helpers ------------------------------------------------
+        //
+        // These exist because the default is a trap: GridLength defaults to 1* (Star),
+        // not Auto, so a default-constructed RowDefinition silently takes an equal share
+        // of the available height. Appending two defaults where one was meant to be
+        // content-sized splits the space in half regardless of what the content measures,
+        // which is what left a chart canvas with 16 of its cell's 33 pixels and made every
+        // core chart decline to draw.
+        //
+        // Naming the intent removes the possibility of getting it wrong by omission.
+
+        /// A grid row sized to its content.
+        [[nodiscard]] RowDefinition MakeAutoRow();
+
+        /// A grid row that absorbs the remaining height.
+        [[nodiscard]] RowDefinition MakeStarRow();
+
+        /// A grid row of a fixed height in effective pixels.
+        [[nodiscard]] RowDefinition MakeFixedRow(double height);
+
+        /// A grid column sized to its content.
+        [[nodiscard]] ColumnDefinition MakeAutoColumn();
+
+        /// A grid column that absorbs the remaining width.
+        [[nodiscard]] ColumnDefinition MakeStarColumn();
+
+        /// A grid column of a fixed width in effective pixels.
+        [[nodiscard]] ColumnDefinition MakeFixedColumn(double width);
     }
 }

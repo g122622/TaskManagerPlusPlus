@@ -34,6 +34,13 @@ namespace tmpp::ui
         /// Width of the navigation pane, matching Task Manager's compact rail.
         inline constexpr double NAVIGATION_PANE_WIDTH = 240.0;
 
+        /// Width of the performance page's own hardware sidebar. Wider than the
+        /// navigation rail because each row carries a name, a qualifier and a chart.
+        inline constexpr double PERFORMANCE_SIDEBAR_WIDTH = 300.0;
+
+        /// Height of a performance sidebar row.
+        inline constexpr double SIDEBAR_ROW_HEIGHT = 58.0;
+
         /// Height reserved for the status bar.
         inline constexpr double STATUS_BAR_HEIGHT = 28.0;
     }

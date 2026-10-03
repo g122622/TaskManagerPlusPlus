@@ -222,3 +222,97 @@ tools\m1build.bat Release
 # 确认可执行文件存在
 Test-Path build\x64\Debug\tmpp.exe
 ```
+
+## 12. 构建性能：诊断与结论
+
+构建一度需要 **200 秒以上**。经排查降到 **约 48 秒**（冷构建）。本节记录结论、方法
+和试过但无效的方案，避免以后重复走一遍。
+
+### 12.1 结论
+
+| 改动 | 效果 | 是否保留 |
+| --- | --- | --- |
+| 开启 `/MP`（`MultiProcessorCompilation`）+ `/FS` | 200s → 48s | **保留** |
+| 预编译头（仅含 WinRT 投影 + 标准库） | 48s → **72s（更慢）** | **放弃** |
+
+### 12.2 根因：`/MP` 默认关闭，WinRT 文件按串行编译
+
+实测单文件编译耗时：
+
+| 文件 | 耗时 |
+| --- | --- |
+| `UI/CoreGrid.cpp`（含 WinRT 投影） | **约 8 秒** |
+| `UI/Formatting.cpp`（纯逻辑） | 约 1.6 秒 |
+
+WinRT 投影的解析成本是纯逻辑文件的 **5 倍**。而 5 个工程**全部**没有开启
+`MultiProcessorCompilation`（默认 `false`）。`/m` 只在**工程之间**并行，而工程之间有
+依赖链（Platform → Domain → Core → App），所以实际是：14 个 UI 重文件在一个工程内
+**串行**编译，每个约 8 秒。
+
+**修复**：在每个 `.vcxproj` 的 `ClCompile` 中加入：
+
+```xml
+<MultiProcessorCompilation>true</MultiProcessorCompilation>
+```
+
+并在 `AdditionalOptions` 中加 `/FS`。**`/FS` 是必需的**：`/MP` 会拉起多个 `cl.exe`
+进程写同一个 PDB，没有 `/FS` 就会报 `C1041: cannot open program database`。
+
+验证方法：构建时采样 `cl.exe` 进程数。
+
+```powershell
+# 峰值应接近逻辑处理器数（本机 28 核 → 峰值 31，平均 12.4）
+while ($job.State -eq 'Running') {
+  (Get-Process cl -ErrorAction SilentlyContinue | Measure-Object).Count
+  Start-Sleep -Milliseconds 250
+}
+```
+
+也可以让 MSBuild 打印真实命令行，确认 `/MP` 真的传给了 `cl.exe`：
+
+```powershell
+MSBuild <proj> /p:Configuration=Debug /p:Platform=x64 /v:diagnostic /nologo |
+  Select-String 'cl\.exe /c'
+```
+
+> **注意**：不要用 `.tlog` 文件判断 `/MP` 是否生效。tlog 可能来自上一次构建而滞后，
+> 实测出现过后缀为 `.tlog` 的文件中**没有** `/MP`、但真实命令行**有** `/MP` 的情况。
+
+### 12.3 试过但无效：预编译头
+
+思路是把 WinRT 投影放进 PCH。**实测反而更慢（48s → 72s）**，原因：
+
+- 生成的 `.pch` 文件达 **932 MB**。
+- 每个翻译单元都要**读取**这 932 MB，成本超过了重新解析头文件。
+- 它同时会重新触发 `C1076: internal heap limit`（这正是本项目早先移除 PCH 的原因）。
+
+**关键教训**：PCH 对 WinRT 投影不适用，因为投影的预编译体积与源码体积之比极端。
+不要仅凭"PCH 通常能加速"就重新引入它 —— 本项目已有两次实测数据表明相反。
+
+### 12.4 各工程耗时分布（冷构建）
+
+| 工程 | 耗时 |
+| --- | --- |
+| `TaskManagerPlusPlus`（App + UI，14 个 WinRT 文件） | **约 42 秒** |
+| `tmpp_core` | 约 5.3 秒 |
+| `tmpp_platform` | 约 3.3 秒 |
+| `tmpp_domain` | 约 2.7 秒 |
+
+瓶颈**完全**在 App 工程。其余三个工程合计仅约 11 秒。
+
+### 12.5 尚未尝试的优化方向
+
+若要进一步压缩（当前 48 秒，目标 20 秒以内），以下是尚未验证的方向：
+
+1. **拆分 App 工程**：UI 与 App 分离成两个静态库，让 `/m` 能在工程级别并行，而不只
+   依赖 `/MP` 的工程内并行。
+2. **减少 WinRT 投影的包含面**：`UI/WinRTUI.h` 目前一次性引入 11 个投影头。按文件
+   需要拆分，可降低单文件解析成本。
+3. **`/Zf`（更快 PDB 生成）**：MSVC 的 `/Zf` 可加速 PDB 写入，未实测。
+4. **共用头文件前置**：把 `Core/SamplingCoordinator.h`、`UI/Controls.h` 等高频头文件
+   也纳入 PCH —— 但 12.3 的结论表明 PCH 在此项目不划算，需重新实测。
+5. **增量构建**：增量构建已比冷构建快（改 UI 文件约 31 秒），瓶颈同样是单个 WinRT
+   文件的解析成本。
+
+> 如需继续优化，**务必先实测再下结论**：本节的 PCH 一项就是"看起来该有效、实际更慢"
+> 的例子。

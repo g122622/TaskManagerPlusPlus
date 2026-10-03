@@ -7,8 +7,8 @@
 // column, a filter that hides the wrong rows.
 #include <gtest/gtest.h>
 
-#include "UI/Formatting.h"
-#include "UI/ProcessListModel.h"
+#include "UI/Theming/Formatting.h"
+#include "UI/Lists/ProcessListModel.h"
 
 #include <string>
 

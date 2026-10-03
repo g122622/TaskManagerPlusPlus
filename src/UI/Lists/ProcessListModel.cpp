@@ -1,4 +1,4 @@
-#include "UI/ProcessListModel.h"
+#include "UI/Lists/ProcessListModel.h"
 
 #include <algorithm>
 #include <cctype>

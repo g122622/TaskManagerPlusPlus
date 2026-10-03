@@ -12,8 +12,8 @@
 #include "UI/WinRTUI.h"
 
 #include "Core/SamplingCoordinator.h"
-#include "UI/ProcessListModel.h"
-#include "UI/RowHost.h"
+#include "UI/Lists/ProcessListModel.h"
+#include "UI/Lists/RowHost.h"
 
 namespace tmpp::ui
 {

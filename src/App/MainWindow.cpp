@@ -6,15 +6,17 @@
 #include "Core/Logging.h"
 #include "Core/PathService.h"
 #include "Core/Settings.h"
-#include "UI/Controls.h"
-#include "UI/Formatting.h"
-#include "UI/Theme.h"
+#include "UI/Theming/Controls.h"
+#include "UI/Diagnostics.h"
+#include "UI/Theming/Formatting.h"
+#include "UI/Theming/Theme.h"
 
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 
@@ -58,11 +60,23 @@ namespace tmpp
         /// of the content rows below it, and nothing drawn there can land under the
         /// buttons. Without this the CPU percentage was drawn on top of them.
         constexpr double TITLE_BAR_HEIGHT = 40.0;
+
+        /// Height of the app title bar: the strip carrying "Task Manager".
+        constexpr double APP_TITLE_BAR_HEIGHT = 36.0;
+
+        /// Height of the page header bar: the strip carrying the page name and the task
+        /// actions. The original shows both bars stacked at the top of the window.
+        constexpr double PAGE_HEADER_HEIGHT = 48.0;
     }
 
     MainWindow::MainWindow()
     {
         diag::LogStartup("MainWindow: ctor begin");
+
+        // Route UI diagnostics to the startup log. This is a debug aid: the UI cannot be
+        // exercised without a desktop session, so when a control renders wrongly the only
+        // way to find out why is to have it report its own state.
+        ui::diagnostics::SetSink([](std::string_view message) { diag::LogStartup(std::string{message}.c_str()); });
 
         Title(L"TaskManagerPlusPlus");
 
@@ -148,9 +162,21 @@ namespace tmpp
 
                 if (settings.windowX >= 0 && settings.windowY >= 0)
                 {
-                    winrt::Windows::Graphics::PointInt32 const position{settings.windowX, settings.windowY};
-                    appWindow.Move(position);
-                    diag::LogStartup("MainWindow: window position restored");
+                    // The remembered position is only applied if the window would still be
+                    // visible. A position saved on a larger display, or on a second monitor
+                    // since removed, would otherwise place the window entirely off-screen --
+                    // which presents to the user as the application failing to start at all.
+                    // A saved y of 908 against a 768 pixel display was exactly that case.
+                    if (_isPositionVisible(settings.windowX, settings.windowY, settings.windowWidth, settings.windowHeight))
+                    {
+                        winrt::Windows::Graphics::PointInt32 const position{settings.windowX, settings.windowY};
+                        appWindow.Move(position);
+                        diag::LogStartup("MainWindow: window position restored");
+                    }
+                    else
+                    {
+                        diag::LogStartup("MainWindow: saved window position is off-screen; using the default");
+                    }
                 }
             }
         }
@@ -176,6 +202,23 @@ namespace tmpp
         }
 
         m_contentHost.Children().Clear();
+
+        // The page header names the page being shown, matching the original's second bar.
+        if (m_pageTitle != nullptr)
+        {
+            switch (index)
+            {
+                case 0:
+                    m_pageTitle.Text(L"Processes");
+                    break;
+                case 1:
+                    m_pageTitle.Text(L"Performance");
+                    break;
+                default:
+                    m_pageTitle.Text(L"Details");
+                    break;
+            }
+        }
 
         // Only one page renders at a time, so only the visible page is refreshed.
         // Refreshing a hidden page would do work whose result nobody sees.
@@ -208,6 +251,33 @@ namespace tmpp
                 break;
             }
         }
+    }
+
+    bool MainWindow::_isPositionVisible(int32_t x, int32_t y, int32_t width, int32_t height) noexcept
+    {
+        // The virtual desktop spans every attached display, so its bounds are the right test
+        // rather than the primary display's: a window on a second monitor is perfectly valid.
+        int const virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int const virtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int const virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        int const virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        if (virtualWidth <= 0 || virtualHeight <= 0)
+        {
+            // The metrics are unavailable, which should not happen. Refusing to move the
+            // window leaves it at the platform default, which is always visible.
+            return false;
+        }
+
+        int const virtualRight = virtualLeft + virtualWidth;
+        int const virtualBottom = virtualTop + virtualHeight;
+
+        // Some of the window has to overlap the desktop, and it must be a usable part rather
+        // than a sliver: a window with only its last pixel on screen cannot be grabbed.
+        constexpr int32_t MIN_VISIBLE = 64;
+        int32_t const visibleWidth = (std::min)(x + width, virtualRight) - (std::max)(x, virtualLeft);
+        int32_t const visibleHeight = (std::min)(y + height, virtualBottom) - (std::max)(y, virtualTop);
+
+        return visibleWidth >= MIN_VISIBLE && visibleHeight >= MIN_VISIBLE;
     }
 
     void MainWindow::_buildContent()
@@ -288,48 +358,135 @@ namespace tmpp
         m_permissionBar.IsOpen(false);
         m_permissionBar.IsClosable(true);
 
+        // --- Page header bar ----------------------------------------------------
+        //
+        // The second of the two bars the original has: the page name on the left, and the
+        // task actions on the right. The buttons are placeholders -- they are present and
+        // laid out, but do nothing yet -- because the original's actions belong to features
+        // this milestone does not include (docs/ROADMAP.md).
+        Grid pageHeader = Grid();
+        pageHeader.Height(PAGE_HEADER_HEIGHT);
+        pageHeader.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, 0.0, 0.0));
+        pageHeader.Background(ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
+
+        // Column 0 takes the slack so the actions sit on the right at any width.
+        pageHeader.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
+        pageHeader.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
+
+        m_pageTitle = ui::controls::MakeHeading(L"Processes", 20.0);
+        m_pageTitle.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(m_pageTitle, 0);
+        pageHeader.Children().Append(m_pageTitle);
+
+        StackPanel actions = ui::controls::MakeRow(4.0);
+        actions.VerticalAlignment(VerticalAlignment::Center);
+        actions.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 12.0, 0.0));
+
+        {
+            // "Run new task" is a real button with an icon and a label, as in the original.
+            winrt::Microsoft::UI::Xaml::Controls::Button runTask;
+            runTask.Background(
+                winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{winrt::Windows::UI::Colors::Transparent()});
+            runTask.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
+            runTask.Padding(ThicknessHelper::FromLengths(10.0, 6.0, 10.0, 6.0));
+
+            StackPanel runContent = ui::controls::MakeRow(8.0);
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon runIcon;
+            runIcon.Glyph(L"\xE8A7"); // Segoe Fluent Icons: task view
+            runIcon.FontSize(14.0);
+            runContent.Children().Append(runIcon);
+            runContent.Children().Append(ui::controls::MakeText(L"Run new task", 13.0));
+            runTask.Content(runContent);
+
+            // TODO: open the run-new-task dialog. The control is present so the bar matches
+            //       the original; the dialog arrives with the process-control work in M2.
+            runTask.Click([](winrt::Windows::Foundation::IInspectable const&,
+                             winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {});
+
+            actions.Children().Append(runTask);
+        }
+
+        {
+            // The overflow menu, matching the original's "..." button.
+            winrt::Microsoft::UI::Xaml::Controls::Button overflow;
+            overflow.Background(
+                winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{winrt::Windows::UI::Colors::Transparent()});
+            overflow.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
+            overflow.Padding(ThicknessHelper::FromLengths(8.0, 6.0, 8.0, 6.0));
+
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon moreIcon;
+            moreIcon.Glyph(L"\xE712"); // Segoe Fluent Icons: More
+            moreIcon.FontSize(14.0);
+            overflow.Content(moreIcon);
+
+            // TODO: show the settings and options menu.
+            overflow.Click([](winrt::Windows::Foundation::IInspectable const&,
+                              winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {});
+
+            actions.Children().Append(overflow);
+        }
+
+        Grid::SetColumn(actions, 1);
+        pageHeader.Children().Append(actions);
+
         // --- Assembly -----------------------------------------------------------
         //
-        // Three rows: a fixed title bar strip, the page, then the status bar. The page
-        // row is a star, which is what makes it absorb all remaining height. With all
-        // three rows left at their default Auto height the page row sized to its
-        // content, so charts collapsed to nothing and the details card was pushed out
-        // of view behind a scrollbar.
+        // Four rows: the app title bar, the page header, the page, then the bottom stack.
+        // The page row is the only star, so it absorbs all remaining height. A row that is
+        // meant to size to its content must be built with MakeAutoRow: a default-constructed
+        // RowDefinition is 1* (Star) and would silently claim an equal share instead.
         Grid contentColumn = Grid();
 
-        RowDefinition titleBarRow;
-        titleBarRow.Height(winrt::Microsoft::UI::Xaml::GridLength{TITLE_BAR_HEIGHT});
-        contentColumn.RowDefinitions().Append(titleBarRow);
+        contentColumn.RowDefinitions().Append(ui::controls::MakeFixedRow(APP_TITLE_BAR_HEIGHT));
+        contentColumn.RowDefinitions().Append(ui::controls::MakeFixedRow(PAGE_HEADER_HEIGHT));
+        contentColumn.RowDefinitions().Append(ui::controls::MakeStarRow());
+        contentColumn.RowDefinitions().Append(ui::controls::MakeAutoRow());
 
-        RowDefinition pageRow;
-        pageRow.Height(winrt::Microsoft::UI::Xaml::GridLength{1.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star});
-        contentColumn.RowDefinitions().Append(pageRow);
-
-        RowDefinition statusRow;
-        statusRow.Height(winrt::Microsoft::UI::Xaml::GridLength{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Auto});
-        contentColumn.RowDefinitions().Append(statusRow);
-
-        // The title bar strip. It is empty on purpose: its job is to reserve the space
-        // the window buttons occupy so no page content is ever drawn underneath them.
+        // --- App title bar ------------------------------------------------------
+        //
+        // The first of the two bars: the application name, matching the original's
+        // "Task Manager". The window buttons sit over its right-hand end, so nothing else
+        // is drawn there.
         m_titleBarSpacer = Grid();
+        m_titleBarSpacer.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, 0.0, 0.0));
+
+        {
+            StackPanel titleContent = ui::controls::MakeRow(10.0);
+            titleContent.VerticalAlignment(VerticalAlignment::Center);
+
+            // The application icon, as the original shows beside its title.
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon appIcon;
+            appIcon.Glyph(L"\xE9D9"); // Segoe Fluent Icons: task view
+            appIcon.FontSize(14.0);
+            titleContent.Children().Append(appIcon);
+
+            titleContent.Children().Append(ui::controls::MakeText(L"Task Manager", 12.0));
+
+            m_titleBarSpacer.Children().Append(titleContent);
+        }
+
         Grid::SetRow(m_titleBarSpacer, 0);
         contentColumn.Children().Append(m_titleBarSpacer);
 
+        Grid::SetRow(pageHeader, 1);
+        contentColumn.Children().Append(pageHeader);
+
         m_contentHost = Grid();
-        Grid::SetRow(m_contentHost, 1);
+        Grid::SetRow(m_contentHost, 2);
         contentColumn.Children().Append(m_contentHost);
 
         // The permission bar and the status bar share the last row, the notice above
         // the status line, so neither shifts the page when it appears.
         Grid bottomStack = Grid();
-        bottomStack.RowDefinitions().Append(RowDefinition{});
-        bottomStack.RowDefinitions().Append(RowDefinition{});
+        // Both size to their content; neither should absorb the page's height.
+        bottomStack.RowDefinitions().Append(ui::controls::MakeAutoRow());
+        bottomStack.RowDefinitions().Append(ui::controls::MakeAutoRow());
         Grid::SetRow(m_permissionBar, 0);
         bottomStack.Children().Append(m_permissionBar);
         Grid::SetRow(statusBar, 1);
         bottomStack.Children().Append(statusBar);
 
-        Grid::SetRow(bottomStack, 2);
+        Grid::SetRow(bottomStack, 3);
         contentColumn.Children().Append(bottomStack);
 
         m_navigation.Content(contentColumn);

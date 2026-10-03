@@ -61,7 +61,10 @@
       <WarningLevel>Level4</WarningLevel>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500 /FS</AdditionalOptions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <MinimalRebuild>false</MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -86,16 +89,21 @@
 
   <ItemGroup>
     <ClCompile Include="test_core_services.cpp" />
+    <ClCompile Include="test_core_grid_math.cpp" />
+    <ClCompile Include="test_chart_time_axis.cpp" />
     <ClCompile Include="test_domain_models.cpp" />
     <ClCompile Include="test_domain_rates.cpp" />
     <ClCompile Include="test_main.cpp" />
     <ClCompile Include="test_platform_probes.cpp" />
+    <ClCompile Include="test_platform_system_extended.cpp" />
+    <ClCompile Include="test_probe_diagnostic.cpp" />
     <ClCompile Include="test_row_host_math.cpp" />
     <ClCompile Include="test_ui_logic.cpp" />
+    <ClCompile Include="test_window_position.cpp" />
     <!-- The UI layer is compiled into consumers rather than a library; pull its
          sources in here so the formatting and list-cache logic is testable. -->
-    <ClCompile Include="..\..\src\UI\Formatting.cpp" />
-    <ClCompile Include="..\..\src\UI\ProcessListModel.cpp" />
+    <ClCompile Include="..\..\src\UI\Theming\Formatting.cpp" />
+    <ClCompile Include="..\..\src\UI\Lists\ProcessListModel.cpp" />
   </ItemGroup>
 
   <ItemGroup>

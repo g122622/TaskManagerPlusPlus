@@ -1,10 +1,10 @@
 #include "UI/WinRTUI.h"
 
-#include "UI/ProcessesView.h"
+#include "UI/Views/ProcessesView.h"
 
-#include "UI/Controls.h"
-#include "UI/Formatting.h"
-#include "UI/Theme.h"
+#include "UI/Theming/Controls.h"
+#include "UI/Theming/Formatting.h"
+#include "UI/Theming/Theme.h"
 
 #include <array>
 #include <string>
@@ -104,12 +104,12 @@ namespace tmpp::ui
         // star is what gives the row host a definite height to fill; with an Auto row
         // the list would size to its content and the virtualisation window would be
         // wrong.
-        m_root.RowDefinitions().Append(RowDefinition{}); // toolbar
-        m_root.RowDefinitions().Append(RowDefinition{}); // column headers
-
-        RowDefinition listRow;
-        listRow.Height(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
-        m_root.RowDefinitions().Append(listRow);
+        // The toolbar and headers size to their content; the list takes the remainder.
+        // Content-sized rows must be named explicitly, because GridLength defaults to 1*
+        // and a bare definition would claim an equal third of the height instead.
+        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // toolbar
+        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // column headers
+        m_root.RowDefinitions().Append(controls::MakeStarRow()); // rows
 
         // --- Toolbar -----------------------------------------------------------
         StackPanel toolbar;

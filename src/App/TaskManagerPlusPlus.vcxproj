@@ -123,12 +123,18 @@
 
   <ItemDefinitionGroup>
     <ClCompile>
-      <!-- No precompiled header: see WinRT.h for why. -->
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <!-- No precompiled header. The WinRT projections expand to roughly 930 MB of
+           precompiled state, which costs more to read per file than re-parsing the
+           headers does, and it previously tripped C1076 (internal heap limit).
+           Parallel compilation is what makes this build fast instead. See src/UI/Pch.h
+           for the measurement. -->
       <WarningLevel>Level4</WarningLevel>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj /utf-8 /Zm500 /FS</AdditionalOptions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <MinimalRebuild>false</MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <!-- Headers are included as "Core/...", "UI/...", so src\ is the include root. -->
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -169,14 +175,20 @@
     <ClCompile Include="App.cpp" />
     <ClCompile Include="MainWindow.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="..\UI\Controls.cpp" />
-    <ClCompile Include="..\UI\Formatting.cpp" />
-    <ClCompile Include="..\UI\HistoryChart.cpp" />
-    <ClCompile Include="..\UI\PerformanceView.cpp" />
-    <ClCompile Include="..\UI\ProcessesView.cpp" />
-    <ClCompile Include="..\UI\ProcessListModel.cpp" />
-    <ClCompile Include="..\UI\RowHost.cpp" />
-    <ClCompile Include="..\UI\Sparkline.cpp" />
+    <ClCompile Include="..\UI\Theming\Controls.cpp" />
+    <ClCompile Include="..\UI\Charts\CoreGrid.cpp" />
+    <ClCompile Include="..\UI\Views\CpuPage.cpp" />
+    <ClCompile Include="..\UI\Diagnostics.cpp" />
+    <ClCompile Include="..\UI\Theming\Formatting.cpp">
+    </ClCompile>
+    <ClCompile Include="..\UI\Charts\HistoryChart.cpp" />
+    <ClCompile Include="..\UI\Views\MemoryPage.cpp" />
+    <ClCompile Include="..\UI\Views\PerformanceView.cpp" />
+    <ClCompile Include="..\UI\Views\ProcessesView.cpp" />
+    <ClCompile Include="..\UI\Lists\ProcessListModel.cpp">
+    </ClCompile>
+    <ClCompile Include="..\UI\Lists\RowHost.cpp" />
+    <ClCompile Include="..\UI\Charts\Sparkline.cpp" />
   </ItemGroup>
 
   <ItemGroup>

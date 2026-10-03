@@ -1,7 +1,7 @@
 #include "UI/WinRTUI.h"
 #include <winrt/Windows.UI.Text.h>
 
-#include "UI/Controls.h"
+#include "UI/Theming/Controls.h"
 
 namespace tmpp::ui::controls
 {
@@ -92,5 +92,47 @@ namespace tmpp::ui::controls
     void ApplyPageMargin(FrameworkElement const& element)
     {
         element.Margin(ThicknessHelper::FromLengths(metrics::PAGE_MARGIN, 16.0, metrics::PAGE_MARGIN, 12.0));
+    }
+
+    RowDefinition MakeAutoRow()
+    {
+        RowDefinition row;
+        row.Height(GridLengthHelper::Auto());
+        return row;
+    }
+
+    RowDefinition MakeStarRow()
+    {
+        RowDefinition row;
+        row.Height(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
+        return row;
+    }
+
+    RowDefinition MakeFixedRow(double height)
+    {
+        RowDefinition row;
+        row.Height(GridLengthHelper::FromPixels(height));
+        return row;
+    }
+
+    ColumnDefinition MakeAutoColumn()
+    {
+        ColumnDefinition column;
+        column.Width(GridLengthHelper::Auto());
+        return column;
+    }
+
+    ColumnDefinition MakeStarColumn()
+    {
+        ColumnDefinition column;
+        column.Width(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
+        return column;
+    }
+
+    ColumnDefinition MakeFixedColumn(double width)
+    {
+        ColumnDefinition column;
+        column.Width(GridLengthHelper::FromPixels(width));
+        return column;
     }
 }

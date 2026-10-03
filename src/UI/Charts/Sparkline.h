@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "UI/Charts/ChartSeries.h"
+
 namespace tmpp::ui
 {
     /**
@@ -33,12 +35,16 @@ namespace tmpp::ui
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::Grid Root() const { return m_root; }
 
         /**
-         * @brief Replaces the plotted values.
+         * @brief Replaces the plotted series.
          *
-         * @param values Samples in chronological order.
+         * The series carries its own time window, so a sparkline and a full chart are given
+         * the same kind of value and cannot disagree about what part of the axis the data
+         * occupies.
+         *
+         * @param series Samples and the window they are drawn against.
          * @param maximum Value mapped to the top of the plot.
          */
-        void SetSeries(std::vector<double> const& values, double maximum);
+        void SetSeries(ChartSeries const& series, double maximum);
 
         /// Clears the plot, leaving it visibly empty.
         void Clear();
@@ -60,6 +66,10 @@ namespace tmpp::ui
         double m_width{64.0};
         double m_height{24.0};
         double m_maximum{100.0};
+
+        /// Samples in the full time window. Zero means fit the data, which is what a
+        /// sparkline with no axis wants.
+        size_t m_timeSpan{0};
 
         /// Set when a redraw was requested before the canvas had a size, so it can be
         /// retried once layout provides one. Without this, a series set before the

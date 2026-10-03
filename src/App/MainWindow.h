@@ -14,8 +14,8 @@
 
 #include "Core/SamplingCoordinator.h"
 #include "Core/Settings.h"
-#include "UI/PerformanceView.h"
-#include "UI/ProcessesView.h"
+#include "UI/Views/PerformanceView.h"
+#include "UI/Views/ProcessesView.h"
 
 namespace tmpp
 {
@@ -40,11 +40,30 @@ namespace tmpp
         void _startRefreshTimer();
         void _updateStatusBar();
 
+        /**
+         * @brief Whether a saved window rectangle would still be visible on some display.
+         *
+         * A remembered position can refer to a monitor that is no longer attached, or to a
+         * larger desktop than the current one. Restoring it blindly places the window where
+         * the user cannot see it, which presents as the application failing to start.
+         *
+         * @param x Left edge of the saved position.
+         * @param y Top edge of the saved position.
+         * @param width Saved window width, used to check that some of it remains on screen.
+         * @param height Saved window height.
+         */
+        [[nodiscard]] static bool _isPositionVisible(int32_t x, int32_t y, int32_t width, int32_t height) noexcept;
+
         winrt::Microsoft::UI::Xaml::Controls::Grid m_rootGrid{nullptr};
 
-        /// Reserves the region the window buttons occupy. This is the element
-        /// nominated as the title bar, so no page content is drawn under them.
+        /// The app title bar: carries the application name and reserves the region the
+        /// window buttons occupy. This is the element nominated as the title bar, so no
+        /// page content is drawn under the buttons.
         winrt::Microsoft::UI::Xaml::Controls::Grid m_titleBarSpacer{nullptr};
+
+        /// The page header bar's title, updated as the navigation selection changes so the
+        /// bar names the page being shown.
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_pageTitle{nullptr};
 
         winrt::Microsoft::UI::Xaml::Controls::NavigationView m_navigation{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_contentHost{nullptr};

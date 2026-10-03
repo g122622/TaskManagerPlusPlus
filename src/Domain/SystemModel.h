@@ -51,6 +51,12 @@ namespace tmpp::domain
         // Static topology, refreshed on the first sample only.
         platform::SystemProcessorInfo processor;
 
+        /// Live clock speed. Changes every sample; unavailable on some systems.
+        platform::SystemProcessorSpeed processorSpeed;
+
+        /// Rolling system-wide totals: process/thread/handle counts and uptime.
+        platform::SystemTotals totals;
+
         /// True until a baseline exists, so the UI can show a blank rather than 0.
         bool ratesUnavailable{true};
     };
@@ -62,6 +68,26 @@ namespace tmpp::domain
     {
         std::vector<double> cpuTotal;
         std::vector<double> memoryUsed;
+
+        /// One series per logical processor, in processor order. Empty when the
+        /// per-processor probe is unavailable.
+        ///
+        /// Each inner vector is the same length as cpuTotal, so a caller can index
+        /// them in step. The per-core grid in the performance page needs this: it
+        /// draws one sparkline per core, and a set of current values would render as a
+        /// flat line with no history.
+        std::vector<std::vector<double>> perProcessorCpu;
+
+        /**
+         * @brief Number of samples that represents the full time window.
+         *
+         * Carried with the data rather than queried separately because every chart needs
+         * it and it is the same for all of them. When it was a separate setter, three of
+         * the four charts were never told and drew their few samples stretched across the
+         * entire width -- which reads as a settled history that does not exist yet, and
+         * then visibly compresses as real samples arrive.
+         */
+        size_t windowSamples{0};
 
         [[nodiscard]] size_t SampleCount() const noexcept { return cpuTotal.size(); }
     };
@@ -87,17 +113,25 @@ namespace tmpp::domain
          * @param cpu Current cumulative system CPU times.
          * @param memory Current memory state.
          * @param capturedAt QPC tick count for this sample.
+         * @param perProcessor Per-processor readings for this same sample, or an empty
+         *        vector when that probe failed. Passed here rather than through a
+         *        second call so that one sample advances every series exactly once:
+         *        when the two were separate, a failed per-processor probe left the
+         *        per-core series longer than the aggregate and the chart grid indexed
+         *        them against the wrong axis.
          */
         void Update(platform::SystemCpuTimes const& cpu,
                     platform::SystemMemoryInfo const& memory,
-                    uint64_t capturedAt);
+                    uint64_t capturedAt,
+                    std::vector<platform::ProcessorCpuTimes> const& perProcessor = {});
 
         /**
          * @brief Records the per-processor readings for the current sample.
          *
-         * Called alongside Update when the per-processor probe succeeded. Kept
-         * separate because that probe is optional and its absence must not change
-         * the aggregate behaviour.
+         * @deprecated Retained only so existing tests compile. Use the four-argument
+         *        Update instead: this call advances the per-core rings without touching
+         *        the aggregate, so calling it alongside Update makes the series drift
+         *        apart. It will be removed once the tests are migrated.
          */
         void UpdatePerProcessor(std::vector<platform::ProcessorCpuTimes> const& perProcessor);
 
@@ -105,6 +139,19 @@ namespace tmpp::domain
          * @brief Supplies the static processor description, read once at startup.
          */
         void SetProcessorInfo(platform::SystemProcessorInfo info);
+
+        /**
+         * @brief Records the live clock speed for the current sample.
+         *
+         * Separate from the topology because its source can fail independently of
+         * everything else, and a missing speed must not disturb the other readings.
+         */
+        void SetProcessorSpeed(platform::SystemProcessorSpeed speed);
+
+        /**
+         * @brief Records the rolling system-wide totals.
+         */
+        void SetTotals(platform::SystemTotals totals);
 
         [[nodiscard]] SystemView const& Latest() const noexcept { return m_latest; }
 
@@ -114,14 +161,32 @@ namespace tmpp::domain
         [[nodiscard]] size_t HistoryCapacity() const noexcept { return m_historyCapacity; }
 
     private:
+        /// Computes the per-processor percentages and pushes them into the per-core rings.
+        ///
+        /// Kept private and called only from Update, which is what guarantees the
+        /// per-core series and the aggregate stay the same length.
+        void _appendPerProcessor(std::vector<platform::ProcessorCpuTimes> const& perProcessor);
+
         uint32_t m_logicalProcessorCount{0};
         size_t m_historyCapacity{0};
 
         RingBuffer<double> m_cpuHistory;
         RingBuffer<double> m_memoryHistory;
 
+        /// One ring per logical processor. Empty when the per-processor probe is
+        /// unavailable, in which case no per-core chart can be drawn and the UI says
+        /// so rather than showing a row of flat lines.
+        std::vector<RingBuffer<double>> m_perProcessorHistory;
+
         SystemView m_latest;
         uint64_t m_version{0};
+
+        /// The most recent per-processor percentages, published with each sample.
+        ///
+        /// Its length is always the per-core ring count rather than the probe's count, so
+        /// a probe that reports fewer processors than the topology still yields series of
+        /// equal length.
+        std::vector<double> m_perProcessorPercent;
 
         platform::SystemCpuTimes m_previousCpu;
         std::vector<platform::ProcessorCpuTimes> m_previousPerProcessor;
