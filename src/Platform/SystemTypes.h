@@ -203,6 +203,13 @@ namespace tmpp::platform
         /// Cumulative time spent servicing writes, in milliseconds.
         uint64_t writeTimeMs{0};
 
+        /// Cumulative time the device spent with no request outstanding, in milliseconds.
+        ///
+        /// This is the field active time is derived from. Read time plus write time is not a
+        /// substitute: a device servicing overlapping requests accumulates both at once, so the sum
+        /// exceeds the wall clock and reports a device as busier than it can be. Idle time cannot.
+        uint64_t idleTimeMs{0};
+
         /// Completed operations, cumulative.
         uint64_t readCount{0};
         uint64_t writeCount{0};

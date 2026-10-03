@@ -52,6 +52,20 @@ namespace tmpp::ui
          */
         void SetSeries(ChartSeries const& series);
 
+        /**
+         * @brief Adds a second series, drawn dashed.
+         *
+         * The disk page needs to show reads and writes together: they share one axis and one window,
+         * and comparing them is the point. A dashed line rather than a second colour is what keeps
+         * them apart: colour is already carrying the metric, and two colours on one chart would read
+         * as two metrics rather than two directions of one.
+         *
+         * Pass an empty series to remove it.
+         *
+         * @param series Samples and the window they are drawn against.
+         */
+        void SetSecondarySeries(ChartSeries const& series);
+
         /// Updates the large current-value readout.
         void SetCurrentValueText(std::wstring_view text);
 
@@ -113,6 +127,14 @@ namespace tmpp::ui
 
         winrt::Microsoft::UI::Xaml::Shapes::Polyline m_line{nullptr};
         winrt::Microsoft::UI::Xaml::Shapes::Polygon m_fill{nullptr};
+
+        /// The dashed second line. Hidden until SetSecondarySeries supplies samples, so a chart that
+        /// does not use it is unaffected.
+        winrt::Microsoft::UI::Xaml::Shapes::Polyline m_secondaryLine{nullptr};
+        std::vector<double> m_secondaryValues;
+
+        /// Dash pattern for the second line, in units of the stroke width.
+        winrt::Microsoft::UI::Xaml::Media::DoubleCollection m_secondaryDashes{nullptr};
 
         std::vector<double> m_values;
         winrt::Windows::UI::Color m_color;

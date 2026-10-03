@@ -154,6 +154,21 @@ namespace tmpp::ui
         _redraw();
     }
 
+    void HistoryChart::SetSecondarySeries(ChartSeries const& series)
+    {
+        m_secondaryValues = series.values;
+
+        // An empty series removes the line rather than leaving the previous one on screen, which
+        // would silently show stale data.
+        if (m_secondaryLine != nullptr)
+        {
+            m_secondaryLine.Visibility(m_secondaryValues.empty() ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                                                 : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        }
+
+        _redraw();
+    }
+
     void HistoryChart::SetCurrentValueText(std::wstring_view text)
     {
         m_currentValue.Text(winrt::hstring{text});
@@ -244,6 +259,7 @@ namespace tmpp::ui
     {
         m_line.Points().Clear();
         m_fill.Points().Clear();
+        m_secondaryLine.Points().Clear();
 
         double const width = m_canvas.ActualWidth();
         double const height = m_canvas.ActualHeight();
@@ -308,5 +324,27 @@ namespace tmpp::ui
         auto const lastX = static_cast<float>(leadingGap + (static_cast<double>(samplesHeld - 1) * step));
         fillPoints.Append(winrt::Windows::Foundation::Point{lastX, static_cast<float>(height)});
         fillPoints.Append(winrt::Windows::Foundation::Point{firstX, static_cast<float>(height)});
+
+        // The second series shares the axis and the window, so it is plotted from the same step and
+        // the same leading offset. It carries no fill: two shaded areas would obscure each other,
+        // and the point of showing both is to compare the lines.
+        if (!m_secondaryValues.empty() && m_secondaryValues.size() >= 2)
+        {
+            size_t const secondaryHeld = m_secondaryValues.size();
+            double const secondaryGap = (span > secondaryHeld)
+                                            ? (width - (static_cast<double>(secondaryHeld - 1) * step))
+                                            : 0.0;
+
+            auto secondaryPoints = m_secondaryLine.Points();
+            for (size_t i = 0; i < secondaryHeld; ++i)
+            {
+                double const clamped = std::clamp(m_secondaryValues[i], 0.0, m_maximum);
+                double const ratio = clamped / m_maximum;
+
+                auto const x = static_cast<float>(secondaryGap + (static_cast<double>(i) * step));
+                auto const y = static_cast<float>(PLOT_PADDING + (drawableHeight * (1.0 - ratio)));
+                secondaryPoints.Append(winrt::Windows::Foundation::Point{x, y});
+            }
+        }
     }
 }

@@ -42,7 +42,14 @@ namespace tmpp::domain::test
         }
         constexpr uint32_t HISTORY_SECONDS = 60;
 
-        platform::SystemDiskCounters _disk(std::string name, uint64_t read, uint64_t write, uint64_t readMs, uint64_t writeMs)
+        /// Builds a disk reading. The fifth parameter is idle time, which is what active time is
+        /// derived from: read and write service times are reported but not used for it.
+        platform::SystemDiskCounters _disk(std::string name,
+                                           uint64_t read,
+                                           uint64_t write,
+                                           uint64_t readMs,
+                                           uint64_t writeMs,
+                                           uint64_t idleMs = 0)
         {
             platform::SystemDiskCounters disk;
             disk.instanceName = std::move(name);
@@ -50,6 +57,7 @@ namespace tmpp::domain::test
             disk.writeBytes = write;
             disk.readTimeMs = readMs;
             disk.writeTimeMs = writeMs;
+            disk.idleTimeMs = idleMs;
             disk.available = true;
             return disk;
         }
@@ -136,19 +144,47 @@ namespace tmpp::domain::test
         EXPECT_DOUBLE_EQ(history.diskReadBytesPerSecond.back(), 5'000'000.0);
     }
 
-    TEST(DiskRateTest, ActivePercentIsClampedToAHundred)
+    TEST(DiskRateTest, ActiveTimeIsTheComplementOfIdleTime)
     {
-        // A device servicing overlapping requests accumulates more service time than wall clock. The
-        // figure is a share of one device's attention and cannot exceed all of it.
+        // Idle for none of a one-second interval means fully busy; idle for all of it means not busy
+        // at all. This is the property the figure rests on.
         SystemModel model(8, INTERVAL_MS, HISTORY_SECONDS);
 
-        model.SetHardwareCounters({_disk("0 C:", 0, 0, 0, 0)}, {}, {}, T0);
-        // 5000 ms of service time in a 1000 ms interval.
-        model.SetHardwareCounters({_disk("0 C:", 0, 0, 2500, 2500)}, {}, {}, _afterMs(1000));
+        model.SetHardwareCounters({_disk("0 C:", 0, 0, 0, 0, 0)}, {}, {}, T0);
+        model.SetHardwareCounters({_disk("0 C:", 0, 0, 0, 0, 0)}, {}, {}, _afterMs(1000));
+
+        SystemView const& busy = model.Latest();
+        ASSERT_EQ(busy.disks.size(), 1u);
+        EXPECT_DOUBLE_EQ(busy.disks[0].activePercent, 100.0);
+
+        SystemModel idleModel(8, INTERVAL_MS, HISTORY_SECONDS);
+        idleModel.SetHardwareCounters({_disk("0 C:", 0, 0, 0, 0, 0)}, {}, {}, T0);
+        idleModel.SetHardwareCounters({_disk("0 C:", 0, 0, 0, 0, 1000)}, {}, {}, _afterMs(1000));
+
+        SystemView const& idle = idleModel.Latest();
+        ASSERT_EQ(idle.disks.size(), 1u);
+        EXPECT_DOUBLE_EQ(idle.disks[0].activePercent, 0.0);
+    }
+
+    TEST(DiskRateTest, OverlappingServiceTimeIsNotCountedTwice)
+    {
+        // The first derivation summed read and write service time, which double-counts a device
+        // servicing overlapping requests: both counters advance at once, so the sum exceeds the wall
+        // clock and the device is reported as busier than it can be. Idle time is a wall-clock
+        // measure and cannot do that.
+        SystemModel model(8, INTERVAL_MS, HISTORY_SECONDS);
+
+        model.SetHardwareCounters({_disk("0 C:", 0, 0, 0, 0, 0)}, {}, {}, T0);
+
+        // In one second the device accumulated 900 ms of read service and 900 ms of write service,
+        // overlapping, while being idle for 500 ms. Summing the service times would give 180 percent;
+        // the idle counter says half the interval was spent working.
+        model.SetHardwareCounters({_disk("0 C:", 0, 0, 900, 900, 500)}, {}, {}, _afterMs(1000));
 
         SystemView const& latest = model.Latest();
         ASSERT_EQ(latest.disks.size(), 1u);
-        EXPECT_DOUBLE_EQ(latest.disks[0].activePercent, 100.0);
+        EXPECT_DOUBLE_EQ(latest.disks[0].activePercent, 50.0)
+            << "the sum of read and write service time would report 180 percent here";
     }
 
     TEST(NetworkRateTest, RatesAreDerivedFromTheCumulativeCounters)

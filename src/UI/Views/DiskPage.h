@@ -65,15 +65,33 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_modelCaption{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_caption{nullptr};
 
-        /// Read throughput on the primary axis. Write throughput is drawn on the same chart as a
-        /// second series when the component supports it; until then the figures are in the details.
-        std::unique_ptr<HistoryChart> m_chart;
+        /// Percentage of the time the device spent servicing requests. The original puts this first,
+        /// and it is the figure that explains a slow response with low throughput.
+        std::unique_ptr<HistoryChart> m_activeChart;
+
+        /// Transfer rate. A second chart rather than a second line on the first, because the two
+        /// quantities have different units and different natural maxima: active time is a share of
+        /// one device, while a transfer rate depends on the hardware. Plotting them together would
+        /// need an axis that means nothing for one of them.
+        std::unique_ptr<HistoryChart> m_transferChart;
+
+        /// The caption above each chart, retained so the peak figure can be updated.
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_activeCaption{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_transferCaption{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_transferPeakLabel{nullptr};
 
         std::vector<DetailRow> m_column1;
         std::vector<DetailRow> m_column2;
         std::vector<DetailRow> m_column3;
 
         size_t m_deviceIndex{0};
+
+        /// The last device list that was successfully read.
+        ///
+        /// A sample can come back with no devices when the probe's handle query fails intermittently.
+        /// Showing dashes for that one frame makes the whole page flicker empty, so the previous
+        /// reading stands until a new one arrives.
+        std::vector<domain::DiskActivity> m_lastDisks;
         std::wstring m_deviceLabel;
         uint64_t m_renderedVersion{0};
     };

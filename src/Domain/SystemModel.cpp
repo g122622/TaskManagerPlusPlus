@@ -236,7 +236,7 @@ namespace tmpp::domain
                 // is the honest response; differencing would produce a negative rate or, once
                 // discarded, a spike.
                 bool const comparable = disk.readBytes >= before.readBytes && disk.writeBytes >= before.writeBytes &&
-                                        disk.readTimeMs >= before.readTimeMs && disk.writeTimeMs >= before.writeTimeMs;
+                                        disk.idleTimeMs >= before.idleTimeMs;
 
                 if (comparable)
                 {
@@ -245,13 +245,15 @@ namespace tmpp::domain
                     activity.writeBytesPerSecond =
                         static_cast<double>(disk.writeBytes - before.writeBytes) / elapsedSeconds;
 
-                    // Active time is the change in service time over the elapsed wall clock. A device
-                    // servicing overlapping requests can exceed the interval, which is why it is
-                    // clamped: the figure is a share of one device's attention and cannot exceed all
-                    // of it.
-                    double const serviceMs = static_cast<double>((disk.readTimeMs - before.readTimeMs) +
-                                                                 (disk.writeTimeMs - before.writeTimeMs));
-                    activity.activePercent = std::clamp((serviceMs / elapsedMs) * 100.0, 0.0, 100.0);
+                    // Active time is the complement of idle time over the elapsed interval.
+                    //
+                    // Read service time plus write service time is not a substitute, and was the
+                    // first attempt here. A device servicing overlapping requests accumulates both at
+                    // once, so the sum can exceed the wall clock and reports the device as busier than
+                    // it can possibly be. The idle counter is a wall-clock measure, so its complement
+                    // is exactly the share of the interval the device spent working.
+                    double const idleMs = static_cast<double>(disk.idleTimeMs - before.idleTimeMs);
+                    activity.activePercent = std::clamp(100.0 - ((idleMs / elapsedMs) * 100.0), 0.0, 100.0);
 
                     totalReadBps += activity.readBytesPerSecond;
                     totalWriteBps += activity.writeBytesPerSecond;

@@ -327,9 +327,10 @@ namespace tmpp::platform
             disk.readCount = performance.ReadCount;
             disk.writeCount = performance.WriteCount;
 
-            // ReadTime and WriteTime are cumulative in 100-nanosecond units.
+            // ReadTime, WriteTime and IdleTime are cumulative in 100-nanosecond units.
             disk.readTimeMs = _clampNonNegative(performance.ReadTime.QuadPart) / 10000ull;
             disk.writeTimeMs = _clampNonNegative(performance.WriteTime.QuadPart) / 10000ull;
+            disk.idleTimeMs = _clampNonNegative(performance.IdleTime.QuadPart) / 10000ull;
 
             // The average request size is a mean, so it is derived rather than differenced: the mean
             // over an interval is not the difference of two means.
