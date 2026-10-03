@@ -69,6 +69,18 @@ namespace tmpp::ui
          */
         void SetLineWidth(double width);
 
+        /**
+         * @brief Changes the value the chart's full height represents.
+         *
+         * Needed when the scale is relative to the data: a throughput chart has no natural maximum,
+         * because a device's rate depends on the hardware, so its axis is set from the busiest
+         * sample in the window.
+         *
+         * @param maximum The value at the top of the plot. Zero or less is treated as one, so a
+         *        chart without data cannot divide by zero.
+         */
+        void SetMaximum(double maximum);
+
     private:
         void _redraw();
 

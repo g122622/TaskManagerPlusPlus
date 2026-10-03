@@ -172,6 +172,14 @@ namespace tmpp::ui
                                     : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
     }
 
+    void HistoryChart::SetMaximum(double maximum)
+    {
+        // Zero or negative would divide by zero in the plotting arithmetic. One is the smallest
+        // meaningful axis and leaves the plot empty, which is the honest picture of no data.
+        m_maximum = (maximum > 0.0) ? maximum : 1.0;
+        _redraw();
+    }
+
     void HistoryChart::SetLineWidth(double width)
     {
         // Clamped rather than trusted: the value comes from the settings file, and a stroke of

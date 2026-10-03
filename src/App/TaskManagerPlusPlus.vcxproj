@@ -178,6 +178,7 @@
     <ClCompile Include="..\UI\Theming\Controls.cpp" />
     <ClCompile Include="..\UI\Charts\CoreGrid.cpp" />
     <ClCompile Include="..\UI\Views\CpuPage.cpp" />
+    <ClCompile Include="..\UI\Views\DiskPage.cpp" />
     <ClCompile Include="..\UI\Diagnostics.cpp" />
     <ClCompile Include="..\UI\Theming\Formatting.cpp">
     </ClCompile>

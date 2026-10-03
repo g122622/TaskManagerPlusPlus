@@ -49,7 +49,7 @@ namespace tmpp::ui
         static std::vector<SectionSpec> const sections{
             {L"CPU", L"\xE950", true},
             {L"Memory", L"\xEEA0", true},
-            {L"Disk 0 (C:)", L"\xEDA2", false},
+            {L"Disk 0 (C:)", L"\xEDA2", true},
             {L"Ethernet", L"\xE968", false},
             {L"GPU 0", L"\xE7F4", false},
         };
@@ -94,6 +94,13 @@ namespace tmpp::ui
             core::ChartStyle const& cpu = settings.ChartStyleFor(0);
             m_cpuPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, cpu.red, cpu.green, cpu.blue});
             m_cpuPage->SetLineWidth(cpu.ClampedLineWidth());
+        }
+
+        if (m_diskPage != nullptr)
+        {
+            core::ChartStyle const& disk = settings.ChartStyleFor(2);
+            m_diskPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, disk.red, disk.green, disk.blue});
+            m_diskPage->SetLineWidth(disk.ClampedLineWidth());
         }
 
         if (m_memoryPage != nullptr)
@@ -338,6 +345,20 @@ namespace tmpp::ui
             return;
         }
 
+        if (section == Section::Disk)
+        {
+            // Created once and reused, so reselecting the section does not rebuild its chart and
+            // flash it empty.
+            if (m_diskPage == nullptr)
+            {
+                m_diskPage = std::make_unique<DiskPage>(m_coordinator);
+            }
+            m_diskPage->SetDeviceLabel(m_diskLabel);
+            m_detailHost.Children().Append(m_diskPage->Root());
+            m_renderedVersion = 0;
+            return;
+        }
+
         if (section == Section::Memory)
         {
             // The memory page carries its own usage chart. Building only a details card
@@ -434,6 +455,11 @@ namespace tmpp::ui
         {
             m_cpuPage->Refresh();
         }
+        if (m_diskPage != nullptr && m_selected == Section::Disk)
+        {
+            m_diskPage->Refresh();
+        }
+
         if (m_memoryPage != nullptr && m_selected == Section::Memory)
         {
             m_memoryPage->Refresh();

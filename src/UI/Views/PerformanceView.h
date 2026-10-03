@@ -24,6 +24,7 @@
 #include "Core/SamplingCoordinator.h"
 #include "Core/Settings.h"
 #include "UI/Views/CpuPage.h"
+#include "UI/Views/DiskPage.h"
 #include "UI/Views/MemoryPage.h"
 #include "UI/Charts/Sparkline.h"
 
@@ -146,6 +147,12 @@ namespace tmpp::ui
 
         /// The Memory section's page. Retained for the same reason.
         std::unique_ptr<MemoryPage> m_memoryPage;
+
+        /// The disk page. Created on first selection and reused, so its chart is not rebuilt.
+        std::unique_ptr<DiskPage> m_diskPage;
+
+        /// The label the disk page's heading uses, taken from the sidebar row.
+        std::wstring m_diskLabel{L"0 (C:)"};
 
         /// Detail card for sections that have data but no dedicated page yet.
         winrt::Microsoft::UI::Xaml::Controls::Border m_detailsCard{nullptr};
