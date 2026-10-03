@@ -6,7 +6,10 @@
 // matter how long the application runs.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <map>
+#include <string>
 #include <vector>
 
 #include "Domain/RateMath.h"
@@ -28,6 +31,65 @@ namespace tmpp::domain
         CpuTotal = 0,
         MemoryUsed,
         Count,
+    };
+
+    /**
+     * @brief One disk's activity over the last interval.
+     */
+    struct DiskActivity
+    {
+        /// Bytes per second over the interval.
+        double readBytesPerSecond{0.0};
+        double writeBytesPerSecond{0.0};
+
+        /// Share of the interval spent servicing requests.
+        ///
+        /// Derived as the change in read plus write service time over the elapsed time. Using the
+        /// service times rather than wall-clock busy time means a device servicing overlapping
+        /// requests can exceed 100 percent, which is why it is clamped: the figure is a share of one
+        /// device's attention, and it cannot exceed all of it.
+        double activePercent{0.0};
+
+        /// Requests outstanding at the sample, which is a level rather than a total.
+        uint32_t queueDepth{0};
+
+        uint64_t capacityBytes{0};
+        std::string modelName;
+        std::string instanceName;
+        uint32_t deviceIndex{0};
+    };
+
+    /**
+     * @brief One network interface's activity over the last interval.
+     */
+    struct NetworkActivity
+    {
+        double receivedBytesPerSecond{0.0};
+        double sentBytesPerSecond{0.0};
+
+        uint64_t receiveLinkSpeedBps{0};
+        uint64_t transmitLinkSpeedBps{0};
+
+        std::string adapterName;
+        bool connected{false};
+        bool virtualAdapter{false};
+
+        /// Share of the link in use, as a percentage of the slower of the two directions. Zero
+        /// when the link speed is unknown, since a proportion needs a whole to be a proportion of.
+        [[nodiscard]] double UtilizationPercent() const noexcept
+        {
+            uint64_t const link = (receiveLinkSpeedBps < transmitLinkSpeedBps) ? receiveLinkSpeedBps
+                                                                               : transmitLinkSpeedBps;
+            if (link == 0)
+            {
+                return 0.0;
+            }
+            double const busier = (receivedBytesPerSecond > sentBytesPerSecond) ? receivedBytesPerSecond
+                                                                               : sentBytesPerSecond;
+            // The link speed is in bits and the byte counters in bytes, so the conversion is part of
+            // the comparison rather than an afterthought.
+            return std::clamp((busier * 8.0 * 100.0) / static_cast<double>(link), 0.0, 100.0);
+        }
     };
 
     /**
@@ -62,6 +124,21 @@ namespace tmpp::domain
         /// Rolling system-wide totals: process/thread/handle counts and uptime.
         platform::SystemTotals totals;
 
+        /// Per-device disk activity, with the rates already derived from the cumulative counters.
+        /// Empty until a baseline exists, and empty on a machine whose disks cannot report
+        /// performance data.
+        std::vector<DiskActivity> disks;
+
+        /// Network interfaces with their rates derived. Empty until a baseline exists.
+        std::vector<NetworkActivity> networks;
+
+        /// The GPU's utilisation and memory. Its available flag is false when the counters could not
+        /// be read, so the row shows a blank rather than a zero.
+        platform::SystemGpuInfo gpu;
+
+        /// Mean active share across the devices that reported a rate this sample.
+        double diskActivePercent{0.0};
+
         /// True until a baseline exists, so the UI can show a blank rather than 0.
         bool ratesUnavailable{true};
     };
@@ -73,6 +150,19 @@ namespace tmpp::domain
     {
         std::vector<double> cpuTotal;
         std::vector<double> memoryUsed;
+
+        /// Aggregate disk throughput across every device, in bytes per second. Two series rather than
+        /// one because reads and writes are separately interesting, and the original plots them as
+        /// separate lines.
+        std::vector<double> diskReadBytesPerSecond;
+        std::vector<double> diskWriteBytesPerSecond;
+
+        /// Aggregate network throughput, in bytes per second.
+        std::vector<double> networkReceiveBytesPerSecond;
+        std::vector<double> networkSendBytesPerSecond;
+
+        /// GPU utilisation, as a percentage.
+        std::vector<double> gpuUtilization;
 
         /// One series per logical processor, in processor order. Empty when the
         /// per-processor probe is unavailable.
@@ -163,6 +253,26 @@ namespace tmpp::domain
          */
         void SetMemoryComposition(platform::SystemMemoryComposition composition);
 
+        /**
+         * @brief Records the hardware counters for the current sample.
+         *
+         * Takes the cumulative disk and network counters and derives the rates by differencing against
+         * the previous sample, exactly as the CPU figures are derived. Passing the raw counters rather
+         * than pre-computed rates is what keeps every series on the same clock and the same interval:
+         * a platform that did its own differencing would be measuring a different span.
+         *
+         * The GPU counters are already rates, so they are recorded as given.
+         *
+         * @param disks Cumulative disk counters.
+         * @param networks Cumulative network counters.
+         * @param gpu The GPU reading.
+         * @param capturedAt The same timestamp passed to Update, so the interval matches.
+         */
+        void SetHardwareCounters(std::vector<platform::SystemDiskCounters> const& disks,
+                                 std::vector<platform::SystemNetworkCounters> const& networks,
+                                 platform::SystemGpuInfo const& gpu,
+                                 uint64_t capturedAt);
+
         [[nodiscard]] SystemView const& Latest() const noexcept { return m_latest; }
 
         /// Copies the charted history, oldest sample first.
@@ -183,6 +293,12 @@ namespace tmpp::domain
         RingBuffer<double> m_cpuHistory;
         RingBuffer<double> m_memoryHistory;
 
+        RingBuffer<double> m_diskReadHistory;
+        RingBuffer<double> m_diskWriteHistory;
+        RingBuffer<double> m_networkReceiveHistory;
+        RingBuffer<double> m_networkSendHistory;
+        RingBuffer<double> m_gpuHistory;
+
         /// One ring per logical processor. Empty when the per-processor probe is
         /// unavailable, in which case no per-core chart can be drawn and the UI says
         /// so rather than showing a row of flat lines.
@@ -202,5 +318,15 @@ namespace tmpp::domain
         std::vector<platform::ProcessorCpuTimes> m_previousPerProcessor;
         uint64_t m_previousCapturedAt{0};
         bool m_hasBaseline{false};
+
+        /// Cumulative disk counters from the previous sample, keyed by instance name so a device is
+        /// matched to itself rather than to whatever position it happened to hold last time.
+        std::map<std::string, platform::SystemDiskCounters> m_previousDisks;
+
+        /// Cumulative network counters from the previous sample, keyed by adapter name.
+        std::map<std::string, platform::SystemNetworkCounters> m_previousNetworks;
+
+        uint64_t m_previousHardwareCapturedAt{0};
+        bool m_hasHardwareBaseline{false};
     };
 }

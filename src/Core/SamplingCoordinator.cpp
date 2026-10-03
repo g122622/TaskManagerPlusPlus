@@ -67,6 +67,8 @@ namespace tmpp::core
 
         // The live speed counter is a percentage of the rated clock, so the probe
         // cannot be built before the topology has been read.
+        m_hardwareProbe = std::make_unique<platform::HardwareCounterProbe>();
+
         m_speedProbe = std::make_unique<platform::ProcessorSpeedProbe>(_processorInfo().info.baseClockMhz);
         if (!m_speedProbe->Available())
         {
@@ -256,6 +258,43 @@ namespace tmpp::core
         {
             std::lock_guard const lock(m_mutex);
             m_systemModel.SetTotals(totals.Value());
+        }
+
+        // --- Disk, network and GPU.
+        //
+        // Collected together because they share one interval: the disk and network rates are derived
+        // by differencing against the previous round, so they must be told the same timestamp the CPU
+        // and memory figures were given. Passing a separately-read clock here would put these series
+        // on a slightly different interval from the rest of the page.
+        //
+        // Each source is independent: a machine without GPU counters still reports its disks, and a
+        // failure in one must not discard the others.
+        if (m_hardwareProbe != nullptr)
+        {
+            std::vector<platform::SystemDiskCounters> disks;
+            std::vector<platform::SystemNetworkCounters> networks;
+            platform::SystemGpuInfo gpu;
+
+            if (auto const read = m_hardwareProbe->ReadDisks(); read.Success())
+            {
+                disks = read.Value();
+                status.disksAvailable = m_hardwareProbe->DisksAvailable();
+            }
+
+            if (auto const read = m_hardwareProbe->ReadNetwork(); read.Success())
+            {
+                networks = read.Value();
+                status.networksAvailable = m_hardwareProbe->NetworkAvailable();
+            }
+
+            if (auto const read = m_hardwareProbe->ReadGpu(); read.Success())
+            {
+                gpu = read.Value();
+                status.gpuAvailable = m_hardwareProbe->GpuAvailable();
+            }
+
+            std::lock_guard const lock(m_mutex);
+            m_systemModel.SetHardwareCounters(disks, networks, gpu, now);
         }
 
         // --- Failure accounting. Only failures are counted; a fully successful round

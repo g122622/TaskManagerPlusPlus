@@ -10,7 +10,12 @@ namespace tmpp::domain
         : m_logicalProcessorCount(logicalProcessorCount == 0 ? 1 : logicalProcessorCount),
           m_historyCapacity(sampling::HistoryCapacity(intervalMs, historySeconds)),
           m_cpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_memoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+          m_memoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
+          m_diskReadHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
+          m_diskWriteHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
+          m_networkReceiveHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
+          m_networkSendHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
+          m_gpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
     {
         m_latest.perProcessorCpuPercent.reserve(m_logicalProcessorCount);
 
@@ -191,11 +196,157 @@ namespace tmpp::domain
         m_latest.memoryComposition = composition;
     }
 
+    void SystemModel::SetHardwareCounters(std::vector<platform::SystemDiskCounters> const& disks,
+                                          std::vector<platform::SystemNetworkCounters> const& networks,
+                                          platform::SystemGpuInfo const& gpu,
+                                          uint64_t capturedAt)
+    {
+        double const elapsedMs = m_hasHardwareBaseline
+                                     ? platform::MillisecondsBetween(m_previousHardwareCapturedAt, capturedAt)
+                                     : 0.0;
+        bool const canDerive = m_hasHardwareBaseline && elapsedMs > 0.0;
+        double const elapsedSeconds = elapsedMs / 1000.0;
+
+        double totalReadBps = 0.0;
+        double totalWriteBps = 0.0;
+        double totalActive = 0.0;
+        uint32_t activeDevices = 0;
+
+        std::vector<DiskActivity> diskActivities;
+        diskActivities.reserve(disks.size());
+
+        // Devices are matched by instance name rather than by position. The enumeration order is not
+        // guaranteed to be stable between samples, and matching by index would attribute one device's
+        // traffic to another the moment the order changed.
+        for (platform::SystemDiskCounters const& disk : disks)
+        {
+            DiskActivity activity;
+            activity.capacityBytes = disk.capacityBytes;
+            activity.modelName = disk.modelName;
+            activity.instanceName = disk.instanceName;
+            activity.deviceIndex = disk.deviceIndex;
+            activity.queueDepth = disk.queueDepth;
+
+            auto const previous = m_previousDisks.find(disk.instanceName);
+            if (canDerive && previous != m_previousDisks.end())
+            {
+                platform::SystemDiskCounters const& before = previous->second;
+
+                // A counter that went backwards means the device was reset or replaced. Re-baselining
+                // is the honest response; differencing would produce a negative rate or, once
+                // discarded, a spike.
+                bool const comparable = disk.readBytes >= before.readBytes && disk.writeBytes >= before.writeBytes &&
+                                        disk.readTimeMs >= before.readTimeMs && disk.writeTimeMs >= before.writeTimeMs;
+
+                if (comparable)
+                {
+                    activity.readBytesPerSecond =
+                        static_cast<double>(disk.readBytes - before.readBytes) / elapsedSeconds;
+                    activity.writeBytesPerSecond =
+                        static_cast<double>(disk.writeBytes - before.writeBytes) / elapsedSeconds;
+
+                    // Active time is the change in service time over the elapsed wall clock. A device
+                    // servicing overlapping requests can exceed the interval, which is why it is
+                    // clamped: the figure is a share of one device's attention and cannot exceed all
+                    // of it.
+                    double const serviceMs = static_cast<double>((disk.readTimeMs - before.readTimeMs) +
+                                                                 (disk.writeTimeMs - before.writeTimeMs));
+                    activity.activePercent = std::clamp((serviceMs / elapsedMs) * 100.0, 0.0, 100.0);
+
+                    totalReadBps += activity.readBytesPerSecond;
+                    totalWriteBps += activity.writeBytesPerSecond;
+                    totalActive += activity.activePercent;
+                    ++activeDevices;
+                }
+            }
+
+            diskActivities.push_back(std::move(activity));
+        }
+
+        // The device list is remembered whole so the next sample can difference against it.
+        m_previousDisks.clear();
+        for (platform::SystemDiskCounters const& disk : disks)
+        {
+            m_previousDisks[disk.instanceName] = disk;
+        }
+
+        double totalReceiveBps = 0.0;
+        double totalSendBps = 0.0;
+
+        std::vector<NetworkActivity> networkActivities;
+        networkActivities.reserve(networks.size());
+
+        // Interfaces are matched by name for the same reason devices are.
+        for (platform::SystemNetworkCounters const& iface : networks)
+        {
+            NetworkActivity activity;
+            activity.receiveLinkSpeedBps = iface.receiveLinkSpeedBps;
+            activity.transmitLinkSpeedBps = iface.transmitLinkSpeedBps;
+            activity.adapterName = iface.adapterName;
+            activity.connected = iface.connected;
+            activity.virtualAdapter = iface.virtualAdapter;
+
+            auto const previous = m_previousNetworks.find(iface.adapterName);
+            if (canDerive && previous != m_previousNetworks.end())
+            {
+                platform::SystemNetworkCounters const& before = previous->second;
+
+                bool const comparable = iface.receivedBytes >= before.receivedBytes &&
+                                        iface.sentBytes >= before.sentBytes;
+                if (comparable)
+                {
+                    activity.receivedBytesPerSecond =
+                        static_cast<double>(iface.receivedBytes - before.receivedBytes) / elapsedSeconds;
+                    activity.sentBytesPerSecond =
+                        static_cast<double>(iface.sentBytes - before.sentBytes) / elapsedSeconds;
+
+                    totalReceiveBps += activity.receivedBytesPerSecond;
+                    totalSendBps += activity.sentBytesPerSecond;
+                }
+            }
+
+            networkActivities.push_back(std::move(activity));
+        }
+
+        m_previousNetworks.clear();
+        for (platform::SystemNetworkCounters const& iface : networks)
+        {
+            m_previousNetworks[iface.adapterName] = iface;
+        }
+
+        // The history rings advance whether or not a rate could be derived, so every series keeps the
+        // same length and the charts share one time axis.
+        m_diskReadHistory.Push(canDerive ? totalReadBps : 0.0);
+        m_diskWriteHistory.Push(canDerive ? totalWriteBps : 0.0);
+        m_networkReceiveHistory.Push(canDerive ? totalReceiveBps : 0.0);
+        m_networkSendHistory.Push(canDerive ? totalSendBps : 0.0);
+
+        // The GPU counters are already rates, so nothing is differenced. A reading that could not be
+        // taken pushes a zero for the same reason the others do: the axis has to stay consistent.
+        m_gpuHistory.Push(gpu.available ? gpu.utilizationPercent : 0.0);
+
+        // The aggregate figures are published alongside the per-device detail, so a chart can plot
+        // the machine's total while the sidebar names each device.
+        m_latest.disks = std::move(diskActivities);
+        m_latest.networks = std::move(networkActivities);
+        m_latest.gpu = gpu;
+        m_latest.diskActivePercent = (activeDevices > 0) ? (totalActive / static_cast<double>(activeDevices)) : 0.0;
+
+        m_previousHardwareCapturedAt = capturedAt;
+        m_hasHardwareBaseline = true;
+    }
+
     HistoryView SystemModel::History() const
     {
         HistoryView view;
         view.cpuTotal = m_cpuHistory.ToVector();
         view.memoryUsed = m_memoryHistory.ToVector();
+
+        view.diskReadBytesPerSecond = m_diskReadHistory.ToVector();
+        view.diskWriteBytesPerSecond = m_diskWriteHistory.ToVector();
+        view.networkReceiveBytesPerSecond = m_networkReceiveHistory.ToVector();
+        view.networkSendBytesPerSecond = m_networkSendHistory.ToVector();
+        view.gpuUtilization = m_gpuHistory.ToVector();
 
         // The window length travels with the data, so no chart can be left without it.
         view.windowSamples = m_historyCapacity;

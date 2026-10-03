@@ -15,6 +15,7 @@
 #include "Core/Settings.h"
 #include "Domain/ProcessModel.h"
 #include "Domain/SystemModel.h"
+#include "Platform/Windows/HardwareCounterProbe.h"
 #include "Platform/Windows/ProcessorSpeedProbe.h"
 #include "Platform/Windows/WindowsProcessProbe.h"
 #include "Platform/Windows/WindowsSystemProbe.h"
@@ -37,6 +38,12 @@ namespace tmpp::core
         /// False when the speed counter is missing, which is normal on some systems
         /// and is not counted towards the failure streak.
         bool processorSpeedReadSucceeded{false};
+
+        /// Whether each hardware counter source was readable this round. A machine without GPU
+        /// counters is normal rather than a failure, so these are reported rather than counted.
+        bool disksAvailable{false};
+        bool networksAvailable{false};
+        bool gpuAvailable{false};
 
         /// Consecutive failures, used to throttle logging in the caller.
         uint32_t consecutiveFailures{0};
@@ -163,6 +170,10 @@ namespace tmpp::core
         /// Live clock speed. Declared after the system probe because it is
         /// constructed with the rated clock that probe reads.
         std::unique_ptr<platform::ProcessorSpeedProbe> m_speedProbe;
+
+        /// Disk, network and GPU counters. Opened once and reused: opening a performance-counter
+        /// query enumerates the counter set and costs far more than collecting from it.
+        std::unique_ptr<platform::HardwareCounterProbe> m_hardwareProbe;
 
         domain::ProcessModel m_processModel;
         domain::SystemModel m_systemModel;

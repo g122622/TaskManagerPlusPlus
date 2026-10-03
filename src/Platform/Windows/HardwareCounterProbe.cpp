@@ -13,7 +13,7 @@
 #include <winioctl.h>
 
 #include <dxgi.h>
-#include <winrt/base.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <cmath>
@@ -565,19 +565,19 @@ namespace tmpp::platform
         // The discrete adapter is preferred over the integrated one, because on a machine that has
         // both it is the one whose load is worth showing. DXGI enumerates in that order on such a
         // machine, but the choice is made explicitly rather than relied upon.
-        winrt::com_ptr<IDXGIFactory1> factory;
-        if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), factory.put_void())))
+        Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+        if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), &factory)))
         {
             return;
         }
 
-        winrt::com_ptr<IDXGIAdapter1> best;
+        Microsoft::WRL::ComPtr<IDXGIAdapter1> best;
         DXGI_ADAPTER_DESC1 bestDesc{};
 
         for (UINT index = 0;; ++index)
         {
-            winrt::com_ptr<IDXGIAdapter1> adapter;
-            if (factory->EnumAdapters1(index, adapter.put()) == DXGI_ERROR_NOT_FOUND)
+            Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+            if (factory->EnumAdapters1(index, &adapter) == DXGI_ERROR_NOT_FOUND)
             {
                 break;
             }
