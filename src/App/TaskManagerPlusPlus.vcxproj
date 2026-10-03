@@ -176,6 +176,7 @@
     <ClCompile Include="..\UI\ProcessesView.cpp" />
     <ClCompile Include="..\UI\ProcessListModel.cpp" />
     <ClCompile Include="..\UI\RowHost.cpp" />
+    <ClCompile Include="..\UI\Sparkline.cpp" />
   </ItemGroup>
 
   <ItemGroup>

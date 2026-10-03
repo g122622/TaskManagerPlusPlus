@@ -1,9 +1,9 @@
 // Main application window.
 //
-// Owns the navigation shell, the pages, and a UI timer that pulls new samples.
-// The sampling itself happens on the sampler thread; this timer only refreshes
-// what is on screen, and each page's Refresh() is a no-op when the sampling thread
-// has not published anything new.
+// Owns the navigation shell, the pages, and a UI timer that pulls new samples. The
+// sampling itself happens on the sampler thread; this timer only refreshes what is on
+// screen, and each page's Refresh() is a no-op when the sampling thread has not
+// published anything new.
 #pragma once
 
 #include "WinRT.h"
@@ -13,6 +13,7 @@
 #include <winrt/Microsoft.UI.Dispatching.h>
 
 #include "Core/SamplingCoordinator.h"
+#include "Core/Settings.h"
 #include "UI/PerformanceView.h"
 #include "UI/ProcessesView.h"
 
@@ -40,12 +41,25 @@ namespace tmpp
         void _updateStatusBar();
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_rootGrid{nullptr};
+
+        /// Reserves the region the window buttons occupy. This is the element
+        /// nominated as the title bar, so no page content is drawn under them.
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_titleBarSpacer{nullptr};
+
         winrt::Microsoft::UI::Xaml::Controls::NavigationView m_navigation{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_contentHost{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_statusText{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::InfoBar m_permissionBar{nullptr};
 
         winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer m_refreshTimer{nullptr};
+
+        /// Kept so window state can be saved on close. Null when the storage paths
+        /// could not be resolved, in which case nothing is persisted.
+        std::unique_ptr<core::SettingsStore> m_settingsStore;
+
+        /// Settings as loaded, so saving the window placement on close does not discard
+        /// the user's other choices. Save writes the whole document.
+        core::Settings m_loadedSettings;
 
         /// The application-wide sampling owner. Declared before the views so it
         /// outlives them.

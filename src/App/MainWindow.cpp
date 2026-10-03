@@ -11,17 +11,15 @@
 #include "UI/Theme.h"
 
 #include <winrt/Microsoft.UI.Dispatching.h>
+#include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 
 #include <chrono>
 #include <string>
 
-using winrt::Microsoft::UI::Xaml::Controls::ContentDialog;
-using winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton;
-using winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult;
+using winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition;
 using winrt::Microsoft::UI::Xaml::Controls::FontIcon;
-using winrt::Microsoft::UI::Xaml::Controls::Frame;
 using winrt::Microsoft::UI::Xaml::Controls::Grid;
 using winrt::Microsoft::UI::Xaml::Controls::InfoBar;
 using winrt::Microsoft::UI::Xaml::Controls::InfoBarSeverity;
@@ -29,27 +27,37 @@ using winrt::Microsoft::UI::Xaml::Controls::NavigationView;
 using winrt::Microsoft::UI::Xaml::Controls::NavigationViewBackButtonVisible;
 using winrt::Microsoft::UI::Xaml::Controls::NavigationViewItem;
 using winrt::Microsoft::UI::Xaml::Controls::NavigationViewPaneDisplayMode;
-using winrt::Microsoft::UI::Xaml::Controls::ScrollViewer;
-using winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility;
+using winrt::Microsoft::UI::Xaml::Controls::RowDefinition;
 using winrt::Microsoft::UI::Xaml::Controls::StackPanel;
 using winrt::Microsoft::UI::Xaml::Controls::TextBlock;
+using winrt::Microsoft::UI::Xaml::GridLengthHelper;
+using winrt::Microsoft::UI::Xaml::GridUnitType;
 using winrt::Microsoft::UI::Xaml::ThicknessHelper;
+using winrt::Microsoft::UI::Xaml::VerticalAlignment;
 
 namespace tmpp
 {
     namespace
     {
         /// How often the UI polls the sampler for a new published snapshot. This is
-        /// independent of the sampling interval: the poll is cheap and only reacts
-        /// when something new has been published, so it can be frequent enough to
-        /// feel immediate without doing any work.
+        /// independent of the sampling interval: the poll is cheap and only reacts when
+        /// something new has been published, so it can be frequent enough to feel
+        /// immediate without doing any work.
         constexpr auto UI_REFRESH_INTERVAL = std::chrono::milliseconds(100);
 
         /// Directory name under %LOCALAPPDATA% and the settings file name.
-        /// Narrow strings because PathService takes std::string_view: the
-        /// application works in UTF-8 internally (see Platform/Windows/WindowsString.h).
+        /// Narrow strings because PathService takes std::string_view: the application
+        /// works in UTF-8 internally (see Platform/Windows/WindowsString.h).
         constexpr char const* APPLICATION_NAME = "TaskManagerPlusPlus";
         constexpr char const* SETTINGS_FILE_NAME = "settings.json";
+
+        /// Height of the custom title bar strip.
+        ///
+        /// The window buttons occupy a fixed region at the top right. Reserving its
+        /// height here is the equivalent of a CSS calc(): the strip is out of the flow
+        /// of the content rows below it, and nothing drawn there can land under the
+        /// buttons. Without this the CPU percentage was drawn on top of them.
+        constexpr double TITLE_BAR_HEIGHT = 40.0;
     }
 
     MainWindow::MainWindow()
@@ -59,12 +67,12 @@ namespace tmpp
         Title(L"TaskManagerPlusPlus");
 
         // --- Settings and paths ------------------------------------------------
-        core::Settings m_settings;
         auto const paths = core::PathService::Create(APPLICATION_NAME, SETTINGS_FILE_NAME);
         if (paths.Success())
         {
             core::SettingsStore store{paths.Value().SettingsFile()};
-            m_settings = store.Load();
+            m_loadedSettings = store.Load();
+            m_settingsStore = std::make_unique<core::SettingsStore>(paths.Value().SettingsFile());
             if (store.DamagedFilePreserved())
             {
                 diag::LogStartup("MainWindow: settings file was damaged and preserved as .bak");
@@ -74,15 +82,17 @@ namespace tmpp
         {
             diag::LogStartup("MainWindow: could not resolve storage paths; using defaults");
         }
+
+        core::Settings const& settings = m_loadedSettings;
         diag::LogStartup("MainWindow: settings loaded");
 
         // --- Sampling ----------------------------------------------------------
-        m_coordinator = std::make_unique<core::SamplingCoordinator>(m_settings.intervalMs);
+        m_coordinator = std::make_unique<core::SamplingCoordinator>(settings.intervalMs);
         diag::LogStartup("MainWindow: coordinator constructed");
 
         // The shell is built before the pages, because selecting a navigation item
-        // during construction needs the content host to already exist. Selecting a
-        // page while the views are still null is handled by _selectPage.
+        // during construction needs the content host to already exist. Selecting a page
+        // while the views are still null is handled by _selectPage.
         _buildContent();
         diag::LogStartup("MainWindow: content built");
 
@@ -96,14 +106,52 @@ namespace tmpp
 
         _startRefreshTimer();
 
-        // Restore the remembered window size. Position is applied by the platform
-        // when it is positive, which is why "not yet decided" is stored as negative.
-        // TODO: window position restoration is not applied yet; only the size is.
-        if (m_settings.windowWidth > 0 && m_settings.windowHeight > 0)
+        // Remember the window's size and position for the next launch. Recorded on
+        // close rather than continuously, so a crash cannot leave a half-written
+        // placement behind.
+        Closed([this](winrt::Windows::Foundation::IInspectable const&,
+                      winrt::Microsoft::UI::Xaml::WindowEventArgs const&) {
+            if (m_settingsStore == nullptr)
+            {
+                return;
+            }
+
+            if (auto const appWindow = this->AppWindow())
+            {
+                auto const size = appWindow.Size();
+                auto const position = appWindow.Position();
+
+                // Start from what was loaded, so saving the placement does not discard
+                // every other setting. Save writes the whole document.
+                core::Settings updated = m_loadedSettings;
+                updated.windowWidth = size.Width;
+                updated.windowHeight = size.Height;
+                updated.windowX = position.X;
+                updated.windowY = position.Y;
+
+                // A failure here is not worth interrupting shutdown for; the defaults
+                // simply apply next time.
+                if (auto const saved = m_settingsStore->Save(updated); !saved.Success())
+                {
+                    diag::LogStartup("MainWindow: could not save window placement");
+                }
+            }
+        });
+
+        // Restore the remembered window size and position. A position of -1 means the
+        // window has not been moved yet, which is why it is stored signed.
+        if (settings.windowWidth > 0 && settings.windowHeight > 0)
         {
             if (auto const appWindow = this->AppWindow())
             {
-                appWindow.Resize(winrt::Windows::Graphics::SizeInt32{m_settings.windowWidth, m_settings.windowHeight});
+                appWindow.Resize(winrt::Windows::Graphics::SizeInt32{settings.windowWidth, settings.windowHeight});
+
+                if (settings.windowX >= 0 && settings.windowY >= 0)
+                {
+                    winrt::Windows::Graphics::PointInt32 const position{settings.windowX, settings.windowY};
+                    appWindow.Move(position);
+                    diag::LogStartup("MainWindow: window position restored");
+                }
             }
         }
 
@@ -120,8 +168,8 @@ namespace tmpp
     void MainWindow::_selectPage(int32_t index)
     {
         // Selecting a navigation item during shell construction arrives before the
-        // pages exist, so it is ignored; _createPages selects the default page once
-        // the views are ready.
+        // pages exist, so it is ignored; _createPages selects the default page once the
+        // views are ready.
         if (m_contentHost == nullptr || m_processesView == nullptr || m_performanceView == nullptr)
         {
             return;
@@ -170,6 +218,7 @@ namespace tmpp
         m_navigation.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
         m_navigation.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
         m_navigation.OpenPaneLength(ui::metrics::NAVIGATION_PANE_WIDTH);
+        m_navigation.IsTitleBarAutoPaddingEnabled(false);
 
         auto addItem = [this](wchar_t const* label, wchar_t const* glyph) {
             NavigationViewItem item;
@@ -218,17 +267,18 @@ namespace tmpp
         // --- Status bar ---------------------------------------------------------
         Grid statusBar = Grid();
         statusBar.Height(ui::metrics::STATUS_BAR_HEIGHT);
-        statusBar.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, ui::metrics::PAGE_MARGIN, 0.0));
+        statusBar.Padding(
+            ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, ui::metrics::PAGE_MARGIN, 0.0));
         statusBar.Background(ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
 
         m_statusText = ui::controls::MakeText(L"", 12.0, true);
-        m_statusText.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        m_statusText.VerticalAlignment(VerticalAlignment::Center);
         statusBar.Children().Append(m_statusText);
 
         // --- Permission notice --------------------------------------------------
         // Shown only when a capability is missing, so a fully privileged run shows
-        // nothing. A modal dialog would be wrong here: the application still works,
-        // it just shows less.
+        // nothing. A modal dialog would be wrong here: the application still works, it
+        // just shows less.
         m_permissionBar = InfoBar();
         m_permissionBar.Severity(InfoBarSeverity::Informational);
         m_permissionBar.Title(L"Limited data");
@@ -239,20 +289,48 @@ namespace tmpp
         m_permissionBar.IsClosable(true);
 
         // --- Assembly -----------------------------------------------------------
+        //
+        // Three rows: a fixed title bar strip, the page, then the status bar. The page
+        // row is a star, which is what makes it absorb all remaining height. With all
+        // three rows left at their default Auto height the page row sized to its
+        // content, so charts collapsed to nothing and the details card was pushed out
+        // of view behind a scrollbar.
         Grid contentColumn = Grid();
-        contentColumn.RowDefinitions().Append(winrt::Microsoft::UI::Xaml::Controls::RowDefinition{});
-        contentColumn.RowDefinitions().Append(winrt::Microsoft::UI::Xaml::Controls::RowDefinition{});
-        contentColumn.RowDefinitions().Append(winrt::Microsoft::UI::Xaml::Controls::RowDefinition{});
+
+        RowDefinition titleBarRow;
+        titleBarRow.Height(winrt::Microsoft::UI::Xaml::GridLength{TITLE_BAR_HEIGHT});
+        contentColumn.RowDefinitions().Append(titleBarRow);
+
+        RowDefinition pageRow;
+        pageRow.Height(winrt::Microsoft::UI::Xaml::GridLength{1.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star});
+        contentColumn.RowDefinitions().Append(pageRow);
+
+        RowDefinition statusRow;
+        statusRow.Height(winrt::Microsoft::UI::Xaml::GridLength{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Auto});
+        contentColumn.RowDefinitions().Append(statusRow);
+
+        // The title bar strip. It is empty on purpose: its job is to reserve the space
+        // the window buttons occupy so no page content is ever drawn underneath them.
+        m_titleBarSpacer = Grid();
+        Grid::SetRow(m_titleBarSpacer, 0);
+        contentColumn.Children().Append(m_titleBarSpacer);
 
         m_contentHost = Grid();
-        Grid::SetRow(m_contentHost, 0);
+        Grid::SetRow(m_contentHost, 1);
         contentColumn.Children().Append(m_contentHost);
 
-        Grid::SetRow(m_permissionBar, 1);
-        contentColumn.Children().Append(m_permissionBar);
+        // The permission bar and the status bar share the last row, the notice above
+        // the status line, so neither shifts the page when it appears.
+        Grid bottomStack = Grid();
+        bottomStack.RowDefinitions().Append(RowDefinition{});
+        bottomStack.RowDefinitions().Append(RowDefinition{});
+        Grid::SetRow(m_permissionBar, 0);
+        bottomStack.Children().Append(m_permissionBar);
+        Grid::SetRow(statusBar, 1);
+        bottomStack.Children().Append(statusBar);
 
-        Grid::SetRow(statusBar, 2);
-        contentColumn.Children().Append(statusBar);
+        Grid::SetRow(bottomStack, 2);
+        contentColumn.Children().Append(bottomStack);
 
         m_navigation.Content(contentColumn);
 
@@ -262,10 +340,14 @@ namespace tmpp
 
         Content(m_rootGrid);
 
-        // Extend into the title bar and make the navigation pane the drag region,
-        // matching the Windows 11 Task Manager chrome.
+        // Extend into the title bar and nominate the strip as the drag region. The
+        // navigation view is not used as the title bar because its own layout would
+        // then be consulted for the button cut-out, which is what put the CPU readout
+        // under the window buttons.
         ExtendsContentIntoTitleBar(true);
-        SetTitleBar(m_navigation);
+        SetTitleBar(m_titleBarSpacer);
+        AppWindow().TitleBar().PreferredHeightOption(
+            winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
 
         _updateStatusBar();
     }
@@ -277,8 +359,8 @@ namespace tmpp
         m_refreshTimer.Interval(UI_REFRESH_INTERVAL);
         m_refreshTimer.IsRepeating(true);
         m_refreshTimer.Tick([this](auto const&, auto const&) {
-            // Each page's Refresh is a no-op when nothing new was published, so this
-            // can run frequently without cost.
+            // Each page's Refresh is a no-op when nothing new was published, so this can
+            // run frequently without cost.
             if (m_activeProcessesView != nullptr)
             {
                 m_activeProcessesView->Refresh();

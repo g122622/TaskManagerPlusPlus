@@ -16,6 +16,7 @@ using winrt::Microsoft::UI::Xaml::Controls::StackPanel;
 using winrt::Microsoft::UI::Xaml::Controls::TextBlock;
 using winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs;
 using winrt::Microsoft::UI::Xaml::GridLengthHelper;
+using winrt::Microsoft::UI::Xaml::GridUnitType;
 using winrt::Microsoft::UI::Xaml::HorizontalAlignment;
 using winrt::Microsoft::UI::Xaml::ThicknessHelper;
 using winrt::Microsoft::UI::Xaml::VerticalAlignment;
@@ -98,9 +99,17 @@ namespace tmpp::ui
     {
         m_root = Grid();
         m_root.Padding(ThicknessHelper::FromLengths(metrics::PAGE_MARGIN, 12.0, metrics::PAGE_MARGIN, 8.0));
+
+        // Two fixed rows (toolbar, column headers) and a star row for the list. The
+        // star is what gives the row host a definite height to fill; with an Auto row
+        // the list would size to its content and the virtualisation window would be
+        // wrong.
         m_root.RowDefinitions().Append(RowDefinition{}); // toolbar
         m_root.RowDefinitions().Append(RowDefinition{}); // column headers
-        m_root.RowDefinitions().Append(RowDefinition{}); // rows
+
+        RowDefinition listRow;
+        listRow.Height(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
+        m_root.RowDefinitions().Append(listRow);
 
         // --- Toolbar -----------------------------------------------------------
         StackPanel toolbar;
