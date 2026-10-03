@@ -12,7 +12,7 @@
 #include "Domain/RateMath.h"
 #include "Domain/RingBuffer.h"
 #include "Domain/SamplingConfig.h"
-#include "Platform/Windows/WindowsSystemProbe.h"
+#include "Platform/SystemTypes.h"
 
 namespace tmpp::domain
 {

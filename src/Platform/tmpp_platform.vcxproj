@@ -75,7 +75,9 @@
 
   <ItemGroup>
     <ClInclude Include="Clock.h" />
+    <ClInclude Include="ProcessTypes.h" />
     <ClInclude Include="Result.h" />
+    <ClInclude Include="SystemTypes.h" />
     <ClInclude Include="Windows\NtdllApi.h" />
     <ClInclude Include="Windows\WindowsProcessProbe.h" />
     <ClInclude Include="Windows\WindowsString.h" />

@@ -25,7 +25,7 @@
 
 #include "Domain/RateMath.h"
 #include "Domain/SamplingConfig.h"
-#include "Platform/Windows/WindowsProcessProbe.h"
+#include "Platform/ProcessTypes.h"
 
 namespace tmpp::domain
 {
