@@ -1,0 +1,52 @@
+# Build outputs
+build/
+dist/
+out/
+bin/
+obj/
+packages/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.aps
+*.ipch
+*.ilk
+*.pdb
+*.idb
+
+# CMake / vcpkg
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+vcpkg_installed/
+
+# Compiled artefacts
+*.exe
+*.dll
+*.lib
+*.exp
+*.obj
+*.o
+*.xbf
+*.pri
+*.winmd
+
+# Logs and diagnostics produced at runtime
+startup.log
+startup-error.log
+exitcode.txt
+
+# Editor / tooling
+.claude/
+.cache/
+compile_commands.json
+
+# OS
+Thumbs.db
+desktop.ini

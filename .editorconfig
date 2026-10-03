@@ -1,0 +1,39 @@
+# EditorConfig: https://editorconfig.org
+# Keeps editors consistent with .clang-format and .gitattributes.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cpp,h,idl}]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+
+[*.{json,yml,yaml,xml,resw}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = false
+
+# Windows-native project files use CRLF and tabs so Visual Studio round-trips
+# them without churn.
+[*.{sln,vcxproj,vcxproj.filters,props,targets}]
+end_of_line = crlf
+indent_style = tab
+indent_size = 2
+
+[*.{bat,cmd}]
+end_of_line = crlf
+
+[*.{ps1,psm1}]
+end_of_line = crlf
+indent_style = space
+indent_size = 4

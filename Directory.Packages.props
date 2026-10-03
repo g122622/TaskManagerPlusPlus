@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Windows App SDK 2.x ships as a metapackage that pulls component packages
+         (Base / Foundation / WinUI / Runtime) whose versions drift apart. With
+         version 2.4.0 the resolved Microsoft.UI.Input.dll fail-fasts at startup
+         (0xC0000602) even for a plain Window. The 1.8 line ships every component
+         in lockstep and is the current stable servicing branch. -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageVersion Include="Microsoft.Windows.CppWinRT" Version="2.0.240405.15" />
+
+    <!-- Build tooling -->
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+
+    <!-- Charts (used from M1-5 onwards) -->
+    <PackageVersion Include="Microsoft.Graphics.Win2D" Version="1.3.2" />
+  </ItemGroup>
+</Project>

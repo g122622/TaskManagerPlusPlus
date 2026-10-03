@@ -1,0 +1,32 @@
+# Line-ending policy.
+#
+# The repository stores LF for text files, which keeps diffs clean and avoids
+# churn when the same file is edited on different machines. Only the file types
+# that native Windows tooling rewrites (Visual Studio project files and batch
+# scripts) are stored with CRLF; Visual Studio rewrites those itself and would
+# otherwise produce spurious diffs on every save.
+
+* text=auto eol=lf
+
+# Windows-native project and build files.
+*.sln             text eol=crlf
+*.vcxproj         text eol=crlf
+*.vcxproj.filters text eol=crlf
+*.props           text eol=crlf
+*.targets         text eol=crlf
+*.bat             text eol=crlf
+*.cmd             text eol=crlf
+*.resw            text eol=crlf
+
+# Binary assets must never be line-ending converted.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.gif  binary
+*.dll  binary
+*.exe  binary
+*.lib  binary
+*.pdb  binary
+*.pri  binary
+*.xbf  binary
