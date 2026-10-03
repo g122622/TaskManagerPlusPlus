@@ -45,6 +45,10 @@ namespace tmpp::platform
         constexpr wchar_t const* GPU_ENGINE_COUNTER = L"\\GPU Engine(*)\\Utilization Percentage";
         constexpr wchar_t const* GPU_MEMORY_COUNTER = L"\\GPU Adapter Memory(*)\\Dedicated Usage";
 
+        /// The adapter's shared system memory. Read from the same counter set as the dedicated
+        /// figure, so it costs one more counter on the query rather than a second query.
+        constexpr wchar_t const* GPU_SHARED_COUNTER = L"\\GPU Adapter Memory(*)\\Shared Usage";
+
         /// The counter-set instance that aggregates every device. It must be skipped: including it
         /// would double every figure, since it is the sum of the rows already being reported.
         constexpr wchar_t const* AGGREGATE_INSTANCE = L"_Total";
@@ -217,7 +221,46 @@ namespace tmpp::platform
             m_gpuQuery = nullptr;
             m_gpuEngineCounter = nullptr;
             m_gpuMemoryCounter = nullptr;
+            m_gpuSharedCounter = nullptr;
         }
+    }
+
+    bool _volumeHostsPageFile(wchar_t driveLetter)
+    {
+        // The page file's location is recorded in the session manager's key as a list of entries
+        // shaped "C:\pagefile.sys 0 0". Only the drive letter is needed here.
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                          L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management",
+                          0,
+                          KEY_READ,
+                          &key) != ERROR_SUCCESS)
+        {
+            return false;
+        }
+
+        wchar_t value[1024]{};
+        DWORD valueBytes = sizeof(value);
+        DWORD type = 0;
+        bool hosts = false;
+
+        if (RegQueryValueExW(key, L"PagingFiles", nullptr, &type, reinterpret_cast<LPBYTE>(value), &valueBytes) ==
+                ERROR_SUCCESS &&
+            type == REG_MULTI_SZ)
+        {
+            // The value is a double-null-terminated list of strings.
+            for (wchar_t const* entry = value; *entry != L'\0'; entry += wcslen(entry) + 1)
+            {
+                if (towupper(entry[0]) == towupper(driveLetter) && entry[1] == L':')
+                {
+                    hosts = true;
+                    break;
+                }
+            }
+        }
+
+        RegCloseKey(key);
+        return hosts;
     }
 
     Result<std::vector<SystemDiskCounters>> HardwareCounterProbe::ReadDisks()
@@ -458,8 +501,29 @@ namespace tmpp::platform
                 if (GetDiskFreeSpaceExW(root.c_str(), &freeForCaller, &total, &free) != FALSE)
                 {
                     disk.capacityBytes = total.QuadPart;
-                    break;
+
+                    // The filesystem and the volume's label come from the same volume, through a call
+                    // that takes the root path. Both are named in the original's details.
+                    wchar_t volumeName[MAX_PATH + 1]{};
+                    wchar_t fileSystemName[MAX_PATH + 1]{};
+                    if (GetVolumeInformationW(root.c_str(),
+                                              volumeName,
+                                              static_cast<DWORD>(std::size(volumeName)),
+                                              nullptr,
+                                              nullptr,
+                                              nullptr,
+                                              fileSystemName,
+                                              static_cast<DWORD>(std::size(fileSystemName))) != FALSE)
+                    {
+                        disk.volumeLabel = _toNarrow(volumeName);
+                        disk.fileSystem = _toNarrow(fileSystemName);
+                    }
                 }
+
+                // The page file's location comes from the registry rather than from the volume, and
+                // it is a machine-wide list rather than a per-volume one.
+                disk.hostsPageFile = _volumeHostsPageFile(*letter);
+                break;
             }
 
             CloseHandle(handle);
@@ -576,6 +640,8 @@ namespace tmpp::platform
             counters.sentPackets = row.OutUcastPkts + row.OutNUcastPkts;
             counters.receiveErrors = row.InErrors;
             counters.sendErrors = row.OutErrors;
+            counters.receiveDiscards = row.InDiscards;
+            counters.sendDiscards = row.OutDiscards;
             counters.receiveLinkSpeedBps = row.ReceiveLinkSpeed;
             counters.transmitLinkSpeedBps = row.TransmitLinkSpeed;
             counters.connected = (row.OperStatus == IfOperStatusUp);
@@ -617,8 +683,11 @@ namespace tmpp::platform
         PDH_HCOUNTER engine = nullptr;
         PDH_HCOUNTER memory = nullptr;
 
+        PDH_HCOUNTER shared = nullptr;
+
         bool const engineOk = PdhAddEnglishCounterW(query, GPU_ENGINE_COUNTER, 0, &engine) == ERROR_SUCCESS;
         bool const memoryOk = PdhAddEnglishCounterW(query, GPU_MEMORY_COUNTER, 0, &memory) == ERROR_SUCCESS;
+        PdhAddEnglishCounterW(query, GPU_SHARED_COUNTER, 0, &shared);
 
         if (!engineOk && !memoryOk)
         {
@@ -635,6 +704,7 @@ namespace tmpp::platform
         m_gpuQuery = query;
         m_gpuEngineCounter = engine;
         m_gpuMemoryCounter = memory;
+        m_gpuSharedCounter = shared;
         m_gpuAvailable = true;
     }
 
@@ -704,6 +774,45 @@ namespace tmpp::platform
             m_gpuName = _toNarrow(bestDesc.Description);
             m_gpuDedicatedTotal = bestDesc.DedicatedVideoMemory;
         }
+
+        // The driver version is a registry value rather than anything DXGI reports. It is read from
+        // the display-device class key, whose subkeys are numbered per adapter.
+        HKEY classKey = nullptr;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                          L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}",
+                          0,
+                          KEY_READ,
+                          &classKey) == ERROR_SUCCESS)
+        {
+            for (DWORD index = 0; index < 32; ++index)
+            {
+                wchar_t subKeyName[32]{};
+                swprintf_s(subKeyName, L"%04u", index);
+
+                HKEY subKey = nullptr;
+                if (RegOpenKeyExW(classKey, subKeyName, 0, KEY_READ, &subKey) != ERROR_SUCCESS)
+                {
+                    continue;
+                }
+
+                wchar_t version[128]{};
+                DWORD versionBytes = sizeof(version);
+                if (RegQueryValueExW(subKey, L"DriverVersion", nullptr, nullptr,
+                                     reinterpret_cast<LPBYTE>(version), &versionBytes) == ERROR_SUCCESS)
+                {
+                    m_gpuDriverVersion = _toNarrow(version);
+                }
+
+                RegCloseKey(subKey);
+
+                if (!m_gpuDriverVersion.empty())
+                {
+                    break;
+                }
+            }
+
+            RegCloseKey(classKey);
+        }
     }
 
     Result<SystemGpuInfo> HardwareCounterProbe::ReadGpu()
@@ -727,6 +836,7 @@ namespace tmpp::platform
         }
 
         info.adapterName = m_gpuName;
+        info.driverVersion = m_gpuDriverVersion;
         info.dedicatedTotalBytes = m_gpuDedicatedTotal;
 
         // --- Utilisation ------------------------------------------------------
@@ -761,6 +871,24 @@ namespace tmpp::platform
                     perEngine[value.instance.substr(marker)] += value.value;
                 }
 
+                // Each engine class is reported separately as well as reduced to the busiest. The
+                // instance suffix is the engine's type name, which is what identifies the class.
+                auto engineValue = [&perEngine](char const* typeName) {
+                    for (auto const& engine : perEngine)
+                    {
+                        if (engine.first.find(typeName) != std::string::npos)
+                        {
+                            return std::clamp(engine.second, 0.0, 100.0);
+                        }
+                    }
+                    return 0.0;
+                };
+
+                info.engine3dPercent = engineValue("3D");
+                info.engineCopyPercent = engineValue("Copy");
+                info.engineVideoDecodePercent = engineValue("VideoDecode");
+                info.engineVideoEncodePercent = engineValue("VideoEncode");
+
                 double busiest = 0.0;
                 for (auto const& engine : perEngine)
                 {
@@ -788,6 +916,21 @@ namespace tmpp::platform
 
                 info.dedicatedUsedBytes = static_cast<uint64_t>((std::max)(0.0, dedicated));
                 info.available = true;
+            }
+        }
+
+        // --- Shared memory ----------------------------------------------------
+        if (m_gpuSharedCounter != nullptr)
+        {
+            std::vector<InstanceValue> sharedValues;
+            if (_readCounterArray(static_cast<PDH_HCOUNTER>(m_gpuSharedCounter), sharedValues))
+            {
+                double shared = 0.0;
+                for (InstanceValue const& value : sharedValues)
+                {
+                    shared += value.value;
+                }
+                info.sharedUsedBytes = static_cast<uint64_t>((std::max)(0.0, shared));
             }
         }
 

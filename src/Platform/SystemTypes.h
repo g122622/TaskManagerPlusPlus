@@ -234,6 +234,15 @@ namespace tmpp::platform
         /// Whether the device reports TRIM support, which only solid-state devices have.
         bool trimEnabled{false};
 
+        /// The filesystem on the device's first volume, e.g. "NTFS".
+        std::string fileSystem;
+
+        /// The volume label of the first volume, which is the name a user sees in Explorer.
+        std::string volumeLabel;
+
+        /// Whether a page file resides on any volume this device backs.
+        bool hostsPageFile{false};
+
         /// Requests outstanding at the moment of the query.
         ///
         /// A level rather than a total, so it is reported as read instead of being differenced: the
@@ -268,9 +277,16 @@ namespace tmpp::platform
         uint64_t receivedPackets{0};
         uint64_t sentPackets{0};
 
-        /// Bytes discarded because of an error or a full buffer.
+        /// Bytes discarded because of an error or a full buffer. Cumulative, so a rate is derived by
+        /// differencing like every other byte counter.
         uint64_t receiveErrors{0};
         uint64_t sendErrors{0};
+
+        /// Packets discarded for lack of buffer space rather than because of an error. Kept apart
+        /// from the errors, because a packet dropped under load and a corrupt one are different
+        /// problems with different causes.
+        uint64_t receiveDiscards{0};
+        uint64_t sendDiscards{0};
 
         /// Receive and transmit link speed in bits per second, from the adapter.
         uint64_t receiveLinkSpeedBps{0};
@@ -282,8 +298,8 @@ namespace tmpp::platform
         /// True when the interface is operationally up.
         bool connected{false};
 
-        /// True for a virtual adapter, such as a Hyper-V switch or a VPN tunnel. Real interface, but
-        /// not the machine's connection, so it is hidden when a physical adapter is present.
+        /// True for a virtual adapter, such as a Hyper-V switch or a VPN tunnel. A real interface,
+        /// but not the machine's connection, so it is hidden when a physical adapter is present.
         bool virtualAdapter{false};
 
         /// True when the counters were read successfully.
@@ -300,19 +316,38 @@ namespace tmpp::platform
     struct SystemGpuInfo
     {
         /// Busiest engine's utilisation, as a percentage. A GPU runs several engines at once
-        /// (3D, copy, video decode), and the original's single figure is the busiest of them.
+        /// (3D, copy, video decode), and the original's single headline figure is the busiest of them.
         double utilizationPercent{0.0};
 
-        /// Dedicated video memory in use, in bytes. This is the GPU's own memory, not the
-        /// shared system memory an integrated GPU borrows.
+        /// Utilisation of each engine class, as a percentage.
+        ///
+        /// The original breaks the figure out this way because "the busiest engine" says how loaded
+        /// the adapter is but not what it is being asked to do. A video call and a game can both
+        /// report fifty percent while exercising entirely different hardware.
+        ///
+        /// Zero means that engine reported nothing this sample, which is normal when it is unused.
+        double engine3dPercent{0.0};
+        double engineCopyPercent{0.0};
+        double engineVideoDecodePercent{0.0};
+        double engineVideoEncodePercent{0.0};
+
+        /// Dedicated video memory in use, in bytes. This is the GPU's own memory, not the shared
+        /// system memory an integrated GPU borrows.
         uint64_t dedicatedUsedBytes{0};
 
         /// Total dedicated video memory, in bytes. Zero when the adapter has none, which is the
         /// case for integrated GPUs.
         uint64_t dedicatedTotalBytes{0};
 
-        /// Shared system memory in use, in bytes.
+        /// Shared system memory in use, in bytes. An integrated GPU borrows system memory, and even a
+        /// discrete one uses it for some workloads, so this is not zero on either.
         uint64_t sharedUsedBytes{0};
+
+        /// Total shared system memory available to the adapter, in bytes.
+        uint64_t sharedTotalBytes{0};
+
+        /// The driver version, as the registry records it.
+        std::string driverVersion;
 
         /// The adapter's description, e.g. "NVIDIA GeForce RTX 4070".
         std::string adapterName;

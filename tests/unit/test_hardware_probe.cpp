@@ -52,6 +52,9 @@ namespace tmpp::platform::test
             std::printf("      bus type   : %u\n", disk.busType);
             std::printf("      seek cost  : %s\n", disk.incursSeekPenalty ? "yes (HDD-class)" : "no (SSD-class)");
             std::printf("      TRIM       : %s\n", disk.trimEnabled ? "yes" : "no");
+            std::printf("      filesystem : %s\n", disk.fileSystem.empty() ? "(unknown)" : disk.fileSystem.c_str());
+            std::printf("      label      : %s\n", disk.volumeLabel.empty() ? "(none)" : disk.volumeLabel.c_str());
+            std::printf("      page file  : %s\n", disk.hostsPageFile ? "yes" : "no");
             std::printf("      capacity   : %.1f GB\n",
                         static_cast<double>(disk.capacityBytes) / (1024.0 * 1024.0 * 1024.0));
 
@@ -94,6 +97,11 @@ namespace tmpp::platform::test
             std::printf("      link    : receive %.1f Mbps, transmit %.1f Mbps\n",
                         static_cast<double>(iface.receiveLinkSpeedBps) / 1.0e6,
                         static_cast<double>(iface.transmitLinkSpeedBps) / 1.0e6);
+            std::printf("      errors  : receive %llu, send %llu; discards %llu / %llu\n",
+                        static_cast<unsigned long long>(iface.receiveErrors),
+                        static_cast<unsigned long long>(iface.sendErrors),
+                        static_cast<unsigned long long>(iface.receiveDiscards),
+                        static_cast<unsigned long long>(iface.sendDiscards));
 
             // The adapter must be named, or the sidebar row would be blank.
             EXPECT_FALSE(iface.adapterName.empty()) << "an interface must carry a name";
@@ -118,6 +126,15 @@ namespace tmpp::platform::test
         std::printf("dedicated     : %.2f GB of %.2f GB\n",
                     static_cast<double>(gpu.Value().dedicatedUsedBytes) / (1024.0 * 1024.0 * 1024.0),
                     static_cast<double>(gpu.Value().dedicatedTotalBytes) / (1024.0 * 1024.0 * 1024.0));
+        std::printf("shared        : %.2f GB\n",
+                    static_cast<double>(gpu.Value().sharedUsedBytes) / (1024.0 * 1024.0 * 1024.0));
+        std::printf("driver        : %s\n",
+                    gpu.Value().driverVersion.empty() ? "(unknown)" : gpu.Value().driverVersion.c_str());
+        std::printf("engines       : 3D %.1f%%, copy %.1f%%, decode %.1f%%, encode %.1f%%\n",
+                    gpu.Value().engine3dPercent,
+                    gpu.Value().engineCopyPercent,
+                    gpu.Value().engineVideoDecodePercent,
+                    gpu.Value().engineVideoEncodePercent);
 
         // A percentage outside its range would mean the per-engine summing went wrong, which is the
         // mistake that would also make the figure above 100 on a busy machine.

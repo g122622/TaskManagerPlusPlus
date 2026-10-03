@@ -333,11 +333,13 @@ namespace tmpp::ui
         assign(m_column2, 2, _linkSpeedText(iface.receiveLinkSpeedBps));
         assign(m_column2, 3, _linkSpeedText(iface.transmitLinkSpeedBps));
 
-        // The error counters are cumulative totals, which the activity struct does not carry, so
-        // these stay unavailable rather than being shown as a stale or invented figure.
-        assign(m_column3, 0, UnavailableValue());
-        assign(m_column3, 1, UnavailableValue());
-        assign(m_column3, 2, iface.connected ? "Ethernet or Wi-Fi" : UnavailableValue());
+        // The error counters are running totals, which is the form they are meaningful in: a
+        // per-second rate would report zero for a healthy link and imply a fault rate that does not
+        // exist. The discards are shown alongside, since a dropped packet under load and a corrupt
+        // one are different problems.
+        assign(m_column3, 0, FormatCount(iface.sendErrors) + "  (" + FormatCount(iface.sendDiscards) + " dropped)");
+        assign(m_column3, 1, FormatCount(iface.receiveErrors) + "  (" + FormatCount(iface.receiveDiscards) + " dropped)");
+        assign(m_column3, 2, iface.connected ? "Connected" : "Disconnected");
         assign(m_column3, 3, iface.virtualAdapter ? "Yes" : "No");
 
         if (m_linkCaption != nullptr)

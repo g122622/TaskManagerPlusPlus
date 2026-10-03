@@ -371,14 +371,30 @@ namespace tmpp::ui
         domain::DiskActivity const& disk = m_lastDisks[index];
 
         assign(m_column1, 0, FormatPercent(disk.activePercent));
-        assign(m_column1, 1, UnavailableValue());
+
+        // The mean time to service a request, over the interval. A dash when nothing was requested:
+        // reporting zero would read as an instant response rather than as no measurement.
+        if (disk.averageResponseMs > 0.0)
+        {
+            char buffer[32]{};
+            std::snprintf(buffer, sizeof(buffer), "%.2f ms", disk.averageResponseMs);
+            assign(m_column1, 1, std::string{buffer});
+        }
+        else
+        {
+            assign(m_column1, 1, UnavailableValue());
+        }
+
         assign(m_column1, 2, _rateText(disk.readBytesPerSecond));
         assign(m_column1, 3, _rateText(disk.writeBytesPerSecond));
 
         assign(m_column2, 0, disk.capacityBytes > 0 ? FormatBytes(disk.capacityBytes) : UnavailableValue());
-        assign(m_column2, 1, disk.capacityBytes > 0 ? FormatBytes(disk.capacityBytes) : UnavailableValue());
+
+        // The filesystem is the meaningful "formatted" fact: the raw capacity is already stated, and
+        // repeating it here said nothing.
+        assign(m_column2, 1, disk.fileSystem.empty() ? UnavailableValue() : disk.fileSystem);
         assign(m_column2, 2, std::to_string(disk.queueDepth));
-        assign(m_column2, 3, UnavailableValue());
+        assign(m_column2, 3, disk.hostsPageFile ? "Yes" : "No");
 
         assign(m_column3, 0, disk.modelName.empty() ? UnavailableValue() : disk.modelName);
         assign(m_column3, 1, disk.instanceName.empty() ? UnavailableValue() : disk.instanceName);

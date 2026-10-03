@@ -94,6 +94,7 @@ namespace tmpp::platform
         void* m_gpuQuery{nullptr};
         void* m_gpuEngineCounter{nullptr};
         void* m_gpuMemoryCounter{nullptr};
+        void* m_gpuSharedCounter{nullptr};
 
         bool m_disksAvailable{false};
 
@@ -114,6 +115,9 @@ namespace tmpp::platform
         /// present, and querying it costs as much as the utilisation does.
         mutable uint64_t m_gpuDedicatedTotal{0};
         mutable std::string m_gpuName;
+
+        /// The driver version, resolved with the adapter totals.
+        mutable std::string m_gpuDriverVersion;
         mutable bool m_gpuTotalsResolved{false};
     };
 }

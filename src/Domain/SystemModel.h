@@ -68,6 +68,22 @@ namespace tmpp::domain
         /// Whether the device reports TRIM support, which only solid-state devices have.
         bool trimEnabled{false};
 
+        /// The filesystem on the device's first volume, e.g. "NTFS".
+        std::string fileSystem;
+
+        /// The volume label of the first volume, which is the name a user sees in Explorer.
+        std::string volumeLabel;
+
+        /// Whether a page file resides on any volume this device backs.
+        bool hostsPageFile{false};
+
+        /// Mean time to service a request over the interval, in milliseconds.
+        ///
+        /// Derived from the read and write service times over the operations completed. It is a mean
+        /// rather than a total, so it is computed per interval from the deltas rather than
+        /// differenced: the difference of two means is not the mean of the interval.
+        double averageResponseMs{0.0};
+
         /// The device's type in the words the original uses.
         [[nodiscard]] std::string TypeName() const
         {
@@ -97,6 +113,14 @@ namespace tmpp::domain
         std::string adapterName;
         bool connected{false};
         bool virtualAdapter{false};
+
+        /// Cumulative error and discard counts, carried so the page can show them. They are totals
+        /// rather than rates: an error count is a running tally of things that went wrong, and a
+        /// per-second figure would imply a fault rate that reads as meaningless when it is zero.
+        uint64_t receiveErrors{0};
+        uint64_t sendErrors{0};
+        uint64_t receiveDiscards{0};
+        uint64_t sendDiscards{0};
 
         /// Share of the link in use, as a percentage of the slower of the two directions. Zero
         /// when the link speed is unknown, since a proportion needs a whole to be a proportion of.

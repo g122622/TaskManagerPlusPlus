@@ -507,6 +507,10 @@ namespace tmpp::ui
                     }
 
                     domain::DiskActivity const& disk = system.disks[spec.subIndex];
+
+                    // The row says how busy the device is, which is what its thumbnail plots. The
+                    // volume label is a more useful name than the device index where there is one,
+                    // but the title already carries the letters, so it is left alone.
                     subtitle = FormatPercent(disk.activePercent) + "  active";
 
                     // The device's own series, looked up by instance name. Every disk has its own

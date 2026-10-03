@@ -229,6 +229,9 @@ namespace tmpp::domain
             activity.busType = disk.busType;
             activity.incursSeekPenalty = disk.incursSeekPenalty;
             activity.trimEnabled = disk.trimEnabled;
+            activity.fileSystem = disk.fileSystem;
+            activity.volumeLabel = disk.volumeLabel;
+            activity.hostsPageFile = disk.hostsPageFile;
 
             auto const previous = m_previousDisks.find(disk.instanceName);
             if (canDerive && previous != m_previousDisks.end())
@@ -257,6 +260,19 @@ namespace tmpp::domain
                     // is exactly the share of the interval the device spent working.
                     double const idleMs = static_cast<double>(disk.idleTimeMs - before.idleTimeMs);
                     activity.activePercent = std::clamp(100.0 - ((idleMs / elapsedMs) * 100.0), 0.0, 100.0);
+
+                    // Mean response time over the interval: the service time this interval added,
+                    // divided by the operations it completed. Computed from the deltas rather than
+                    // differenced from the device's lifetime averages, because the difference of two
+                    // means is not the mean of the period between them.
+                    uint64_t const operations =
+                        (disk.readCount - before.readCount) + (disk.writeCount - before.writeCount);
+                    if (operations > 0)
+                    {
+                        double const serviceMs = static_cast<double>((disk.readTimeMs - before.readTimeMs) +
+                                                                      (disk.writeTimeMs - before.writeTimeMs));
+                        activity.averageResponseMs = serviceMs / static_cast<double>(operations);
+                    }
 
                     totalReadBps += activity.readBytesPerSecond;
                     totalWriteBps += activity.writeBytesPerSecond;
@@ -290,6 +306,10 @@ namespace tmpp::domain
             activity.adapterName = iface.adapterName;
             activity.connected = iface.connected;
             activity.virtualAdapter = iface.virtualAdapter;
+            activity.receiveErrors = iface.receiveErrors;
+            activity.sendErrors = iface.sendErrors;
+            activity.receiveDiscards = iface.receiveDiscards;
+            activity.sendDiscards = iface.sendDiscards;
 
             auto const previous = m_previousNetworks.find(iface.adapterName);
             if (canDerive && previous != m_previousNetworks.end())

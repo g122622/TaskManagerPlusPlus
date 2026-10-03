@@ -255,24 +255,27 @@ namespace tmpp::ui
         assign(m_column1, 0, FormatPercent(system.gpu.utilizationPercent));
         assign(m_column1, 1, system.gpu.dedicatedUsedBytes > 0 ? FormatBytes(system.gpu.dedicatedUsedBytes)
                                                                : UnavailableValue());
+        // Shared memory is reported even when it is small, since a discrete adapter using system
+        // memory is worth seeing.
         assign(m_column1, 2, system.gpu.sharedUsedBytes > 0 ? FormatBytes(system.gpu.sharedUsedBytes)
-                                                            : UnavailableValue());
+                                                            : std::string{"0 B"});
         assign(m_column1, 3, system.gpu.dedicatedTotalBytes > 0 ? FormatBytes(system.gpu.dedicatedTotalBytes)
                                                                 : UnavailableValue());
 
         assign(m_column2, 0, system.gpu.adapterName.empty() ? UnavailableValue() : system.gpu.adapterName);
 
-        // The driver version, the DirectX feature level and hardware scheduling all need queries
-        // this probe does not make, so they are dashes rather than invented figures.
-        assign(m_column2, 1, UnavailableValue());
+        assign(m_column2, 1, system.gpu.driverVersion.empty() ? UnavailableValue() : system.gpu.driverVersion);
+
+        // The DirectX feature level and hardware scheduling would need a D3D device and a scheduler
+        // query respectively, neither of which this probe makes; a dash is honest where a zero would
+        // read as "not supported".
         assign(m_column2, 2, UnavailableValue());
         assign(m_column2, 3, UnavailableValue());
 
-        // Per-engine utilisation would need the engine instances kept separately rather than reduced
-        // to the busiest one, which is what the probe reports.
-        assign(m_column3, 0, UnavailableValue());
-        assign(m_column3, 1, UnavailableValue());
-        assign(m_column3, 2, UnavailableValue());
-        assign(m_column3, 3, UnavailableValue());
+        // Per-engine utilisation, which is what the original breaks its figure into.
+        assign(m_column3, 0, FormatPercent(system.gpu.engine3dPercent));
+        assign(m_column3, 1, FormatPercent(system.gpu.engineCopyPercent));
+        assign(m_column3, 2, FormatPercent(system.gpu.engineVideoDecodePercent));
+        assign(m_column3, 3, FormatPercent(system.gpu.engineVideoEncodePercent));
     }
 }
