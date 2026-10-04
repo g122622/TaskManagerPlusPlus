@@ -67,10 +67,10 @@ namespace tmpp
         /// Height of the page header bar: the strip carrying the page name and the task
         /// actions. The original shows both bars stacked at the top of the window.
         ///
-        /// Half the app title bar's height. The page name is a label rather than a heading, so the strip
-        /// only has to clear the controls it carries: the buttons inside are sized to this, not the other
-        /// way round.
-        constexpr double PAGE_HEADER_HEIGHT = 24.0;
+        /// Taller than the label it carries, which is a 14 point line of about 19 pixels, so the text sits
+        /// with clear space above and below it rather than filling the strip. At 24 the strip cleared the
+        /// text's own box but left it visibly cramped.
+        constexpr double PAGE_HEADER_HEIGHT = 40.0;
 
         /// Index used for the Settings page. Outside the range a navigation item can produce, so it
         /// cannot collide with a page the user selected from the main list.
@@ -654,14 +654,14 @@ namespace tmpp
         {
             // "Run new task" is a real button with an icon and a label, as in the original.
             //
-            // The vertical padding is removed rather than reduced: the strip is 24 pixels and the button
-            // has to fit inside it, so any padding above and below the text would push the button past the
-            // strip and clip it.
+            // The button is sized to the strip it sits in. The padding is small because the strip is only
+            // 32 pixels: enough to keep the highlight off the text without pushing the button past the
+            // strip's edges.
             winrt::Microsoft::UI::Xaml::Controls::Button runTask;
             runTask.Background(
                 winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{winrt::Windows::UI::Colors::Transparent()});
             runTask.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
-            runTask.Padding(ThicknessHelper::FromLengths(10.0, 0.0, 10.0, 0.0));
+            runTask.Padding(ThicknessHelper::FromLengths(10.0, 2.0, 10.0, 2.0));
 
             StackPanel runContent = ui::controls::MakeRow(6.0);
             winrt::Microsoft::UI::Xaml::Controls::FontIcon runIcon;
@@ -686,7 +686,7 @@ namespace tmpp
             overflow.Background(
                 winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{winrt::Windows::UI::Colors::Transparent()});
             overflow.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
-            overflow.Padding(ThicknessHelper::FromLengths(8.0, 0.0, 8.0, 0.0));
+            overflow.Padding(ThicknessHelper::FromLengths(8.0, 2.0, 8.0, 2.0));
 
             winrt::Microsoft::UI::Xaml::Controls::FontIcon moreIcon;
             moreIcon.Glyph(L"\xE712"); // Segoe Fluent Icons: More
