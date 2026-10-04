@@ -41,20 +41,36 @@ namespace tmpp::ui
             SortColumn sortColumn;
         };
 
-        /// The columns shown by default, matching the Windows 11 Task Manager
-        /// process page. GPU and Network are omitted until those probes exist
-        /// (see docs/ROADMAP.md); an empty column would be worse than none.
-        constexpr std::array<ColumnSpec, 6> COLUMNS{{
+        /// The columns shown, in the order Windows 11 Task Manager shows them.
+        ///
+        /// Name, PID, CPU, Memory, Disk, Network and GPU. There is deliberately no status column: the
+        /// original has none, and a per-process "Running" that is never anything else is a column of
+        /// identical text.
+        ///
+        /// The widths are proportions of the original's layout rather than its pixel values, since this
+        /// list sizes its columns in effective pixels and the original's are drawn at a different scale.
+        constexpr std::array<ColumnSpec, 7> COLUMNS{{
             {L"Name", 300.0, false, SortColumn::Name},
             {L"PID", 80.0, true, SortColumn::Pid},
-            {L"Status", 100.0, false, SortColumn::Status},
             {L"CPU", 90.0, true, SortColumn::Cpu},
             {L"Memory", 120.0, true, SortColumn::Memory},
-            {L"Threads", 90.0, true, SortColumn::Threads},
+            {L"Disk", 100.0, true, SortColumn::Disk},
+            {L"Network", 100.0, true, SortColumn::Network},
+            {L"GPU", 80.0, true, SortColumn::Gpu},
         }};
 
         /// Diameter of the per-row status dot.
         constexpr double STATUS_DOT_SIZE = 8.0;
+
+        /// Height of the band carrying the system-wide aggregates.
+        constexpr double AGGREGATE_ROW_HEIGHT = 44.0;
+
+        /// Height of the band carrying the column names.
+        constexpr double LABEL_ROW_HEIGHT = 28.0;
+
+        /// Font size of an aggregate figure. Much larger than the rows below it, which is what makes the
+        /// header readable at a glance rather than a second row of the same text.
+        constexpr double AGGREGATE_FONT_SIZE = 20.0;
 
         /// Fill for the selected process row. The Details page shows one process, so the
         /// list has to say which one is being shown.
@@ -90,6 +106,38 @@ namespace tmpp::ui
                 width += column.width;
             }
             return width;
+        }
+
+        /**
+         * @brief Formats a per-process throughput, or a zero when nothing moved.
+         *
+         * Unlike a rate that could not be derived, a rate of zero is a real measurement here: it says the
+         * process moved no bytes over the interval, which is what most processes do most of the time. A
+         * dash would be wrong, and it is what the original shows.
+         */
+        [[nodiscard]] std::string _formatThroughput(double bytesPerSecond)
+        {
+            if (bytesPerSecond < 0.5)
+            {
+                return "0 MB/s";
+            }
+            return FormatBytes(static_cast<uint64_t>(bytesPerSecond)) + "/s";
+        }
+
+        /**
+         * @brief The busiest adapter's utilisation, as a percentage.
+         *
+         * The busiest rather than the sum: a machine with two adapters each at 40 percent is not using 80
+         * percent of any link, and the sum could exceed 100 on a machine with several.
+         */
+        [[nodiscard]] double _peakNetworkUtilization(std::vector<domain::NetworkActivity> const& networks)
+        {
+            double peak = 0.0;
+            for (domain::NetworkActivity const& network : networks)
+            {
+                peak = (std::max)(peak, network.UtilizationPercent());
+            }
+            return peak;
         }
     }
 
@@ -157,14 +205,48 @@ namespace tmpp::ui
         m_root.Children().Append(toolbar);
 
         // --- Column headers ----------------------------------------------------
+        //
+        // Two bands, as the original has: the system-wide aggregate above each metric column, then the
+        // column's name below it. The aggregates are what makes the header useful at a glance -- the
+        // question "is the machine busy?" is answered without reading any row.
         Grid header = Grid();
-        header.Padding(ThicknessHelper::FromLengths(12.0, 6.0, 12.0, 6.0));
         header.Background(controls::ThemedBrush(theme::LAYER_BACKGROUND));
+
+        // The aggregate band is taller than the label band, because its figures are several times the
+        // size of the labels beneath them.
+        header.RowDefinitions().Append(controls::MakeFixedRow(AGGREGATE_ROW_HEIGHT));
+        header.RowDefinitions().Append(controls::MakeFixedRow(LABEL_ROW_HEIGHT));
+
         for (ColumnSpec const& column : COLUMNS)
         {
             ColumnDefinition definition;
             definition.Width(GridLengthHelper::FromPixels(column.width));
             header.ColumnDefinitions().Append(definition);
+        }
+
+        // One aggregate block per column, right-aligned over the column it summarises. Name and PID have
+        // no aggregate: there is no machine-wide name or process id to report.
+        for (size_t i = 0; i < COLUMNS.size(); ++i)
+        {
+            ColumnSpec const& column = COLUMNS[i];
+            if (column.sortColumn == SortColumn::Name || column.sortColumn == SortColumn::Pid)
+            {
+                continue;
+            }
+
+            TextBlock aggregate = controls::MakeText(L"", AGGREGATE_FONT_SIZE);
+            aggregate.HorizontalAlignment(HorizontalAlignment::Right);
+            aggregate.VerticalAlignment(VerticalAlignment::Center);
+            aggregate.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            aggregate.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 12.0, 0.0));
+
+            Grid::SetColumn(aggregate, static_cast<int32_t>(i));
+            Grid::SetRow(aggregate, 0);
+            header.Children().Append(aggregate);
+
+            // Kept in column order so _updateHeaderAggregates can write them by column rather than by
+            // the order they happened to be created in.
+            m_aggregates.push_back({column.sortColumn, aggregate});
         }
 
         for (size_t i = 0; i < COLUMNS.size(); ++i)
@@ -174,7 +256,11 @@ namespace tmpp::ui
             // A header is a clickable sort target, matching every list view.
             winrt::Microsoft::UI::Xaml::Controls::Button button;
             button.Content(winrt::box_value(winrt::hstring{column.title}));
-            button.Padding(ThicknessHelper::FromLengths(8.0, 2.0, 8.0, 2.0));
+            button.Padding(ThicknessHelper::FromLengths(8.0, 0.0, 8.0, 0.0));
+            button.Background(
+                winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+            button.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
+            button.VerticalAlignment(VerticalAlignment::Stretch);
             button.HorizontalAlignment(column.rightAligned ? HorizontalAlignment::Right : HorizontalAlignment::Left);
             button.HorizontalContentAlignment(column.rightAligned ? HorizontalAlignment::Right
                                                                  : HorizontalAlignment::Left);
@@ -199,6 +285,7 @@ namespace tmpp::ui
             });
 
             Grid::SetColumn(button, static_cast<int32_t>(i));
+            Grid::SetRow(button, 1);
             header.Children().Append(button);
         }
 
@@ -354,10 +441,21 @@ namespace tmpp::ui
         };
 
         setCell(1, std::to_string(process.identity.pid));
-        setCell(2, process.ratesUnavailable ? UnavailableValue() : std::string{"Running"});
-        setCell(3, process.ratesUnavailable ? UnavailableValue() : FormatProcessCpuPercent(process.cpuPercent));
-        setCell(4, FormatBytes(process.memory.workingSetSize));
-        setCell(5, FormatCount(process.threadCount));
+        setCell(2, process.ratesUnavailable ? UnavailableValue() : FormatProcessCpuPercent(process.cpuPercent));
+        setCell(3, FormatBytes(process.memory.workingSetSize));
+
+        // Disk is the sum of the two directions: one figure per process is what the column has room for,
+        // and a process's total I/O is what the row is read for. Reads and writes are separated on the
+        // device's own page, where there is space to show both.
+        setCell(4, _formatThroughput(process.diskReadBytesPerSec + process.diskWriteBytesPerSec));
+
+        // Network is per-process and not yet collected, so it states that rather than showing a zero:
+        // a zero would claim the process is using none, which is a different claim from not knowing.
+        setCell(5, UnavailableValue());
+
+        // GPU comes from the same performance counters as the GPU page, which do publish a per-process
+        // instance for every engine.
+        setCell(6, process.gpuPercent > 0.0 ? FormatProcessCpuPercent(process.gpuPercent) : std::string{"0%"});
     }
 
     void ProcessesView::_selectRow(uint32_t pid)
@@ -486,6 +584,62 @@ namespace tmpp::ui
         }
     }
 
+    void ProcessesView::_updateHeaderAggregates()
+    {
+        if (m_aggregates.empty())
+        {
+            return;
+        }
+
+        // The machine-wide figures come from the system snapshot rather than from summing the rows: the
+        // rows are a filtered view, and a total that changed when the user typed in the search box would
+        // be measuring the filter rather than the machine.
+        domain::SystemView const system = m_coordinator.CurrentSystem();
+
+        for (AggregateCell& cell : m_aggregates)
+        {
+            if (cell.text == nullptr)
+            {
+                continue;
+            }
+
+            std::string text;
+            switch (cell.column)
+            {
+                case SortColumn::Cpu:
+                    text = system.ratesUnavailable ? UnavailableValue() : FormatProcessCpuPercent(system.cpuPercent);
+                    break;
+
+                case SortColumn::Memory:
+                    text = FormatPercent(system.memoryUsedPercent);
+                    break;
+
+                case SortColumn::Disk:
+                    // The mean active time across the devices rather than their sum: two disks each at 40
+                    // percent is not 80 percent of anything, and the original reports the machine's disk
+                    // activity as a proportion of busy time.
+                    text = FormatPercent(system.diskActivePercent);
+                    break;
+
+                case SortColumn::Network:
+                    // Utilisation against the link speed, which is what the original's percentage means.
+                    // With several adapters the busiest is used, for the same reason as the disk.
+                    text = FormatPercent(_peakNetworkUtilization(system.networks));
+                    break;
+
+                case SortColumn::Gpu:
+                    text = system.gpu.available ? FormatProcessCpuPercent(system.gpu.utilizationPercent)
+                                                : UnavailableValue();
+                    break;
+
+                default:
+                    continue;
+            }
+
+            cell.text.Text(winrt::to_hstring(text));
+        }
+    }
+
     void ProcessesView::Refresh()
     {
         // Poll the version first: comparing a number is effectively free, whereas
@@ -507,6 +661,7 @@ namespace tmpp::ui
 
         m_listModel->Update(m_snapshot, m_query);
         _updateSummary();
+        _updateHeaderAggregates();
 
         bool const empty = m_listModel->VisibleCount() == 0;
         m_emptyMessage.Visibility(empty ? Visibility::Visible : Visibility::Collapsed);

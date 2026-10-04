@@ -87,6 +87,23 @@ namespace tmpp::ui
         /// The selected process, or zero when none is.
         uint32_t m_selectedPid{0};
 
+        /**
+         * @brief One column's system-wide aggregate, retained so it can be updated in place.
+         *
+         * Held with the column it belongs to rather than by position, because the aggregate band skips
+         * the columns that have no aggregate and the two lists would otherwise not line up.
+         */
+        struct AggregateCell
+        {
+            SortColumn column{SortColumn::Cpu};
+            winrt::Microsoft::UI::Xaml::Controls::TextBlock text{nullptr};
+        };
+
+        std::vector<AggregateCell> m_aggregates;
+
+        /// Writes the machine-wide figures into the aggregate band.
+        void _updateHeaderAggregates();
+
         /// Called when the selection changes.
         std::function<void(uint32_t)> m_onSelectionChanged;
 

@@ -263,6 +263,27 @@ namespace tmpp::core
                                  perProcessor.Success() ? perProcessor.Value() : noPerProcessor);
         }
 
+        // --- GPU, read before the process list so its per-process figures land in the same sample ----
+        //
+        // The GPU counters are the only source of a per-process GPU figure, so they have to be collected
+        // before the process model is updated. Reading them here rather than with the disks and network
+        // below is what lets one sample carry both the adapter's total and each process's share of it.
+        //
+        // The engine counters are collected once by ReadGpu, and ReadProcessGpu then reads the same
+        // collected values; collecting twice within one sample would measure an interval of nearly zero
+        // for whichever reading came second.
+        std::map<uint32_t, double> processGpu;
+        if (m_hardwareProbe != nullptr)
+        {
+            if (auto const read = m_hardwareProbe->ReadGpu(); read.Success() && read.Value().available)
+            {
+                m_lastGpu = read.Value();
+                m_hasLastGpu = true;
+            }
+
+            m_hardwareProbe->ReadProcessGpu(processGpu);
+        }
+
         // --- Processes: one bulk snapshot for the whole system.
         auto const processes = m_processProbe.Enumerate();
         status.processEnumerationSucceeded = processes.Success();
@@ -284,7 +305,9 @@ namespace tmpp::core
             processTotal = static_cast<uint32_t>(processes.Value().processes.size());
 
             std::lock_guard const lock(m_mutex);
-            m_processModel.Update(processes.Value(), haveCpuDelta ? processCpuDelta : domain::SystemCpuDelta{});
+            m_processModel.Update(processes.Value(),
+                                  haveCpuDelta ? processCpuDelta : domain::SystemCpuDelta{},
+                                  processGpu);
         }
 
         // --- Live clock speed. Independent of everything above: a missing counter must
@@ -372,20 +395,15 @@ namespace tmpp::core
                 networks = m_lastNetworks;
             }
 
-            if (auto const read = m_hardwareProbe->ReadGpu();
-                read.Success() && read.Value().available)
-            {
-                gpu = read.Value();
-                status.gpuAvailable = m_hardwareProbe->GpuAvailable();
-                m_lastGpu = gpu;
-                m_hasLastGpu = true;
-            }
-            else if (m_hasLastGpu)
+            // The GPU was already read above, before the process list, so its per-process figures land in
+            // the same sample. This block only publishes it, using the reading taken there.
+            if (m_hasLastGpu)
             {
                 // The GPU counters are rates rather than cumulative totals, so a stale reading is a
                 // reading that was true a moment ago and is still the best available. Reporting the
                 // cached one keeps the row populated without claiming a fresh measurement.
                 gpu = m_lastGpu;
+                status.gpuAvailable = m_hardwareProbe->GpuAvailable();
             }
 
             std::lock_guard const lock(m_mutex);

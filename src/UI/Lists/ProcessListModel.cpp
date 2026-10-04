@@ -47,6 +47,8 @@ namespace tmpp::ui
                     return static_cast<double>(process.memory.workingSetSize);
                 case SortColumn::Disk:
                     return process.diskReadBytesPerSec + process.diskWriteBytesPerSec;
+                case SortColumn::Gpu:
+                    return process.gpuPercent;
                 case SortColumn::Threads:
                     return static_cast<double>(process.threadCount);
                 case SortColumn::Handles:
@@ -56,10 +58,9 @@ namespace tmpp::ui
                 case SortColumn::ParentPid:
                     return static_cast<double>(process.parentPid);
                 case SortColumn::Network:
-                case SortColumn::Gpu:
-                    // Not collected yet. Sorting by these yields a stable order
-                    // rather than a meaningless one; the columns are hidden until
-                    // the data exists (see docs/ROADMAP.md).
+                    // Per-process network is not collected: it needs a per-process view of the adapter
+                    // counters, which Windows does not publish. Sorting by it yields a stable order rather
+                    // than a meaningless one, and the column states that it is unavailable.
                     return 0.0;
                 case SortColumn::Status:
                 case SortColumn::Name:

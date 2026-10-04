@@ -31,7 +31,9 @@ namespace tmpp::domain
         m_latest.logicalProcessorCount = m_logicalProcessorCount;
     }
 
-    ProcessSnapshotView ProcessModel::Update(platform::ProcessSnapshot const& raw, SystemCpuDelta const& systemCpu)
+    ProcessSnapshotView ProcessModel::Update(platform::ProcessSnapshot const& raw,
+                                             SystemCpuDelta const& systemCpu,
+                                             std::map<uint32_t, double> const& gpuPercentByPid)
     {
         double const elapsedMs = m_hasPreviousSample ? platform::MillisecondsBetween(m_previousCapturedAt, raw.capturedAt) : 0.0;
         uint64_t const systemDelta = systemCpu.Total();
@@ -60,6 +62,14 @@ namespace tmpp::domain
             view.handleCount = info.handleCount;
             view.sessionId = info.sessionId;
             view.basePriority = info.basePriority;
+
+            // The GPU figure comes from the performance counters rather than from the process snapshot, so
+            // it is looked up by process id. A process that is not in the map is using no GPU, which is a
+            // real reading and what the column shows for almost every row.
+            if (auto const gpu = gpuPercentByPid.find(info.identity.pid); gpu != gpuPercentByPid.end())
+            {
+                view.gpuPercent = gpu->second;
+            }
 
             uint64_t const key = _identityKey(info.identity);
             auto const previous = m_tracked.find(key);

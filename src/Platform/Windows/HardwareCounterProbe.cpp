@@ -16,12 +16,14 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #pragma comment(lib, "pdh.lib")
@@ -964,5 +966,92 @@ namespace tmpp::platform
         }
 
         return info;
+    }
+
+    void HardwareCounterProbe::ReadProcessGpu(std::map<uint32_t, double>& out)
+    {
+        out.clear();
+
+        if (!m_gpuAvailable || m_gpuEngineCounter == nullptr)
+        {
+            return;
+        }
+
+        // The query was already collected by ReadGpu, which the coordinator calls before this. Collecting
+        // again would advance the counters twice within one sample, so one of the two readings would be
+        // measuring an interval of nearly zero.
+        auto* const query = static_cast<PDH_HQUERY>(m_gpuQuery);
+        if (query == nullptr)
+        {
+            return;
+        }
+
+        std::vector<InstanceValue> engineValues;
+        if (!_readCounterArray(static_cast<PDH_HCOUNTER>(m_gpuEngineCounter), engineValues))
+        {
+            return;
+        }
+
+        // One instance per process per engine, named
+        // "pid_1234_luid_0x00000000_0x0000C1C3_phys_0_eng_0_engtype_3D". Both fields are read from that
+        // name: the pid is the run of digits after the prefix, and the engine is what follows
+        // "_engtype_".
+        //
+        // The figure reported per process is its busiest engine, matching how the adapter's total is
+        // derived. Summing a process's engines would report above 100 percent for anything using several
+        // at once, and no engine is ever more than fully busy.
+        constexpr char const* PID_PREFIX = "pid_";
+        constexpr size_t PID_PREFIX_LENGTH = 4;
+
+        // Keyed by process and engine so that contributions to the same engine combine before the
+        // reduction, which is what makes the reduction correct when an engine reports more than one
+        // instance for a process, as it does with several physical adapters present.
+        std::map<std::pair<uint32_t, std::string>, double> perEngine;
+
+        for (InstanceValue const& value : engineValues)
+        {
+            if (value.instance.rfind(PID_PREFIX, 0) != 0)
+            {
+                continue;
+            }
+
+            size_t const digitsBegin = PID_PREFIX_LENGTH;
+            size_t digitsEnd = digitsBegin;
+            while (digitsEnd < value.instance.size() &&
+                   std::isdigit(static_cast<unsigned char>(value.instance[digitsEnd])) != 0)
+            {
+                ++digitsEnd;
+            }
+
+            if (digitsEnd == digitsBegin)
+            {
+                continue;
+            }
+
+            size_t const marker = value.instance.rfind("_engtype_");
+            if (marker == std::string::npos)
+            {
+                continue;
+            }
+
+            uint32_t pid = 0;
+            for (size_t i = digitsBegin; i < digitsEnd; ++i)
+            {
+                pid = (pid * 10u) + static_cast<uint32_t>(value.instance[i] - '0');
+            }
+
+            perEngine[{pid, value.instance.substr(marker)}] += value.value;
+        }
+
+        for (auto const& entry : perEngine)
+        {
+            double& slot = out[entry.first.first];
+            slot = (std::max)(slot, entry.second);
+        }
+
+        for (auto& entry : out)
+        {
+            entry.second = std::clamp(entry.second, 0.0, 100.0);
+        }
     }
 }

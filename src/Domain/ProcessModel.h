@@ -19,6 +19,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -68,6 +69,14 @@ namespace tmpp::domain
         double diskReadBytesPerSec{0.0};
         double diskWriteBytesPerSec{0.0};
         double pageFaultsPerSec{0.0};
+
+        /// GPU utilisation, as the busiest engine's percentage for this process.
+        ///
+        /// Zero for almost every process, which is a real reading: it is what the counter reports and what
+        /// the original's GPU column shows. Supplied by the caller from the GPU counters, which publish a
+        /// per-process instance for every engine; the platform snapshot has no such figure because it comes
+        /// from a different probe.
+        double gpuPercent{0.0};
 
         // Cumulative readings, passed through for the details view.
         platform::ProcessCpuTimes cpu;
@@ -132,9 +141,14 @@ namespace tmpp::domain
          *
          * @param raw Current raw snapshot.
          * @param systemCpu System-wide CPU delta covering the same interval.
+         * @param gpuPercentByPid Each process's GPU utilisation, keyed by process id. Supplied by the
+         *        caller because it comes from the performance counters rather than from the process
+         *        snapshot, and empty when the machine has no GPU counters.
          * @return The newly published snapshot.
          */
-        ProcessSnapshotView Update(platform::ProcessSnapshot const& raw, SystemCpuDelta const& systemCpu);
+        ProcessSnapshotView Update(platform::ProcessSnapshot const& raw,
+                                   SystemCpuDelta const& systemCpu,
+                                   std::map<uint32_t, double> const& gpuPercentByPid = {});
 
         [[nodiscard]] ProcessSnapshotView const& Latest() const noexcept { return m_latest; }
 

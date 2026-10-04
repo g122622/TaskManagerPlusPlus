@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,22 @@ namespace tmpp::platform
          * Adapter Memory counters.
          */
         [[nodiscard]] Result<SystemGpuInfo> ReadGpu();
+
+        /**
+         * @brief Reads each process's GPU utilisation, keyed by process id.
+         *
+         * The same counters as ReadGpu, kept per process instead of reduced to one figure. The instance
+         * names carry the owning process id, so this is a second pass over data that is already being
+         * collected rather than a second query.
+         *
+         * A process's figure is its busiest engine rather than the sum of its engines, matching how the
+         * adapter's total is derived: summing would report above 100 percent for a process using several
+         * engines at once, and no engine is ever more than fully busy.
+         *
+         * @param out Receives the per-process percentages. Cleared first, so a process that has stopped
+         *        using the GPU disappears rather than keeping its last reading.
+         */
+        void ReadProcessGpu(std::map<uint32_t, double>& out);
 
         /// True when at least one disk's counters were readable.
         [[nodiscard]] bool DisksAvailable() const noexcept { return m_disksAvailable; }
