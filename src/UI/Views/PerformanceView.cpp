@@ -114,9 +114,17 @@ namespace tmpp::ui
 
             // The card fills the window, and the margin that separated it from the page goes with the
             // page.
+            //
+            // Its card background goes too. The card exists to separate the list from the page beside
+            // it; with the page gone there is nothing to separate it from, and a lighter panel behind
+            // the rows reads as an unintended highlight covering the whole window.
             if (m_sidebarCard != nullptr)
             {
                 m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 0.0));
+                m_sidebarCard.Background(
+                    winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+                m_sidebarCard.BorderThickness(
+                    winrt::Microsoft::UI::Xaml::ThicknessHelper::FromUniformLength(0.0));
             }
 
             // The list is no longer inset for a neighbouring page, so the rows reach both edges.
@@ -152,6 +160,12 @@ namespace tmpp::ui
 
             if (m_sidebarCard != nullptr)
             {
+                // The card's own appearance is restored from the shared factory rather than from values
+                // recorded here, so it cannot drift from what the other pages' cards look like.
+                Border const restored = controls::MakeCard();
+                m_sidebarCard.Background(restored.Background());
+                m_sidebarCard.BorderBrush(restored.BorderBrush());
+                m_sidebarCard.BorderThickness(restored.BorderThickness());
                 m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
             }
 
@@ -834,6 +848,12 @@ namespace tmpp::ui
         // disk once the counters are readable.
         if (_rebuildSidebarIfNeeded(system))
         {
+            // The selected row's page is opened here, and only here on a rebuild, because it could not
+            // be opened in the constructor: the sidebar is built from the first sample, so at
+            // construction there was no row to select and the detail area stayed empty until the user
+            // clicked something.
+            _selectRow(m_selectedRow);
+
             // A rebuilt list has fresh, empty charts, so the values are written before returning.
             _updateSidebarValues(system, history);
             return;

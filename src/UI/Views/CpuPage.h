@@ -64,8 +64,13 @@ namespace tmpp::ui
         core::SamplingCoordinator& m_coordinator;
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
+
+        /// The section heading, which reads "CPU".
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_processorName{nullptr};
-        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_processorSpeed{nullptr};
+
+        /// The processor's marketing name, right-aligned beside the heading.
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_processorModel{nullptr};
+
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_chartCaption{nullptr};
 
         std::unique_ptr<CoreGrid> m_coreGrid;

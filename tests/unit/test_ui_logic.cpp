@@ -118,6 +118,54 @@ namespace tmpp::ui
         EXPECT_EQ(FormatCount(1234567), "1,234,567");
     }
 
+    TEST(FormattingTest, SeparatesEveryGroupOfThreeWhateverTheLeadingGroupIsWide)
+    {
+        // Every length of leading group, which is what the grouping arithmetic has to handle. A thread
+        // count of 18517 was rendered as "1,8,517": the index was compared against the leading group's
+        // width in unsigned arithmetic, so the subtraction wrapped to a huge value while the index was
+        // still inside that group and the modulo reported a boundary. Four- and seven-digit values
+        // happened to work, which is why the short cases above did not catch it.
+        EXPECT_EQ(FormatCount(100), "100");
+        EXPECT_EQ(FormatCount(1234), "1,234");
+        EXPECT_EQ(FormatCount(18517), "18,517");
+        EXPECT_EQ(FormatCount(123456), "123,456");
+        EXPECT_EQ(FormatCount(1234567), "1,234,567");
+        EXPECT_EQ(FormatCount(12345678), "12,345,678");
+        EXPECT_EQ(FormatCount(123456789), "123,456,789");
+
+        // No separator may follow a single leading digit, which is the specific shape of the defect.
+        EXPECT_EQ(FormatCount(12345).substr(0, 4), "12,3");
+    }
+
+    TEST(FormattingTest, NeverPlacesTwoSeparatorsInARow)
+    {
+        // A sweep rather than examples: the grouping rule is a property of every value, and the defect
+        // appeared only for some digit counts.
+        for (uint64_t value = 1000; value < 200000; value += 997)
+        {
+            std::string const text = FormatCount(value);
+
+            ASSERT_EQ(text.find(",,"), std::string::npos) << "doubled separator in " << text;
+            ASSERT_NE(text.front(), ',') << "leading separator in " << text;
+            ASSERT_NE(text.back(), ',') << "trailing separator in " << text;
+
+            // Every group after the first is exactly three digits wide, and the first is one to three.
+            size_t const firstComma = text.find(',');
+            if (firstComma != std::string::npos)
+            {
+                ASSERT_GE(firstComma, 1u) << "in " << text;
+                ASSERT_LE(firstComma, 3u) << "in " << text;
+
+                for (size_t at = firstComma; at != std::string::npos; at = text.find(',', at + 1))
+                {
+                    size_t const next = text.find(',', at + 1);
+                    size_t const groupLength = ((next == std::string::npos) ? text.size() : next) - at - 1;
+                    ASSERT_EQ(groupLength, 3u) << "group of " << groupLength << " in " << text;
+                }
+            }
+        }
+    }
+
     TEST(FormattingTest, FormatsDurations)
     {
         EXPECT_EQ(FormatDuration(0), "00:00:00");

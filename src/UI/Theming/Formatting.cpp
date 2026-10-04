@@ -110,11 +110,18 @@ namespace tmpp::ui
         std::string result;
         result.reserve(digits.size() + (digits.size() / 3));
 
+        // Index of the first character of the first group; every group after it is three wide.
         size_t const firstGroup = digits.size() % 3;
+
         for (size_t i = 0; i < digits.size(); ++i)
         {
-            // Insert a separator before every group of three, except at the start.
-            if (i > 0 && (i - firstGroup) % 3 == 0)
+            // A separator goes before every group of three, except at the start.
+            //
+            // The subtraction is guarded because these are unsigned: `i - firstGroup` wraps to a huge
+            // value while i is still inside the first group, and the modulo then reports a group
+            // boundary. That is what rendered 18517 as "1,8,517" -- a separator after the first digit
+            // and every second one thereafter.
+            if (i > 0 && i >= firstGroup && ((i - firstGroup) % 3 == 0))
             {
                 result.push_back(',');
             }

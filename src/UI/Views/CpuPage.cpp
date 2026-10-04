@@ -83,29 +83,29 @@ namespace tmpp::ui
         m_root.RowDefinitions().Append(gridRow);
         m_root.RowDefinitions().Append(controls::MakeAutoRow());
 
-        // --- Heading: processor name on the left, live clock immediately after it ----
+        // --- Heading: the section's name, with the processor model beside it ----
+        //
+        // The title is the section name rather than the marketing name, matching how every other
+        // performance page is headed. The model identifies the hardware, so it is kept as a secondary
+        // label at the right-hand end rather than being the headline.
         Grid heading = Grid();
         heading.ColumnDefinitions().Append(controls::MakeStarColumn());
+        heading.ColumnDefinitions().Append(controls::MakeAutoColumn());
 
-        // The speed sits next to the name, as in the original, so it is inside the same
-        // horizontal stack rather than a column of its own.
-        StackPanel headingRow;
-        headingRow.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
-        headingRow.Spacing(12.0);
-        headingRow.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Bottom);
+        m_processorName = controls::MakeHeading(L"CPU", HEADING_FONT_SIZE);
+        Grid::SetColumn(m_processorName, 0);
+        heading.Children().Append(m_processorName);
 
-        // The name and speed are filled in on the first sample, so they start with the
-        // placeholder rather than an empty string that would look like a failure.
-        m_processorName = controls::MakeHeading(winrt::to_hstring(UnavailableValue()), HEADING_FONT_SIZE);
-        headingRow.Children().Append(m_processorName);
-
-        m_processorSpeed = controls::MakeText(winrt::to_hstring(UnavailableValue()), SPEED_FONT_SIZE, true);
-        m_processorSpeed.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Bottom);
-        m_processorSpeed.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 3.0));
-        headingRow.Children().Append(m_processorSpeed);
-
-        Grid::SetColumn(headingRow, 0);
-        heading.Children().Append(headingRow);
+        // The model is long and a narrow window would clip it, so it is trimmed from its end and
+        // aligned to the bottom so it sits on the heading's baseline.
+        m_processorModel = controls::MakeText(winrt::to_hstring(UnavailableValue()), SPEED_FONT_SIZE, true);
+        m_processorModel.HorizontalAlignment(HorizontalAlignment::Right);
+        m_processorModel.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Bottom);
+        m_processorModel.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        m_processorModel.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+        m_processorModel.Margin(ThicknessHelper::FromLengths(12.0, 0.0, 0.0, 4.0));
+        Grid::SetColumn(m_processorModel, 1);
+        heading.Children().Append(m_processorModel);
 
         Grid::SetRow(heading, 0);
         m_root.Children().Append(heading);
@@ -280,18 +280,12 @@ namespace tmpp::ui
         // available rather than every frame.
         if (!system.processor.modelName.empty())
         {
-            m_processorName.Text(winrt::to_hstring(system.processor.modelName));
+            m_processorModel.Text(winrt::to_hstring(system.processor.modelName));
         }
 
-        if (system.processorSpeed.available)
-        {
-            m_processorSpeed.Text(
-                winrt::hstring{std::to_wstring(system.processorSpeed.currentMhz / 1000.0).substr(0, 4) + L" GHz"});
-        }
-        else
-        {
-            m_processorSpeed.Text(winrt::to_hstring(UnavailableValue()));
-        }
+        // The current clock is not shown here. It is a figure that changes every sample and is already
+        // reported in the details panel beside the rated speed, where the two can be compared; a
+        // heading whose text moves several times a second is harder to read than one that does not.
 
         // The core grid draws one series per logical processor, which is what makes it a
         // history rather than a row of bars showing only the current instant.

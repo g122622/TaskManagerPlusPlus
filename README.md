@@ -11,9 +11,11 @@ colour customisation, metric collection performance, and code maintainability.
 > **Project status: milestone M1 complete, M2 starting.**
 > The application runs with process, performance and details pages. CPU and memory
 > are read natively; disk, network and GPU come from the Windows performance
-> counters and DXGI; every metric on the performance page is plotted with configurable
-> colours and stroke widths. 227 unit tests pass, and Debug and Release both build
-> and run self-contained from a clean clone.
+> counters and DXGI; memory modules come from the firmware's SMBIOS table. Every
+> metric on the performance page is plotted with configurable colours and stroke
+> widths, each disk and adapter has its own chart, and double-clicking the sidebar
+> collapses the window to the list alone. 268 unit tests pass, and Debug and Release
+> both build and run self-contained from a clean clone.
 
 ## Highlights
 
@@ -26,6 +28,12 @@ colour customisation, metric collection performance, and code maintainability.
   immutable versioned snapshots, so the UI never waits on a probe.
 - **Customisable charts** — per-metric colours chosen with the system colour
   picker, a configurable stroke width, and light, dark or system theme.
+- **Per-device charts** — every disk and network adapter gets its own row and its
+  own history, with reads or received traffic solid and writes or sent traffic
+  dashed on one shared axis.
+- **Hardware inventory** — memory slots, module type, speed, bus width and part
+  numbers, read from the firmware table that no Windows counter exposes.
+- **Compact mode** — double-click the sidebar to collapse the window to the list.
 - **Remembers where you were** — window position and size, both sidebar widths,
   the navigation rail's state, and which page to open on.
 

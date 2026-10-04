@@ -292,10 +292,10 @@ namespace tmpp
                 m_preMiniSize = appWindow.Size();
 
                 // A compact window is only wide enough for the sidebar and tall enough for the rows it
-                // shows. The width leaves room for the frame; the height is a starting point the user
-                // can resize like any window.
-                constexpr int32_t MINI_WIDTH = 320;
-                constexpr int32_t MINI_HEIGHT = 520;
+                // shows. It is deliberately taller than it is wide: the list is the whole interface in
+                // this mode, and a short window shows a few rows and scrolls nowhere.
+                constexpr int32_t MINI_WIDTH = 360;
+                constexpr int32_t MINI_HEIGHT = 960;
                 appWindow.Resize(winrt::Windows::Graphics::SizeInt32{MINI_WIDTH, MINI_HEIGHT});
             }
             else if (m_preMiniSize.Width > 0 && m_preMiniSize.Height > 0)
@@ -439,6 +439,16 @@ namespace tmpp
         }
 
         // The window's placement.
+        //
+        // While mini mode is on, the current size is the compact window's and the position is wherever
+        // that landed, so neither is the user's choice for the full window. Writing them would mean
+        // closing the application from the compact view reopened it compact, which reads as the window
+        // size having been lost. The mode is left before the placement is recorded instead.
+        if (m_miniMode)
+        {
+            _setMiniMode(false);
+        }
+
         if (auto const appWindow = this->AppWindow())
         {
             updated.windowMaximized = appWindow.Presenter().try_as<winrt::Microsoft::UI::Windowing::OverlappedPresenter>() !=
