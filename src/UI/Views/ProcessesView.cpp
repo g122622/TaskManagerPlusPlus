@@ -417,6 +417,12 @@ namespace tmpp::ui
         // The overlay is the last child of the table's own grid, so it draws over both bands. It takes no
         // space of its own: the bars are positioned absolutely and the layer is transparent between them,
         // so the list underneath still receives the pointer everywhere except on a bar.
+        //
+        // It has to be given both rows explicitly. A child with no RowSpan occupies row 0 alone, which is
+        // the header, so without this the bars stopped at the bottom of the header however tall they were
+        // made -- which is exactly what they did.
+        Grid::SetRow(m_handleLayer, 0);
+        Grid::SetRowSpan(m_handleLayer, 2);
         table.Children().Append(m_handleLayer);
 
         Grid::SetRow(table, 1);

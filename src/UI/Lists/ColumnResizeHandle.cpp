@@ -21,10 +21,16 @@ namespace tmpp::ui
 
         /// Faint enough to read as a separator rather than as content, and bright enough to be found
         /// without hunting. A boundary the user cannot see is the same as no boundary.
-        constexpr Color LINE_IDLE{0x40, 0xFF, 0xFF, 0xFF};
+        ///
+        /// A quarter opacity rather than the half it began at: seven boundaries across the table at half
+        /// strength read as a ladder of bright rules competing with the columns, when all they have to do is
+        /// mark where one ends and the next begins.
+        constexpr Color LINE_IDLE{0x24, 0xFF, 0xFF, 0xFF};
 
-        /// The colour while the pointer is over it, which is what confirms the bar is the target.
-        constexpr Color LINE_HOVER{0xC0, 0xFF, 0xFF, 0xFF};
+        /// The colour while the pointer is over it, which is what confirms the bar is the target. This one
+        /// is kept strong: it is a response to the pointer rather than part of the resting table, and it is
+        /// only ever shown on one bar at a time.
+        constexpr Color LINE_HOVER{0xA0, 0xFF, 0xFF, 0xFF};
     }
 
     ColumnResizeHandle::ColumnResizeHandle()

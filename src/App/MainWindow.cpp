@@ -657,10 +657,16 @@ namespace tmpp
         // this milestone does not include (docs/ROADMAP.md).
         Grid pageHeader = Grid();
         pageHeader.Height(PAGE_HEADER_HEIGHT);
-        pageHeader.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, 0.0, 0.0));
+
+        // Inset on both sides. The right inset matches the left so the page's actions line up with the
+        // content below them rather than sitting flush against the window edge.
+        pageHeader.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, ui::metrics::PAGE_MARGIN, 0.0));
         pageHeader.Background(ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
 
-        // Column 0 takes the slack so the actions sit on the right at any width.
+        // Column 0 is the page name, column 1 takes the slack and holds the search box, and column 2 holds
+        // the page's actions at the right. The star is in the middle rather than on the name so that the
+        // search box's width follows the window while the actions stay pinned to the right.
+        pageHeader.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
         pageHeader.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
         pageHeader.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
 
@@ -672,9 +678,52 @@ namespace tmpp
         Grid::SetColumn(m_pageTitle, 0);
         pageHeader.Children().Append(m_pageTitle);
 
+        // The search box, on the page's own bar rather than in the title bar.
+        //
+        // It filters the process list and nothing else, so putting it on the page that it filters is what
+        // makes its scope visible: on the title bar it read as a window-wide control even though it never
+        // filtered the performance pages. The bar is also taller than the caption, so the field has room
+        // to be a field rather than the full height of the strip it sits in.
+        m_searchBox = ui::controls::MakeSearchBox(L"Type a name, publisher, or PID to search for");
+        m_searchBox.VerticalAlignment(VerticalAlignment::Center);
+
+        // Right-aligned within the slack column, so it sits beside the page's actions rather than against
+        // the page name. The field is a control on the bar, and grouping it with the other controls keeps
+        // the left of the bar reading as the page's identity.
+        m_searchBox.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
+        m_searchBox.Margin(ThicknessHelper::FromLengths(24.0, 0.0, 12.0, 0.0));
+
+        // Wide, but not the whole bar: a field that spans the window would read as the page's main content
+        // rather than as a control on it. Aligned to fill the space it is given up to that limit, so it
+        // grows with the window instead of staying a fixed stub.
+        m_searchBox.MinWidth(280.0);
+        m_searchBox.MaxWidth(420.0);
+        m_searchBox.Height(PAGE_HEADER_HEIGHT * 0.72);
+        Grid::SetColumn(m_searchBox, 1);
+        pageHeader.Children().Append(m_searchBox);
+
+        // The page owns the filter, so the text is handed to it as it changes. Applied on the next refresh
+        // rather than here, so a fast typist does not trigger a rebuild per keystroke.
+        m_searchBox.TextChanged(
+            [this](winrt::Windows::Foundation::IInspectable const& sender,
+                   winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&) {
+                auto const box = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>();
+                if (box == nullptr || !m_onSearch)
+                {
+                    return;
+                }
+                m_onSearch(winrt::to_string(box.Text()));
+            });
+
         StackPanel actions = ui::controls::MakeRow(4.0);
         actions.VerticalAlignment(VerticalAlignment::Center);
-        actions.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 12.0, 0.0));
+
+        // Pinned to the right edge of its column explicitly. The column sizes to the actions' content, so
+        // without this they take the column's full width and the buttons sit at its left -- which puts them
+        // wherever the column happens to start rather than against the window's edge.
+        //
+        // No right margin: the bar's own right padding is the inset, and adding one here would double it.
+        actions.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
 
         {
             // "Run new task" is a real button with an icon and a label, as in the original.
@@ -725,7 +774,9 @@ namespace tmpp
             actions.Children().Append(overflow);
         }
 
-        Grid::SetColumn(actions, 1);
+        // Column 2, which the search box does not occupy. It was column 1 before the search box moved onto
+        // this bar, and leaving it there put the two on top of each other.
+        Grid::SetColumn(actions, 2);
         pageHeader.Children().Append(actions);
 
         // --- Assembly -----------------------------------------------------------
@@ -772,34 +823,13 @@ namespace tmpp
             m_titleBarSpacer.Children().Append(titleContent);
         }
 
-        // The search box, hosted here rather than on the page: the original puts it in the title bar so
-        // it is reachable from every page, and because a field that appears and disappears as the user
-        // changes page is harder to find than one that is always in the same place.
-        m_searchBox = ui::controls::MakeSearchBox(L"Type a name, publisher, or PID to search for");
-        m_searchBox.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
-        m_searchBox.VerticalAlignment(VerticalAlignment::Center);
-        m_searchBox.MaxWidth(400.0);
-
-        // Three quarters of the strip's height. The default height of a text box is sized for a form, and
-        // in a 32 pixel bar it fills the row edge to edge and reads as the heaviest thing in the window;
-        // this leaves it visibly a field within the bar.
-        m_searchBox.Height(APP_TITLE_BAR_HEIGHT * 0.75);
-        Grid::SetColumn(m_searchBox, 1);
-        m_titleBarSpacer.Children().Append(m_searchBox);
-
-        // The page owns the filter, so the text is handed to it as it changes. Applied on the next refresh
-        // rather than here, so a fast typist does not trigger a rebuild per keystroke.
-        m_searchBox.TextChanged(
-            [this](winrt::Windows::Foundation::IInspectable const& sender,
-                   winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&) {
-                auto const box = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>();
-                if (box == nullptr || !m_onSearch)
-                {
-                    return;
-                }
-                m_onSearch(winrt::to_string(box.Text()));
-            });
-
+        // The middle column is left empty here. The search box used to live in it; it now sits on the
+        // page's own bar, where its scope -- it filters the process list and nothing else -- is visible
+        // from where it is.
+        //
+        // The trailing spacer keeps its own column so the buttons' reserve is still accounted for, which is
+        // what stops the title from being centred against the window's edge rather than against the space
+        // the buttons leave.
         // The trailing spacer. Sized to the window buttons' reserve so the centre of the star column is the
         // centre of the window rather than of the space left beside the buttons. The three buttons are each
         // 46 pixels wide at the standard caption height.
