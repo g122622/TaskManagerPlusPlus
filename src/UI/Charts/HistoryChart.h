@@ -108,6 +108,25 @@ namespace tmpp::ui
          */
         void _drawGrid();
 
+        /**
+         * @brief Maps a value's fraction of the maximum to a y coordinate.
+         *
+         * The single definition of the plot's vertical scale, used by both the curve and the grid. Written
+         * once because the two were computed separately and did not agree: the grid divided the canvas into
+         * equal bands while the curve was drawn inside a padded box, so a grid line never sat where its
+         * value was.
+         *
+         * Static and pure so the arithmetic is testable without a visual tree -- the arithmetic is the part
+         * that can be wrong, and it was.
+         *
+         * @param ratio Value as a fraction of the maximum, already clamped to 0..1.
+         * @param height Height of the plot area.
+         * @param lineWidth Stroke width, half of which is reserved at the bottom.
+         * @return The y coordinate, measured from the top of the plot area. A ratio of zero maps to the
+         *         bottom edge less half a stroke, so the line's centre sits on zero.
+         */
+        [[nodiscard]] static double YForRatio(double ratio, double height, double lineWidth);
+
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_header{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_title{nullptr};

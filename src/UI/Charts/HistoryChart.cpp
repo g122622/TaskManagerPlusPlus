@@ -269,9 +269,14 @@ namespace tmpp::ui
         int const rows = (height >= 220.0) ? GRID_ROWS : 4;
         int const columns = (width >= 420.0) ? GRID_COLUMNS : 3;
 
+        // Placed through the same mapping the curve uses, so each line sits exactly where its value is.
+        // Dividing the canvas into equal bands instead put them a few pixels out, most visibly at the
+        // bottom, where the lowest line landed below the curve's own zero.
+        //
+        // The bottom line is not drawn: the frame's lower edge is the zero line.
         for (int i = 1; i < rows; ++i)
         {
-            double const y = (height / rows) * i;
+            double const y = YForRatio(static_cast<double>(i) / static_cast<double>(rows), height, m_lineWidth);
             addLine(0.0, y, width, y);
         }
 
@@ -281,6 +286,18 @@ namespace tmpp::ui
             double const x = (width / columns) * i;
             addLine(x, 0.0, x, height);
         }
+    }
+
+    double HistoryChart::YForRatio(double ratio, double height, double lineWidth)
+    {
+        // Half the stroke is reserved at the bottom because a stroke is centred on its path: a value of
+        // zero drawn exactly on the bottom edge would have its lower half clipped away and would read as
+        // thinner than the rest of the line. Reserving half a stroke keeps the whole line visible with its
+        // centre still on zero.
+        double const bottomInset = lineWidth / 2.0;
+        double const drawableHeight = height - PLOT_PADDING - bottomInset;
+
+        return PLOT_PADDING + (drawableHeight * (1.0 - ratio));
     }
 
     void HistoryChart::_redraw()
@@ -301,11 +318,17 @@ namespace tmpp::ui
             return;
         }
 
-        double const drawableHeight = height - (PLOT_PADDING * 2.0);
-        if (drawableHeight <= 0.0)
+        if (height - PLOT_PADDING - (m_lineWidth / 2.0) <= 0.0)
         {
             return;
         }
+
+        // The plot area: zero on the bottom edge of the canvas, the maximum one padding below the top.
+        //
+        // The bottom used to carry the same padding as the top, which put a value of zero six pixels above
+        // the frame's lower edge -- so a curve sitting at zero still had visible height, and every reading
+        // was off by that padding.
+        auto const yFor = [this, height](double ratio) { return YForRatio(ratio, height, m_lineWidth); };
 
         // The x axis is a fixed time window, right-anchored: the newest sample sits at the right
         // edge and older samples extend leftwards. A chart holding three of sixty samples
@@ -339,19 +362,24 @@ namespace tmpp::ui
 
             // Y grows downward in a canvas, so the ratio is inverted.
             auto const x = static_cast<float>(leadingGap + (static_cast<double>(i) * step));
-            auto const y = static_cast<float>(PLOT_PADDING + (drawableHeight * (1.0 - ratio)));
+            auto const y = static_cast<float>(yFor(ratio));
 
             linePoints.Append(winrt::Windows::Foundation::Point{x, y});
             fillPoints.Append(winrt::Windows::Foundation::Point{x, y});
         }
 
-        // Close the shape along the baseline. The fill spans only from the oldest sample to
+        // Close the shape along the zero line. The fill spans only from the oldest sample to
         // the newest, so the part of the window that holds no readings yet stays visibly
         // empty rather than being shaded as though it held data.
+        //
+        // The baseline is the zero line rather than the canvas's bottom edge. Those were the same place
+        // until the bottom padding was removed, so the fill used the edge; they are now the same place
+        // again by construction, and using the mapping keeps them so if the padding ever changes.
         auto const firstX = static_cast<float>(leadingGap);
         auto const lastX = static_cast<float>(leadingGap + (static_cast<double>(samplesHeld - 1) * step));
-        fillPoints.Append(winrt::Windows::Foundation::Point{lastX, static_cast<float>(height)});
-        fillPoints.Append(winrt::Windows::Foundation::Point{firstX, static_cast<float>(height)});
+        auto const baseline = static_cast<float>(yFor(0.0));
+        fillPoints.Append(winrt::Windows::Foundation::Point{lastX, baseline});
+        fillPoints.Append(winrt::Windows::Foundation::Point{firstX, baseline});
 
         // The second series shares the axis and the window, so it is plotted from the same step and
         // the same leading offset. It carries no fill: two shaded areas would obscure each other,
@@ -370,7 +398,7 @@ namespace tmpp::ui
                 double const ratio = clamped / m_maximum;
 
                 auto const x = static_cast<float>(secondaryGap + (static_cast<double>(i) * step));
-                auto const y = static_cast<float>(PLOT_PADDING + (drawableHeight * (1.0 - ratio)));
+                auto const y = static_cast<float>(yFor(ratio));
                 secondaryPoints.Append(winrt::Windows::Foundation::Point{x, y});
             }
         }
