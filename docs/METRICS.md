@@ -57,23 +57,55 @@
 
 ## 3. 磁盘
 
-| 指标 | 原生 API |
-| --- | --- |
-| 物理磁盘活动时间、读写速率 | PDH 计数器（`\PhysicalDisk(*)\% Idle Time`、`\Disk Read Bytes/sec` 等） |
-| 逻辑卷容量与剩余 | `GetLogicalDrives` + `GetDiskFreeSpaceExW` |
-| 磁盘型号与类型（SSD/HDD） | `DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)` 取 `StorageDeviceProperty` |
-| 逐进程磁盘 IO | `SYSTEM_PROCESS_INFORMATION` 的 `ReadTransferCount` 等 |
+| 指标 | 实际实现 | 说明 |
+| --- | --- | --- |
+| 设备枚举（设备索引 + 盘符） | `PdhEnumObjectItemsW(L"PhysicalDisk")` | **只用来取名字**，不取计数值 |
+| 读写字节数、读写次数、服务时间、空闲时间 | `DeviceIoControl(IOCTL_DISK_PERFORMANCE)` | **累计值**，速率由 Domain 差分得出 |
+| 队列深度 | 同上，`QueueDepth` 字段 | 瞬时值，不参与差分 |
+| 容量 | `GetDiskFreeSpaceExW`（对实例名中的盘符） | 见下 |
+| 文件系统、卷标 | `GetVolumeInformationW` | 同一个盘符 |
+| 型号、总线类型 | `IOCTL_STORAGE_QUERY_PROPERTY` → `StorageDeviceProperty` | `BusType` 同在此描述符内 |
+| SSD/HDD 判定 | `StorageDeviceSeekPenaltyProperty` + `StorageDeviceTrimProperty` | 见下 |
+| 页文件所在设备 | 注册表 `Session Manager\Memory Management\PagingFiles` | 多字符串列表 |
+
+> **为什么不用 PDH 的 `\PhysicalDisk(*)\Disk Read Bytes/sec`**：那是 PDH 预先算好的
+> **速率**，而 Domain 对所有指标统一按「累计值差分」处理。混用两种约定，就会出现
+> 某个值被差分两次的情况，而且第一次采样无法诚实地显示。因此除了 `% Idle Time`
+> 之外一律不用 PDH 计数值。
+>
+> **活动时间为什么用 `IdleTime` 的补**：第一版用「读服务时间 + 写服务时间」，
+> 结果偏高数倍。设备在处理重叠请求时两个计数器同时增长，其和会超过墙上时间。
+> `IdleTime` 是墙上时钟量，取补即为准确的工作时间占比。
 
 > **重要陷阱**：PDH 计数器名称随系统语言变化。在本地化系统上硬编码英文名会失败。
-> 必须使用**语言无关的索引号**，或 `PdhAddEnglishCounter`。
+> 已统一使用 `PdhAddEnglishCounterW`；`PdhEnumObjectItemsW` 的 `PhysicalDisk`
+> 是对象名而非计数器名，同样受语言影响，待本地化系统实测后决定是否改用索引号。
+
+> **容量为什么不用 `IOCTL_DISK_GET_LENGTH_INFO`**：该 IOCTL 需要**读权限句柄**，
+> 而探针以 query-only 打开（避免要求管理员权限），调用会静默失败并返回 0。
+> 实测当时 5 块盘全部显示 0 GB。
 
 ## 4. 网络
 
-| 指标 | 原生 API |
-| --- | --- |
-| 网卡列表与累计字节数 | `GetIfTable2` / `GetIfEntry2`（64 位计数器 + Unicode 接口名，**优于** `GetIfTable`） |
-| 适配器详细信息 | `GetAdaptersAddresses`（IP 地址、网关、DNS、链路速度、连接状态） |
-| 逐进程网络字节数 | `GetPerTcpConnectionEStats` / `SetPerTcpConnectionEStats` |
+| 指标 | 实际实现 | 说明 |
+| --- | --- | --- |
+| 接口索引枚举 | `GetIfTable2` | **每次进程只调用一次**，见下 |
+| 累计收发字节、包数、错误、丢弃 | `GetIfEntry2`（按索引） | 累计值，速率由 Domain 差分得出 |
+| 链路速率、连接状态、描述 | 同上，`MIB_IF_ROW2` 内 | |
+| 逐进程网络字节数 | 未实现 | 需要管理员权限，见下 |
+
+> **`GetIfTable2` 每次采样调用一次会让采样周期失效**。实测：本机 76 个实例、
+> **433 ms**；同样 76 个实例改用 `GetIfEntry2` 逐个查询只要 **2 ms**。
+> 因此接口索引在进程生命周期内**只枚举一次**，之后逐索引轮询。
+> 设备集合在一次会话内不会变化，单个适配器查询失败时跳过该适配器即可，
+> **不得**因此重建列表（第一版正是这样把 433 ms 重新塞回了每一次采样）。
+> 实测：网络读取从 2499 ms 降到 1.58 ms，一轮三源合计 8 ms。
+
+> **接口过滤用 `HardwareInterface` 标志**：先排除 loopback 与 tunnel 仍有 9 个接口，
+> 改用 IF_TYPE 白名单降到 6 个，其中含 WAN Miniport（`IF_TYPE_PPP`，链路速率为 0）。
+> 真正区分「真实连接」的是 `InterfaceAndOperStatusFlags.HardwareInterface`：
+> Hyper-V 虚拟交换机报告普通 `IF_TYPE_ETHERNET_CSMACD`，隧道报告虚拟类型，
+> 类型和链路速率都无法把它们与物理网卡区分开。最终只剩 2 个真实适配器。
 
 > **重要限制**：逐进程 TCP 字节计数**需要管理员权限**才能启用采集。
 > 无权限时该列必须显示为不可用，并提示提权。
@@ -87,7 +119,7 @@
 | 级别 | 数据源 | 提供的数据 |
 | --- | --- | --- |
 | 基础（所有 GPU） | **DXGI**：`IDXGIFactory1::EnumAdapters1` + `DXGI_ADAPTER_DESC1` | 适配器名称、显存总量、厂商 ID、设备 ID、LUID |
-| 基础（所有 GPU） | **PDH**：`\GPU Engine(*)\Utilization Percentage`、`\GPU Adapter Memory(*)\Dedicated Usage` | 每 GPU 利用率、每进程 GPU 利用率、显存使用 |
+| 基础（所有 GPU） | **PDH**：`\GPU Engine(*)\Utilization Percentage`、`\GPU Adapter Memory(*)\Dedicated Usage`、`Shared Usage` | 利用率（总体 + 分引擎）、专用与共享显存 |
 | 增强（仅 NVIDIA） | **NVML**（动态加载 `nvml.dll`） | 显存使用、温度、功耗、功耗上限、GPU/显存频率、风扇转速、PCIe 吞吐、逐进程显存 |
 
 ### 实现要点
@@ -100,6 +132,24 @@
   必须用**可选加载**：缺失时置空函数指针并降级，不得因此判定整体失败。
 - NVML 用 `UINT64_MAX` 表示"显存信息不可用"，需与"真实 0"区分。
 - 能力缺失**不是错误**，不得记录为 error 级别日志。
+
+**实测确认的三处坑**：
+
+- **显存计数用 `GPU Adapter Memory` 而非 `GPU Process Memory`**。后者报告的是
+  进程**提交量**而非驻留量：本机实测求和得到 **112 GB**，而显卡只有 4 GB。
+  该数字不可能作为「占显卡容量的比例」呈现。
+- **显存总量用 DXGI 而非注册表**。注册表 `HardwareInformation.qwMemorySize`
+  与用量计数器相差一个由驱动决定的倍数（实测 3.98 GB vs 5.95 GB）。
+  DXGI 的 `DXGI_ADAPTER_DESC1::DedicatedVideoMemory` 是权威值，且顺带给出适配器名。
+  WinUI 的 `DXGI_ADAPTER_DESC` 没有 `Flags`，需用 `EnumAdapters1` + `GetDesc1`。
+- **利用率取「最忙引擎」而非求和**。实例名形如
+  `pid_1234_luid_0x0_0xC1C3_phys_0_eng_0_engtype_3D`，按 `_engtype_` 分组后
+  **组内求和、组间取最大**：两个引擎各忙一半时求和会超过 100%，而任何引擎都不会。
+  分引擎数值同时上报（3D / Copy / VideoDecode / VideoEncode）。
+
+> **Platform 层不得包含 WinRT**。探针一度 `#include <winrt/base.h>` 以使用
+> `com_ptr`，结果该目标文件记录的 C++/WinRT 版本与 App 不一致，链接直接失败
+> （`LNK2038`）。DXGI 枚举用 WRL 的 `ComPtr` 即可。
 
 ## 6. 电源与效率模式
 

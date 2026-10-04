@@ -93,33 +93,46 @@
 ```
 src/
 ├── Platform/                  # 静态库 tmpp_platform
-│   ├── Interfaces/            # IProcessProbe / ISystemProbe / IGpuProbe ...
+│   ├── Result.h               # Result<T> / Error，不用异常
+│   ├── SystemTypes.h          # 各层共用的采集数据类型
+│   ├── Clock.h FileSystem.h StoragePaths.h ProcessTypes.h
 │   └── Windows/               # Windows 原生实现
+│       ├── NtdllApi.*         # NtQuerySystemInformation 动态绑定
+│       ├── WindowsProcessProbe.*
+│       ├── WindowsSystemProbe.*      # CPU / 内存 / 分页列表 / 拓扑
+│       ├── ProcessorSpeedProbe.*     # PDH 实时主频
+│       └── HardwareCounterProbe.*    # 磁盘 / 网络 / GPU
 ├── Domain/                    # 静态库 tmpp_domain
-│   ├── Process/               # ProcessModel / ProcessSnapshot / 进程树
-│   ├── System/                # SystemModel / CpuModel / MemoryModel
-│   ├── Storage/ Network/ Gpu/ # 各子系统模型
-│   ├── History/               # 环形缓冲
-│   └── SamplingConfig.h       # 采样与历史的默认值与钳制范围
+│   ├── RingBuffer.h           # 环形历史缓冲（无默认构造，容量必须显式给出）
+│   ├── RateMath.h             # 累计值差分与百分比计算
+│   ├── SamplingConfig.h       # 采样与历史的默认值与钳制范围
+│   ├── ProcessModel.*         # 进程快照、树、排序
+│   └── SystemModel.*          # 系统视图与历史（含逐设备序列）
 ├── Core/                      # 静态库 tmpp_core
-│   ├── Application.*          # 生命周期
 │   ├── BackgroundSampler.*    # jthread 采样器
-│   ├── Settings.*             # 配置读写
-│   ├── PathService.*          # 路径解析
+│   ├── SamplingCoordinator.*  # 拥有探针与模型，发布快照
+│   ├── Settings.*             # JSON 配置读写
 │   └── ...
 ├── UI/                        # 视图与控件（随 App 工程编译）
-│   ├── Charts/                # Win2D 图表控件
-│   ├── Controls/              # 自定义控件
-│   ├── Formatting/            # 字节/速率/格式化
-│   └── Views/                 # C++ 构建的视图类
+│   ├── Charts/                # HistoryChart / Sparkline / CoreGrid / MemoryCompositionBar
+│   ├── Lists/                 # ProcessListModel / RowHost（行虚拟化）
+│   ├── Theming/               # Theme / Controls（尺寸辅助与图表边框工厂）/ Formatting
+│   ├── Views/                 # CpuPage / MemoryPage / DiskPage / NetworkPage / GpuPage
+│   │                          # SettingsPage / PerformanceView / ProcessesView
+│   ├── Diagnostics.*          # 界面诊断通道
+│   └── WinRTUI.h              # 投影头集中包含
 └── App/                       # WinUI 3 可执行工程
     ├── App.*                  # Application 对象
-    ├── MainWindow.*           # 主窗口与外层导航
-    ├── UiHelpers.h            # 界面构建辅助
-    └── StartupLog.h           # 启动诊断（临时）
+    ├── MainWindow.*           # 主窗口、导航、两条标题栏、设置持久化
+    └── StartupLog.*           # 启动诊断
 ```
 
-> **当前状态**：M1-0 只建立了 `src/App`。其余目录将在对应里程碑中创建。
+> **与初版计划的差异**：`Platform/Interfaces` 未建立——只有一个实现，抽象会先于必要性
+> 出现；`Domain` 按子系统再分目录也未建立，`SystemModel` 一个类覆盖了系统级指标，
+> 拆开会让「一次采样推进所有序列」这一约束变难维持；`UI/Controls` 与 `UI/Formatting`
+> 合并为 `Theming`，`UI/Lists` 是新增的，因为行虚拟化需要自己的模型与宿主。
+>
+> 图表用 `Polyline` 而非 Win2D，原因见 `ROADMAP.md` 的 M1-5 条目。
 
 ## 8. 界面构建方式（重要）
 
