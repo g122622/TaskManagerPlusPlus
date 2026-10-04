@@ -220,6 +220,15 @@ namespace tmpp::ui
         // zero would make the chart look empty while an enormous one would fill it solid.
         m_lineWidth = std::clamp(width, 0.5, 8.0);
         m_line.StrokeThickness(m_lineWidth);
+
+        // The secondary line too. The two are one chart and are read against each other, so giving them
+        // different weights would make the dashed series look like a different kind of measurement rather
+        // than the second half of the same one. It was missed here, which left the dashed line at whatever
+        // width it was constructed with while the solid one followed the setting.
+        if (m_secondaryLine != nullptr)
+        {
+            m_secondaryLine.StrokeThickness(m_lineWidth);
+        }
     }
 
     void HistoryChart::_drawGrid()

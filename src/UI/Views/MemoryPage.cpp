@@ -30,10 +30,17 @@ namespace tmpp::ui
         constexpr double CHART_MIN_HEIGHT = 220.0;
     }
 
-    MemoryPage::MemoryPage(core::SamplingCoordinator& coordinator) : m_coordinator(coordinator)
+    MemoryPage::MemoryPage(core::SamplingCoordinator& coordinator, core::ChartStyle const& style)
+        : m_coordinator(coordinator)
     {
         _buildLayout();
         _addModuleList();
+        // Applied here rather than by the caller. The page is built lazily, on first selection, so there
+        // is no point after construction at which the caller reliably knows to style it -- and a chart
+        // left at its constructed defaults is the whole of what the user sees until the settings are next
+        // touched.
+        SetAccentColor(winrt::Windows::UI::Color{0xFF, style.red, style.green, style.blue});
+        SetLineWidth(style.ClampedLineWidth());
     }
 
     void MemoryPage::_buildLayout()

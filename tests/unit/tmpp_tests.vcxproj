@@ -117,6 +117,7 @@
     <ClCompile Include="test_process_gpu.cpp" />
     <ClCompile Include="test_process_icon.cpp" />
     <ClCompile Include="test_process_icon_cache.cpp" />
+    <ClCompile Include="test_lazy_page_style.cpp" />
     <ClCompile Include="test_process_column_widths.cpp" />
     <ClCompile Include="test_probe_timing.cpp" />
     <ClCompile Include="test_network_api_benchmark.cpp" />

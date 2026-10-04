@@ -63,9 +63,17 @@ namespace tmpp::ui
         }
     }
 
-    CpuPage::CpuPage(core::SamplingCoordinator& coordinator) : m_coordinator(coordinator)
+    CpuPage::CpuPage(core::SamplingCoordinator& coordinator, core::ChartStyle const& style)
+        : m_coordinator(coordinator)
     {
         _buildLayout();
+
+        // Applied here rather than by the caller. The page is built lazily, on first selection, so there
+        // is no point after construction at which the caller reliably knows to style it -- and a chart left
+        // at its constructed defaults is the whole of what the user sees until the settings are next
+        // touched.
+        SetAccentColor(winrt::Windows::UI::Color{0xFF, style.red, style.green, style.blue});
+        SetLineWidth(style.ClampedLineWidth());
     }
 
     void CpuPage::_buildLayout()
@@ -153,8 +161,13 @@ namespace tmpp::ui
         // --- Per-core chart grid -----------------------------------------------------
         m_coreGrid = std::make_unique<CoreGrid>();
         m_coreGrid->Root().MinHeight(CORE_GRID_MIN_HEIGHT);
-        m_coreGrid->SetCoreCount(m_coordinator.LogicalProcessorCount());
+
+        // The style is set before the cell count, because SetCoreCount is what creates the cells: a cell
+        // built before the style is known takes the chart's own default and would have to be corrected
+        // afterwards. CoreGrid remembers both, so the order here is belt and braces rather than the only
+        // thing keeping it right.
         m_coreGrid->SetColor(DEFAULT_CPU_COLOR);
+        m_coreGrid->SetCoreCount(m_coordinator.LogicalProcessorCount());
 
         Grid::SetRow(m_coreGrid->Root(), 2);
         m_root.Children().Append(m_coreGrid->Root());
@@ -261,6 +274,14 @@ namespace tmpp::ui
         if (m_coreGrid != nullptr)
         {
             m_coreGrid->SetLineWidth(width);
+        }
+
+        // The total-utilisation chart as well as the per-core grid. It was missed here, so the size set in
+        // the settings applied to the small per-core charts and to nothing else: the large chart, which is
+        // the one the setting exists to control, kept the thickness it was given at construction.
+        if (m_totalChart != nullptr)
+        {
+            m_totalChart->SetLineWidth(width);
         }
     }
 

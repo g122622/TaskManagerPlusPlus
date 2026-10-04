@@ -261,6 +261,17 @@ namespace tmpp
             }
         }
 
+        // The search box belongs to the process list, so it is shown only while that list is.
+        //
+        // It filters processes and nothing else. Leaving it on the other pages offered a control that could
+        // not do anything there: typing into it on the Performance page would filter a list that is not on
+        // screen and give no sign that anything had happened.
+        if (m_searchBox != nullptr)
+        {
+            m_searchBox.Visibility(index == 0 ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                                              : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        }
+
         // Only one page renders at a time, so only the visible page is refreshed.
         // Refreshing a hidden page would do work whose result nobody sees.
         m_activeProcessesView = nullptr;

@@ -34,9 +34,16 @@ namespace tmpp::ui
         constexpr winrt::Windows::UI::Color DEFAULT_GPU_COLOR{0xFF, 0xFF, 0x8A, 0xA8};
     }
 
-    GpuPage::GpuPage(core::SamplingCoordinator& coordinator) : m_coordinator(coordinator)
+    GpuPage::GpuPage(core::SamplingCoordinator& coordinator, core::ChartStyle const& style)
+        : m_coordinator(coordinator)
     {
         _buildLayout();
+        // Applied here rather than by the caller. The page is built lazily, on first selection, so there
+        // is no point after construction at which the caller reliably knows to style it -- and a chart
+        // left at its constructed defaults is the whole of what the user sees until the settings are next
+        // touched.
+        SetAccentColor(winrt::Windows::UI::Color{0xFF, style.red, style.green, style.blue});
+        SetLineWidth(style.ClampedLineWidth());
     }
 
     void GpuPage::_buildLayout()

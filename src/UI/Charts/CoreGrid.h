@@ -61,7 +61,6 @@ namespace tmpp::ui
 
         /// Applies a stroke width to every cell, driven by the user's setting.
         void SetLineWidth(double width);
-
         /// Number of charts currently built. Exposed for diagnostics and tests.
         [[nodiscard]] size_t CellCount() const noexcept { return m_cells.size(); }
 
@@ -123,5 +122,17 @@ namespace tmpp::ui
         uint32_t m_coreCount{0};
         uint32_t m_columns{0};
         double m_lastWidth{0.0};
+
+        /**
+         * @brief The style a cell is given as it is created.
+         *
+         * Held here rather than only pushed into the cells that exist, because the grid creates cells long
+         * after the style is set: the arrangement is rebuilt whenever the count or the width changes, and a
+         * cell that appears in a later rebuild would otherwise take the chart's own default. That is what
+         * left a resized window -- or a settings change made before the grid had settled -- drawing some
+         * cells at the configured width and others at the default.
+         */
+        double m_lineWidth{1.0};
+        winrt::Windows::UI::Color m_color{winrt::Windows::UI::Colors::DodgerBlue()};
     };
 }

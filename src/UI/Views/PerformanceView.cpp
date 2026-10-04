@@ -618,6 +618,13 @@ namespace tmpp::ui
 
         _updateSelectionVisuals();
 
+        // Each page is handed the style it should draw with as it is built.
+        //
+        // Taking it here rather than telling the page afterwards is what makes this correct by
+        // construction: the page applies it in its own constructor, so there is no window in which a
+        // chart exists with the defaults and nothing has yet said otherwise.
+        core::ChartStyle const& style = m_settings.ChartStyleFor(static_cast<int>(m_selectedKind));
+
         // One page per kind, created on first selection and reused, so switching away and back does
         // not rebuild a chart and flash it empty.
         switch (m_selectedKind)
@@ -625,7 +632,7 @@ namespace tmpp::ui
             case SectionKind::Cpu:
                 if (m_cpuPage == nullptr)
                 {
-                    m_cpuPage = std::make_unique<CpuPage>(m_coordinator);
+                    m_cpuPage = std::make_unique<CpuPage>(m_coordinator, style);
                 }
                 m_detailHost.Children().Append(m_cpuPage->Root());
                 break;
@@ -633,7 +640,7 @@ namespace tmpp::ui
             case SectionKind::Memory:
                 if (m_memoryPage == nullptr)
                 {
-                    m_memoryPage = std::make_unique<MemoryPage>(m_coordinator);
+                    m_memoryPage = std::make_unique<MemoryPage>(m_coordinator, style);
                 }
                 m_detailHost.Children().Append(m_memoryPage->Root());
                 break;
@@ -644,7 +651,7 @@ namespace tmpp::ui
                 // the vector only ever grows.
                 while (m_diskPages.size() <= m_selectedSubIndex)
                 {
-                    m_diskPages.push_back(std::make_unique<DiskPage>(m_coordinator));
+                    m_diskPages.push_back(std::make_unique<DiskPage>(m_coordinator, style));
                 }
 
                 DiskPage& page = *m_diskPages[m_selectedSubIndex];
@@ -657,7 +664,7 @@ namespace tmpp::ui
             case SectionKind::Network:
                 if (m_networkPage == nullptr)
                 {
-                    m_networkPage = std::make_unique<NetworkPage>(m_coordinator);
+                    m_networkPage = std::make_unique<NetworkPage>(m_coordinator, style);
                 }
                 m_networkPage->SetAdapterIndex(m_selectedSubIndex);
                 m_networkPage->SetAdapterLabel(m_sections[rowIndex].title);
@@ -667,7 +674,7 @@ namespace tmpp::ui
             case SectionKind::Gpu:
                 if (m_gpuPage == nullptr)
                 {
-                    m_gpuPage = std::make_unique<GpuPage>(m_coordinator);
+                    m_gpuPage = std::make_unique<GpuPage>(m_coordinator, style);
                 }
                 m_detailHost.Children().Append(m_gpuPage->Root());
                 break;

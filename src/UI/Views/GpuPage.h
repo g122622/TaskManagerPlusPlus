@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "Core/SamplingCoordinator.h"
+#include "Core/Settings.h"
 #include "UI/Charts/HistoryChart.h"
 
 namespace tmpp::ui
@@ -25,7 +26,17 @@ namespace tmpp::ui
         /**
          * @param coordinator Supplies snapshots; owned by the application.
          */
-        explicit GpuPage(core::SamplingCoordinator& coordinator);
+        /**
+         * @brief Builds the page with its chart style already applied.
+         *
+         * The style is taken here rather than pushed in afterwards because the page is built lazily, on
+         * first selection: a page that waits to be told would draw its charts in the defaults until
+         * something happened to notify it, and nothing does between its construction and its first frame.
+         *
+         * @param coordinator Source of samples.
+         * @param style Colour and stroke width for the charts.
+         */
+        GpuPage(core::SamplingCoordinator& coordinator, core::ChartStyle const& style);
 
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::Grid Root() const { return m_root; }
 

@@ -189,6 +189,10 @@ namespace tmpp::ui
 
     void CoreGrid::SetColor(winrt::Windows::UI::Color color)
     {
+        // Remembered as well as applied, so a cell created by a later rebuild is drawn in the
+        // configured colour rather than the chart's own default.
+        m_color = color;
+
         for (auto& cell : m_cells)
         {
             if (cell->chart != nullptr)
@@ -200,6 +204,10 @@ namespace tmpp::ui
 
     void CoreGrid::SetLineWidth(double width)
     {
+        // Remembered as well as applied, for the same reason as the colour: the grid rebuilds its
+        // arrangement on a resize, and every cell that appears afterwards is a new chart.
+        m_lineWidth = width;
+
         for (auto& cell : m_cells)
         {
             if (cell->chart != nullptr)
@@ -316,6 +324,15 @@ namespace tmpp::ui
                 // maths, which is the part that has to be right.
                 cell->chart = std::make_unique<HistoryChart>(L"", winrt::Windows::UI::Colors::DodgerBlue(), 100.0);
                 cell->chart->SetHeaderVisible(false);
+
+                // The remembered style, applied as the cell is built.
+                //
+                // A new chart knows nothing of what the user configured, and this runs on every rebuild --
+                // which a resize triggers. Without these two lines a window resize replaced the per-core
+                // charts with ones drawn at the defaults, so the settings appeared not to have applied at
+                // all once the grid had rearranged itself.
+                cell->chart->SetLineColor(m_color);
+                cell->chart->SetLineWidth(m_lineWidth);
 
                 cell->frame.Child(cell->chart->Root());
             }
