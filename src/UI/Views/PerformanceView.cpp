@@ -762,14 +762,18 @@ namespace tmpp::ui
                     // to every process, backed or not. Reported as a value against its limit rather than
                     // as a percentage, because the limit is what moves -- a page file that grows changes
                     // it -- so the pair says more than the ratio would.
+                    //
+                    // Labelled "C:" rather than "Commit:" because the sidebar is narrow and the row
+                    // already carries two full-width lines: the longer word pushed the figures past the
+                    // edge, and the letter is unambiguous beside them.
                     if (system.memory.kernelAccountingAvailable)
                     {
-                        setDetail(i, "Commit: " + FormatBytes(system.memory.committedBytes) + " / " +
+                        setDetail(i, "C: " + FormatBytes(system.memory.committedBytes) + " / " +
                                          FormatBytes(system.memory.commitLimitBytes));
                     }
                     else
                     {
-                        setDetail(i, "Commit: " + std::string{UnavailableValue()});
+                        setDetail(i, "C: " + std::string{UnavailableValue()});
                     }
 
                     ChartSeries series;
