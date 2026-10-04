@@ -112,6 +112,32 @@ namespace tmpp::ui
                     }
                 });
 
+            // Theme. The setting existed in the file but was never applied, so choosing one did
+            // nothing at all.
+            _addRow(section,
+                    L"\xE790",
+                    L"App theme",
+                    L"Follow the system, or force light or dark",
+                    m_theme);
+
+            // The order matches the ThemeMode enum, so the selected index is the enum value and no
+            // lookup table is needed to map between them.
+            m_theme.MinWidth(180.0);
+            m_theme.Items().Append(winrt::box_value(winrt::hstring{L"Use system setting"}));
+            m_theme.Items().Append(winrt::box_value(winrt::hstring{L"Light"}));
+            m_theme.Items().Append(winrt::box_value(winrt::hstring{L"Dark"}));
+            m_theme.SelectedIndex(static_cast<int32_t>(m_settings.theme));
+            m_theme.SelectionChanged(
+                [this](winrt::Windows::Foundation::IInspectable const&,
+                       winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&) {
+                    int32_t const index = m_theme.SelectedIndex();
+                    if (index >= 0)
+                    {
+                        m_settings.theme = static_cast<core::ThemeMode>(index);
+                        _notifyChange();
+                    }
+                });
+
             _addRow(section,
                     L"\xE840",
                     L"Keep the window on top",

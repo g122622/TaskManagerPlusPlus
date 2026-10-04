@@ -272,10 +272,39 @@ namespace tmpp
             }
         }
 
+        // The theme is applied to the root element rather than to the application, because the root
+        // is where FrameworkElement::RequestedTheme is honoured; setting it on the Application object
+        // is only read once, at construction.
+        if (m_rootGrid != nullptr)
+        {
+            switch (updated.theme)
+            {
+                case core::ThemeMode::Light:
+                    m_rootGrid.RequestedTheme(winrt::Microsoft::UI::Xaml::ElementTheme::Light);
+                    break;
+                case core::ThemeMode::Dark:
+                    m_rootGrid.RequestedTheme(winrt::Microsoft::UI::Xaml::ElementTheme::Dark);
+                    break;
+                case core::ThemeMode::System:
+                default:
+                    m_rootGrid.RequestedTheme(winrt::Microsoft::UI::Xaml::ElementTheme::Default);
+                    break;
+            }
+        }
+
         // The chart styles are pushed to the view so a colour change is visible without a restart.
         if (m_performanceView != nullptr)
         {
             m_performanceView->ApplySettings(updated);
+        }
+
+        if (m_detailsPage != nullptr)
+        {
+            // The details page plots a process's CPU share, so it takes the CPU style rather than one
+            // of its own: a colour of its own would read as a different metric.
+            core::ChartStyle const& cpu = updated.ChartStyleFor(0);
+            m_detailsPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, cpu.red, cpu.green, cpu.blue});
+            m_detailsPage->SetLineWidth(cpu.ClampedLineWidth());
         }
     }
 
@@ -747,6 +776,10 @@ namespace tmpp
         SetTitleBar(m_titleBarSpacer);
         AppWindow().TitleBar().PreferredHeightOption(
             winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
+
+        // The remembered theme and the chart styles, applied once the root exists. Doing this only
+        // from the settings page would mean a choice took effect only after visiting that page.
+        _applySettings(m_currentSettings);
 
         _updateStatusBar();
     }

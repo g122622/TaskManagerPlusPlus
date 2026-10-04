@@ -152,5 +152,8 @@ namespace tmpp::ui
 
         winrt::Microsoft::UI::Xaml::Controls::CheckBox m_alwaysOnTop{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ComboBox m_startupPage{nullptr};
+
+        /// Follow the system, or force light or dark.
+        winrt::Microsoft::UI::Xaml::Controls::ComboBox m_theme{nullptr};
     };
 }
