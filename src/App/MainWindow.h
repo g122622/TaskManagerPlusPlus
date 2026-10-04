@@ -88,7 +88,30 @@ namespace tmpp
 
         winrt::Microsoft::UI::Xaml::Controls::NavigationView m_navigation{nullptr};
 
-        /// The navigation rail's resize handle. A NavigationView has no splitter, so this is an
+        /**
+         * @brief Switches the window between the full interface and the compact sidebar-only view.
+         *
+         * The window is what shrinks and hides its own chrome: the view reports the double-click but
+         * cannot resize the window it lives in.
+         */
+        void _setMiniMode(bool mini);
+
+        /// True while the compact layout is presented.
+        bool m_miniMode{false};
+
+        /// The window's size before mini mode, restored when it is left.
+        winrt::Windows::Graphics::SizeInt32 m_preMiniSize{0, 0};
+
+        /// The rows and elements that mini mode empties: the title bar, the page header and the bottom
+        /// stack. Their heights are set to zero rather than the elements being hidden, because a fixed
+        /// row keeps its height whether or not its child is visible.
+        winrt::Microsoft::UI::Xaml::Controls::RowDefinition m_titleBarRow{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::RowDefinition m_pageHeaderRow{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::RowDefinition m_bottomRow{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_pageHeader{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_bottomStack{nullptr};
+
+        /// The navigation rail''s resize handle. A NavigationView has no splitter, so this is an
         /// overlaid strip at the pane's right edge.
         winrt::Microsoft::UI::Xaml::Controls::Border m_navigationSplitter{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_contentHost{nullptr};

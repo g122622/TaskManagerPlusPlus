@@ -33,7 +33,7 @@ namespace tmpp::ui
         /// The aspect is about 2:3, matching the original's thumbnails, which are considerably less
         /// wide than the row they sit in. A wider thumbnail crowds the label beside it.
         constexpr double SPARKLINE_WIDTH = 56.0;
-        constexpr double SPARKLINE_HEIGHT = 36.0;
+        constexpr double SPARKLINE_HEIGHT = 48.0;
 
         /// Accent fill for the selected sidebar row.
         constexpr winrt::Windows::UI::Color SELECTION_FILL{0x33, 0x4C, 0xC2, 0xFF};
@@ -56,6 +56,92 @@ namespace tmpp::ui
         // Seed every chart from the settings, so the configured colours are what is drawn on the
         // first frame rather than a hardcoded default the settings page would later contradict.
         ApplySettings(m_settings);
+    }
+
+    void PerformanceView::SetMiniMode(bool mini)
+    {
+        if (m_miniMode == mini)
+        {
+            return;
+        }
+
+        m_miniMode = mini;
+
+        if (mini)
+        {
+            // The current widths are remembered before the columns collapse, so leaving the mode
+            // restores what the user had rather than a default.
+            if (m_pageColumn != nullptr)
+            {
+                m_pageWidth = m_pageColumn.Width();
+                m_pageColumn.Width(GridLengthHelper::FromPixels(0.0));
+            }
+
+            if (m_splitterColumn != nullptr)
+            {
+                m_splitterWidth = m_splitterColumn.Width();
+                m_splitterColumn.Width(GridLengthHelper::FromPixels(0.0));
+            }
+
+            // The page is removed rather than hidden: a collapsed element is still measured on every
+            // layout pass, and the point of the mode is that only the list is left.
+            if (m_detailHost != nullptr)
+            {
+                // C++/WinRT reports the position through an out-parameter and returns whether the
+                // element was found.
+                uint32_t index = 0;
+                if (m_root.Children().IndexOf(m_detailHost, index))
+                {
+                    m_root.Children().RemoveAt(index);
+                }
+            }
+
+            if (m_sidebarSplitter != nullptr)
+            {
+                m_sidebarSplitter.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            }
+
+            // The card fills the window, and the margin that separated it from the page goes with the
+            // page.
+            if (m_sidebarCard != nullptr)
+            {
+                m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 0.0));
+            }
+
+            // The list itself is no longer limited to the sidebar's width, so the rows are re-laid out.
+            m_root.Padding(ThicknessHelper::FromLengths(0.0, 0.0, metrics::PAGE_MARGIN, 0.0));
+        }
+        else
+        {
+            if (m_pageColumn != nullptr)
+            {
+                m_pageColumn.Width(m_pageWidth);
+            }
+
+            if (m_splitterColumn != nullptr)
+            {
+                m_splitterColumn.Width(m_splitterWidth);
+            }
+
+            if (m_sidebarSplitter != nullptr)
+            {
+                m_sidebarSplitter.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            }
+
+            if (m_detailHost != nullptr && m_detailHost.Parent() == nullptr)
+            {
+                Grid::SetColumn(m_detailHost, 2);
+                m_root.Children().Append(m_detailHost);
+            }
+
+            if (m_sidebarCard != nullptr)
+            {
+                m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
+            }
+
+            m_root.Padding(ThicknessHelper::FromLengths(metrics::CONTENT_LEFT_INSET, 8.0,
+                                                        metrics::PAGE_MARGIN, 8.0));
+        }
     }
 
     void PerformanceView::ApplySettings(core::Settings const& settings)
@@ -168,13 +254,13 @@ namespace tmpp::ui
 
         // The handle sits in its own column of zero width, aligned to the boundary. Putting it inside
         // the sidebar column would let it be clipped when the column narrows.
-        ColumnDefinition splitterColumn;
-        splitterColumn.Width(GridLengthHelper::FromPixels(0.0));
-        m_root.ColumnDefinitions().Append(splitterColumn);
+        m_splitterColumn = ColumnDefinition();
+        m_splitterColumn.Width(GridLengthHelper::FromPixels(0.0));
+        m_root.ColumnDefinitions().Append(m_splitterColumn);
 
-        ColumnDefinition detailColumn;
-        detailColumn.Width(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
-        m_root.ColumnDefinitions().Append(detailColumn);
+        m_pageColumn = ColumnDefinition();
+        m_pageColumn.Width(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
+        m_root.ColumnDefinitions().Append(m_pageColumn);
 
         m_sidebarSplitter.VerticalAlignment(VerticalAlignment::Stretch);
         Grid::SetColumn(m_sidebarSplitter, 1);
@@ -184,19 +270,30 @@ namespace tmpp::ui
         //
         // The card is created here and its row container is filled by _rebuildSidebarIfNeeded, which
         // is what lets the list follow the machine's devices.
-        Border sidebarCard = controls::MakeCard();
-        sidebarCard.Padding(ThicknessHelper::FromLengths(3.0, 3.0, 3.0, 3.0));
-        sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
-        sidebarCard.VerticalAlignment(VerticalAlignment::Top);
-        sidebarCard.HorizontalAlignment(HorizontalAlignment::Stretch);
+        m_sidebarCard = controls::MakeCard();
+        m_sidebarCard.Padding(ThicknessHelper::FromLengths(3.0, 3.0, 3.0, 3.0));
+        m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
+        m_sidebarCard.VerticalAlignment(VerticalAlignment::Top);
+        m_sidebarCard.HorizontalAlignment(HorizontalAlignment::Stretch);
 
         // No ScrollViewer: the rows always fit, and a ScrollViewer here would give its content
         // unlimited height, which is what makes star sizing fail elsewhere.
         m_sidebar = controls::MakeStack(1.0);
-        sidebarCard.Child(m_sidebar);
+        m_sidebarCard.Child(m_sidebar);
 
-        Grid::SetColumn(sidebarCard, 0);
-        m_root.Children().Append(sidebarCard);
+        Grid::SetColumn(m_sidebarCard, 0);
+        m_root.Children().Append(m_sidebarCard);
+
+        // Double-clicking the sidebar asks for the compact window. The view reports the gesture rather
+        // than performing it: resizing the window it lives in is not something a page can do.
+        m_sidebarCard.DoubleTapped(
+            [this](winrt::Windows::Foundation::IInspectable const&,
+                   winrt::Microsoft::UI::Xaml::Input::DoubleTappedRoutedEventArgs const&) {
+                if (m_miniModeHandler)
+                {
+                    m_miniModeHandler();
+                }
+            });
 
         // --- Detail area -------------------------------------------------------
         m_detailHost = Grid();
@@ -223,6 +320,40 @@ namespace tmpp::ui
             m_knownDiskCount = system.disks.size();
         }
 
+        // The order the rows appear in. A disk is named by the volumes it backs, so ordering by the first
+        // letter and ordering by the device index give genuinely different lists rather than the same one
+        // reversed: the device the firmware calls 2 may be the one backing C:.
+        if (m_diskOrder.size() != system.disks.size() || m_diskOrderSettings != m_settings.diskSortOrder)
+        {
+            m_diskOrder.resize(system.disks.size());
+            for (size_t i = 0; i < m_diskOrder.size(); ++i)
+            {
+                m_diskOrder[i] = i;
+            }
+
+            if (m_settings.diskSortOrder == core::DiskSortOrder::FirstDriveLetter)
+            {
+                std::stable_sort(m_diskOrder.begin(), m_diskOrder.end(),
+                                 [&system](size_t a, size_t b) {
+                                     // Compared by the first volume letter the device backs. A device with
+                                     // no letters sorts last, since there is nothing to compare it by.
+                                     auto const firstLetter = [&system](size_t index) -> wchar_t {
+                                         for (wchar_t const c : system.disks[index].instanceName)
+                                         {
+                                             if (c >= L'A' && c <= L'Z')
+                                             {
+                                                 return c;
+                                             }
+                                         }
+                                         return L'[';  // Sorts after every letter.
+                                     };
+                                     return firstLetter(a) < firstLetter(b);
+                                 });
+            }
+
+            m_diskOrderSettings = m_settings.diskSortOrder;
+        }
+
         if (!system.networks.empty())
         {
             m_knownNetworkCount = system.networks.size();
@@ -232,37 +363,43 @@ namespace tmpp::ui
         // fewer devices than were last seen is a failed read, and the rows are kept until one arrives
         // that reports them; the figures for a device that has genuinely gone show as unavailable until
         // the next sample removes its row.
-        for (size_t i = 0; i < m_knownDiskCount; ++i)
+        for (size_t row = 0; row < m_knownDiskCount; ++row)
         {
+            // The row's position and the device it reports are different things once the order is not
+            // the device index: the row index is what the sidebar shows, and subIndex is what the page
+            // opens.
+            size_t const device = (row < m_diskOrder.size()) ? m_diskOrder[row] : row;
+
             std::wstring title = L"Disk ";
-            if (i < system.disks.size())
+            if (device < system.disks.size())
             {
                 // The instance name is the form the original uses: the device index followed by the
                 // volumes it backs, as in "2 C: D:".
-                title += winrt::to_hstring(system.disks[i].instanceName).c_str();
-                m_diskTitles[i] = title;
+                title += winrt::to_hstring(system.disks[device].instanceName).c_str();
+                m_diskTitles[device] = title;
             }
-            else if (auto const known = m_diskTitles.find(i); known != m_diskTitles.end())
+            else if (auto const known = m_diskTitles.find(device); known != m_diskTitles.end())
             {
                 title = known->second;
             }
             else
             {
-                title += std::to_wstring(i);
+                title += std::to_wstring(device);
             }
 
-            next.push_back(SectionSpec{std::move(title), L"\xEDA2", SectionKind::Disk, true, i});
+            next.push_back(SectionSpec{std::move(title), L"\xEDA2", SectionKind::Disk, true, device});
         }
 
         for (size_t i = 0; i < m_knownNetworkCount; ++i)
         {
+            // The row is named by its medium rather than by its chipset. An adapter's description is a
+            // long part number that says nothing a reader wants from a sidebar; "Wi-Fi" and "Ethernet"
+            // are what the two kinds of connection are called, and that is the distinction the row is
+            // for.
             std::wstring name = L"Network";
             if (i < system.networks.size())
             {
-                if (!system.networks[i].adapterName.empty())
-                {
-                    name = winrt::to_hstring(system.networks[i].adapterName).c_str();
-                }
+                name = system.networks[i].wireless ? L"Wi-Fi" : L"Ethernet";
                 m_networkTitles[i] = name;
             }
             else if (auto const known = m_networkTitles.find(i); known != m_networkTitles.end())
@@ -341,7 +478,13 @@ namespace tmpp::ui
             Button button;
             button.Content(rowContent);
             button.Height(metrics::SIDEBAR_ROW_HEIGHT);
-            button.Padding(ThicknessHelper::FromLengths(6.0, 0.0, 6.0, 0.0));
+            // The hover fill is a rounded box around the row, so its horizontal padding is what puts the
+            // highlight's edge a readable distance from the text. Six pixels left the fill's corners
+            // almost touching the thumbnail and the text.
+            button.Padding(ThicknessHelper::FromLengths(metrics::SIDEBAR_ROW_PADDING, 0.0,
+                                                        metrics::SIDEBAR_ROW_PADDING, 0.0));
+            // Stretch makes the hover fill span the sidebar rather than shrink to fit its content, which
+            // is what a list of rows should do: every row's highlight is the same width.
             button.HorizontalAlignment(HorizontalAlignment::Stretch);
             button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
             button.Background(SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));

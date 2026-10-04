@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <map>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -63,6 +64,31 @@ namespace tmpp::ui
          * is visible without a restart.
          */
         void ApplySettings(core::Settings const& settings);
+
+        /**
+         * @brief Called when the sidebar is double-clicked.
+         *
+         * The window decides what that means; the view only reports the gesture, because collapsing the
+         * rest of the window is not something a page can do to itself.
+         */
+        void SetMiniModeHandler(std::function<void()> handler) { m_miniModeHandler = std::move(handler); }
+
+        /**
+         * @brief Called when the compact window's close button is pressed.
+         */
+        void SetRestoreHandler(std::function<void()> handler) { m_restoreHandler = std::move(handler); }
+
+        /// True while the view is presenting its compact layout.
+        [[nodiscard]] bool MiniMode() const noexcept { return m_miniMode; }
+
+        /**
+         * @brief Switches between the full page and the sidebar-only compact layout.
+         *
+         * In mini mode the sidebar fills the window and the page beside it is removed from the tree
+         * rather than hidden: a collapsed element would still be measured on every layout pass, and the
+         * point of the mode is that only the list is left.
+         */
+        void SetMiniMode(bool mini);
 
     private:
         /**
@@ -190,6 +216,14 @@ namespace tmpp::ui
         /// devices does not remove every disk and network row. That is a failed read, not an observation
         /// that the hardware is gone.
         size_t m_knownDiskCount{0};
+
+        /// The order the disk rows appear in, as indices into the sample's device list. Held so the
+        /// order is not recomputed on every sample and so a row keeps its device while the list is
+        /// rebuilt.
+        std::vector<size_t> m_diskOrder;
+
+        /// The setting the current order was built for, so a change is noticed.
+        core::DiskSortOrder m_diskOrderSettings{core::DiskSortOrder::DeviceIndex};
         size_t m_knownNetworkCount{0};
 
         /// The last title seen for each device, so a row keeps its name while its figures are
@@ -205,6 +239,28 @@ namespace tmpp::ui
 
         /// Which device or adapter is open, for the kinds that have more than one.
         size_t m_selectedSubIndex{0};
+
+        /// Handlers for the gestures the view reports but cannot act on itself.
+        std::function<void()> m_miniModeHandler;
+        std::function<void()> m_restoreHandler;
+
+        /// True while the sidebar-only layout is presented.
+        bool m_miniMode{false};
+
+        /// The columns holding the page and the splitter, kept so mini mode can collapse them to zero
+        /// and restore their widths. A column definition is not a child, so it cannot simply be hidden.
+        winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_pageColumn{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_splitterColumn{nullptr};
+
+        /// The same grid lengths as a fresh layout would give them, remembered so leaving mini mode
+        /// restores the widths the user had rather than a default.
+        winrt::Microsoft::UI::Xaml::GridLength m_pageWidth{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star};
+        winrt::Microsoft::UI::Xaml::GridLength m_splitterWidth{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel};
+
+        /// The sidebar card, which is the only thing shown in mini mode.
+        winrt::Microsoft::UI::Xaml::Controls::Border m_sidebarCard{nullptr};
+
+
 
         /// Detail card for sections that have data but no dedicated page yet.
         winrt::Microsoft::UI::Xaml::Controls::Border m_detailsCard{nullptr};

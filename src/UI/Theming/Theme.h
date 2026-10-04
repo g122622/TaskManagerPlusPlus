@@ -40,10 +40,14 @@ namespace tmpp::ui
 
         /// Width of the performance page's own hardware sidebar. Wider than the
         /// navigation rail because each row carries a name, a qualifier and a chart.
+        /// Horizontal padding inside a sidebar row: the inset between the hover fill's rounded edge and
+        /// the row's content.
+        inline constexpr double SIDEBAR_ROW_PADDING = 12.0;
+
         inline constexpr double PERFORMANCE_SIDEBAR_WIDTH = 260.0;
 
         /// Height of a performance sidebar row.
-        inline constexpr double SIDEBAR_ROW_HEIGHT = 58.0;
+        inline constexpr double SIDEBAR_ROW_HEIGHT = 68.0;
 
         /// Height reserved for the status bar.
         inline constexpr double STATUS_BAR_HEIGHT = 28.0;

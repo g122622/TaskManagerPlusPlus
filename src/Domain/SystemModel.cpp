@@ -317,6 +317,13 @@ namespace tmpp::domain
             activity.receiveLinkSpeedBps = iface.receiveLinkSpeedBps;
             activity.transmitLinkSpeedBps = iface.transmitLinkSpeedBps;
             activity.adapterName = iface.adapterName;
+
+            // IF_TYPE_IEEE80211 (71) is how Windows reports a wireless interface. The type is the only
+            // reliable signal: a description names the chipset, so a Wi-Fi part and an Ethernet part are
+            // not told apart by their text.
+            constexpr uint32_t IF_TYPE_IEEE80211 = 71;
+            activity.wireless = (iface.interfaceType == IF_TYPE_IEEE80211);
+
             activity.connected = iface.connected;
             activity.virtualAdapter = iface.virtualAdapter;
             activity.receiveErrors = iface.receiveErrors;

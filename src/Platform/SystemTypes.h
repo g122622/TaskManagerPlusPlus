@@ -60,7 +60,33 @@ namespace tmpp::platform
         uint64_t availablePageFile{0};
         uint64_t totalVirtual{0};
         uint64_t availableVirtual{0};
-        uint32_t memoryLoadPercent{0};
+                uint32_t memoryLoadPercent{0};
+
+        // The kernel's own memory accounting, which GlobalMemoryStatusEx does not provide. Every figure
+        // here is a byte count derived from GetPerformanceInfo, which reports in pages.
+
+        /// Paged pool: kernel allocations that may be written to the page file.
+        uint64_t pagedPoolBytes{0};
+
+        /// Non-paged pool: kernel allocations that must stay resident.
+        uint64_t nonPagedPoolBytes{0};
+
+        /// The system file cache's size.
+        uint64_t systemCacheBytes{0};
+
+        /// The commit charge, its limit, and the highest it has been since boot.
+        uint64_t committedBytes{0};
+        uint64_t commitLimitBytes{0};
+        uint64_t peakCommittedBytes{0};
+
+        /// Kernel memory in total, which is the paged and non-paged pools plus the driver images.
+        uint64_t kernelTotalBytes{0};
+
+        /// Handles across every process, which GetPerformanceInfo reports without another enumeration.
+        uint64_t systemHandleCount{0};
+
+        /// True when the accounting above came from GetPerformanceInfo rather than being derived.
+        bool kernelAccountingAvailable{false};
     };
 
     /**
@@ -296,6 +322,12 @@ namespace tmpp::platform
         std::string adapterName;
 
         /// True when the interface is operationally up.
+        /// The interface's type, as IANAifType. Carried because it is what distinguishes a wireless
+        /// adapter from a wired one: a description names the chipset rather than the medium, so
+        /// "Intel(R) Wi-Fi 6E AX211" and "Intel(R) Ethernet Controller I225-V" are told apart by this
+        /// and not by their names.
+        uint32_t interfaceType{0};
+
         bool connected{false};
 
         /// True for a virtual adapter, such as a Hyper-V switch or a VPN tunnel. A real interface,

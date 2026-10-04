@@ -192,6 +192,10 @@ namespace tmpp
             *m_coordinator,
             m_currentSettings,
             [this](double width) { m_currentSettings.performanceSidebarWidth = width; });
+
+        // Double-clicking the sidebar asks for the compact window, and the compact view is left the same
+        // way. The view reports the gesture; resizing the window is the window's own business.
+        m_performanceView->SetMiniModeHandler([this]() { _setMiniMode(!m_miniMode); });
         // The page chosen in the settings, which _createPages resolved before the views existed.
         _selectPage(m_startupPageIndex);
     }
@@ -267,6 +271,74 @@ namespace tmpp
                 m_contentHost.Children().Append(placeholder);
                 break;
             }
+        }
+    }
+
+    void MainWindow::_setMiniMode(bool mini)
+    {
+        if (m_miniMode == mini)
+        {
+            return;
+        }
+
+        m_miniMode = mini;
+
+        // The window changes size, and nothing else does: the navigation rail, the page header and the
+        // status bar all belong to the full interface and are not part of the compact one.
+        if (auto const appWindow = this->AppWindow())
+        {
+            if (mini)
+            {
+                m_preMiniSize = appWindow.Size();
+
+                // A compact window is only wide enough for the sidebar and tall enough for the rows it
+                // shows. The width leaves room for the frame; the height is a starting point the user
+                // can resize like any window.
+                constexpr int32_t MINI_WIDTH = 320;
+                constexpr int32_t MINI_HEIGHT = 520;
+                appWindow.Resize(winrt::Windows::Graphics::SizeInt32{MINI_WIDTH, MINI_HEIGHT});
+            }
+            else if (m_preMiniSize.Width > 0 && m_preMiniSize.Height > 0)
+            {
+                appWindow.Resize(m_preMiniSize);
+            }
+        }
+
+        // The rail is collapsed rather than hidden: its pane is part of the window's chrome and would
+        // otherwise leave an empty strip down the side of the compact view.
+        if (m_navigation != nullptr)
+        {
+            m_navigation.Visibility(mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                         : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        }
+
+        // The title bar and the page header sit in fixed rows, so their heights are what has to go: a
+        // fixed row keeps its height whether or not its content is visible.
+        if (m_titleBarRow != nullptr)
+        {
+            m_titleBarRow.Height(ui::controls::MakeFixedRow(mini ? 0.0 : APP_TITLE_BAR_HEIGHT).Height());
+        }
+
+        if (m_pageHeaderRow != nullptr)
+        {
+            m_pageHeaderRow.Height(ui::controls::MakeFixedRow(mini ? 0.0 : PAGE_HEADER_HEIGHT).Height());
+        }
+
+        if (m_pageHeader != nullptr)
+        {
+            m_pageHeader.Visibility(mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                         : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        }
+
+        if (m_bottomStack != nullptr)
+        {
+            m_bottomStack.Visibility(mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                          : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        }
+
+        if (m_performanceView != nullptr)
+        {
+            m_performanceView->SetMiniMode(mini);
         }
     }
 
@@ -614,13 +686,13 @@ namespace tmpp
         // RowDefinition is 1* (Star) and would silently claim an equal share instead.
         Grid contentColumn = Grid();
 
-        contentColumn.RowDefinitions().Append(ui::controls::MakeFixedRow(APP_TITLE_BAR_HEIGHT));
-        contentColumn.RowDefinitions().Append(ui::controls::MakeFixedRow(PAGE_HEADER_HEIGHT));
+        m_titleBarRow = ui::controls::MakeFixedRow(APP_TITLE_BAR_HEIGHT);
+        contentColumn.RowDefinitions().Append(m_titleBarRow);
+        m_pageHeaderRow = ui::controls::MakeFixedRow(PAGE_HEADER_HEIGHT);
+        contentColumn.RowDefinitions().Append(m_pageHeaderRow);
         contentColumn.RowDefinitions().Append(ui::controls::MakeStarRow());
-        contentColumn.RowDefinitions().Append(ui::controls::MakeAutoRow());
-
-        // --- App title bar ------------------------------------------------------
-        //
+        m_bottomRow = ui::controls::MakeAutoRow();
+        contentColumn.RowDefinitions().Append(m_bottomRow);
         // The first of the two bars: the application name, matching the original's
         // "Task Manager". The window buttons sit over its right-hand end, so nothing else
         // is drawn there.
@@ -645,8 +717,8 @@ namespace tmpp
         Grid::SetRow(m_titleBarSpacer, 0);
         contentColumn.Children().Append(m_titleBarSpacer);
 
-        Grid::SetRow(pageHeader, 1);
-        contentColumn.Children().Append(pageHeader);
+        m_pageHeader = pageHeader;
+        contentColumn.Children().Append(m_pageHeader);
 
         m_contentHost = Grid();
         Grid::SetRow(m_contentHost, 2);
@@ -654,18 +726,20 @@ namespace tmpp
 
         // The permission bar and the status bar share the last row, the notice above
         // the status line, so neither shifts the page when it appears.
-        Grid bottomStack = Grid();
-        // Both size to their content; neither should absorb the page's height.
-        bottomStack.RowDefinitions().Append(ui::controls::MakeAutoRow());
-        bottomStack.RowDefinitions().Append(ui::controls::MakeAutoRow());
+        //
+        // The stack is a member because mini mode hides the whole of it. It must be built once and its
+        // children appended once: adding the same element to two parents raises "Element is already the
+        // child of another element", which is what an earlier version of this did.
+        m_bottomStack = Grid();
+        m_bottomStack.RowDefinitions().Append(ui::controls::MakeAutoRow());
+        m_bottomStack.RowDefinitions().Append(ui::controls::MakeAutoRow());
         Grid::SetRow(m_permissionBar, 0);
-        bottomStack.Children().Append(m_permissionBar);
+        m_bottomStack.Children().Append(m_permissionBar);
         Grid::SetRow(statusBar, 1);
-        bottomStack.Children().Append(statusBar);
+        m_bottomStack.Children().Append(statusBar);
 
-        Grid::SetRow(bottomStack, 3);
-        contentColumn.Children().Append(bottomStack);
-
+        Grid::SetRow(m_bottomStack, 3);
+        contentColumn.Children().Append(m_bottomStack);
         m_navigation.Content(contentColumn);
 
         m_rootGrid = Grid();

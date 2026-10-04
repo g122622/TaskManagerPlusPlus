@@ -111,6 +111,12 @@ namespace tmpp::domain
         uint64_t transmitLinkSpeedBps{0};
 
         std::string adapterName;
+
+        /// True when the adapter is wireless. Carried from the probe's interface type rather than
+        /// inferred from the name: a description says which chipset it is, and only the type says
+        /// whether the medium is radio or wire.
+        bool wireless{false};
+
         bool connected{false};
         bool virtualAdapter{false};
 

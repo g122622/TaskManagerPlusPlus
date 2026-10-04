@@ -663,7 +663,8 @@ namespace tmpp::platform
             counters.sendDiscards = row.OutDiscards;
             counters.receiveLinkSpeedBps = row.ReceiveLinkSpeed;
             counters.transmitLinkSpeedBps = row.TransmitLinkSpeed;
-            counters.connected = (row.OperStatus == IfOperStatusUp);
+            counters.interfaceType = row.Type;
+        counters.connected = (row.OperStatus == IfOperStatusUp);
             counters.virtualAdapter = (row.InterfaceAndOperStatusFlags.HardwareInterface == 0);
 
             // The description is the marketing name; the alias is the name the user gave the

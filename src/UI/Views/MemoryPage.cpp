@@ -133,6 +133,14 @@ namespace tmpp::ui
         // right edge. A grid of two star columns puts two entries per row and lets a long entry
         // wrap within its own column instead of running past the edge.
         m_compositionLegend = controls::MakeGrid(2, 2, 12.0, 2.0);
+
+        // The legend reflows when the page is resized, which is what makes it adaptive rather than fixed
+        // at whatever width the first layout pass happened to report.
+        m_compositionLegend.SizeChanged(
+            [this](winrt::Windows::Foundation::IInspectable const&,
+                   winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args) {
+                _layoutLegend(args.NewSize().Width);
+            });
         compositionBlock.Children().Append(m_compositionLegend);
 
         Grid::SetRow(compositionBlock, 3);
@@ -174,7 +182,7 @@ namespace tmpp::ui
         m_column3.push_back(_addDetail(column3, L"Speed"));
         m_column3.push_back(_addDetail(column3, L"Slots used"));
         m_column3.push_back(_addDetail(column3, L"Form factor"));
-        m_column3.push_back(_addDetail(column3, L"Hardware reserved"));
+        m_column3.push_back(_addDetail(column3, L"Type"));
 
         Grid::SetColumn(column1, 0);
         Grid::SetColumn(column2, 1);
@@ -216,11 +224,50 @@ namespace tmpp::ui
 
         m_moduleList.Margin(ThicknessHelper::FromLengths(0.0, 20.0, 0.0, 0.0));
 
+        // The header is a button so the list can be opened and closed, and the list starts collapsed: it
+        // is a hardware inventory rather than a live reading, so a reader watching the charts is not
+        // pushed down the page by four rows that never change.
+        m_moduleChevron = winrt::Microsoft::UI::Xaml::Controls::FontIcon();
+        m_moduleChevron.Glyph(L"\xE70D");  // ChevronDown, meaning closed.
+        m_moduleChevron.FontSize(12.0);
+
         m_slotsCaption = controls::MakeHeading(
             winrt::hstring{L"Slots used: " + std::to_wstring(slots.usedSlots) + L" of " +
                           std::to_wstring(slots.totalSlots)},
             14.0);
-        m_moduleList.Children().Append(m_slotsCaption);
+
+        StackPanel toggleContent = controls::MakeStack(8.0);
+        toggleContent.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
+        toggleContent.VerticalAlignment(VerticalAlignment::Center);
+        toggleContent.Children().Append(m_moduleChevron);
+        toggleContent.Children().Append(m_slotsCaption);
+
+        m_moduleToggle = winrt::Microsoft::UI::Xaml::Controls::Button();
+        m_moduleToggle.Content(toggleContent);
+        m_moduleToggle.Padding(ThicknessHelper::FromLengths(0.0, 4.0, 0.0, 4.0));
+        m_moduleToggle.Background(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+        m_moduleToggle.BorderThickness(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromUniformLength(0.0));
+        m_moduleToggle.HorizontalAlignment(HorizontalAlignment::Left);
+        m_moduleToggle.Click(
+            [this](winrt::Windows::Foundation::IInspectable const&,
+                   winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+                bool const opening =
+                    m_moduleRowsHost.Visibility() != winrt::Microsoft::UI::Xaml::Visibility::Visible;
+                m_moduleRowsHost.Visibility(opening ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                                                    : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+                // The chevron states what a click will do, which is the convention every expander
+                // follows.
+                m_moduleChevron.Glyph(opening ? L"\xE70E" : L"\xE70D");
+            });
+
+        m_moduleList.Children().Append(m_moduleToggle);
+
+        // The rows live in their own host so the header stays visible while they are hidden.
+        m_moduleRowsHost = controls::MakeStack(2.0);
+        m_moduleRowsHost.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        m_moduleList.Children().Append(m_moduleRowsHost);
 
         for (platform::SystemMemoryModule const& module : slots.modules)
         {
@@ -235,7 +282,7 @@ namespace tmpp::ui
                 // which one it is.
                 row.title = controls::MakeText(winrt::hstring{winrt::to_hstring(module.slot) + L"   (empty)"}, 13.0);
                 entry.Children().Append(row.title);
-                m_moduleList.Children().Append(entry);
+                m_moduleRowsHost.Children().Append(entry);
                 m_moduleRows.push_back(row);
                 continue;
             }
@@ -309,7 +356,7 @@ namespace tmpp::ui
             row.detail.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
             entry.Children().Append(row.detail);
 
-            m_moduleList.Children().Append(entry);
+            m_moduleRowsHost.Children().Append(entry);
             m_moduleRows.push_back(row);
         }
     }
@@ -414,12 +461,32 @@ namespace tmpp::ui
             bool shownInLegend;
         };
 
+        // Hardware reserved is the difference between what the modules provide and what the operating
+        // system can use: the firmware, the integrated graphics and any mapped devices take their share
+        // before Windows starts. It is drawn first, on the far left, because it is the part of the
+        // installed memory that is not available to anything else.
+        uint64_t moduleTotalBytes = 0;
+        for (platform::SystemMemoryModule const& module : m_coordinator.MemorySlots().modules)
+        {
+            moduleTotalBytes += module.capacityBytes;
+        }
+
+        uint64_t const hardwareReserved =
+            (moduleTotalBytes > system.memory.totalPhysical) ? (moduleTotalBytes - system.memory.totalPhysical) : 0;
+
         std::vector<Category> const categories{
+            {L"Hardware reserved", winrt::Windows::UI::Color{0xFF, 0xE8, 0x4A, 0x4A}, hardwareReserved, true},
             {L"In use", winrt::Windows::UI::Color{0xFF, 0x4C, 0x8B, 0xF5}, composition.inUseBytes, true},
             {L"Modified", winrt::Windows::UI::Color{0xFF, 0xFF, 0xB1, 0x4A}, composition.modifiedBytes, true},
             {L"Cached", winrt::Windows::UI::Color{0xFF, 0x7A, 0x6C, 0xE8}, composition.standbyBytes, true},
             {L"Free", winrt::Windows::UI::Color{0xFF, 0x5A, 0x5A, 0x5A}, composition.freeBytes, true},
         };
+
+        // The percentages are of the installed memory rather than of what the operating system can use,
+        // so the segments account for the whole of it: a reserved sliver that was divided by the usable
+        // total would make the parts exceed the whole.
+        uint64_t const installedBytes =
+            (moduleTotalBytes > 0) ? moduleTotalBytes : system.memory.totalPhysical;
 
         std::vector<MemoryCompositionBar::Segment> segments;
         segments.reserve(categories.size());
@@ -458,24 +525,79 @@ namespace tmpp::ui
             text += "  ";
             text += FormatBytes(category.bytes);
             text += "  (";
-            text += FormatPercent(system.memory.totalPhysical > 0
+            text += FormatPercent(installedBytes > 0
                                       ? (static_cast<double>(category.bytes) * 100.0 /
-                                         static_cast<double>(system.memory.totalPhysical))
+                                         static_cast<double>(installedBytes))
                                       : 0.0);
             text += ")";
 
-            // A smaller size than the body text so four entries fit across the width, and trimming
+            // A smaller size than the body text so several entries fit across the width, and trimming
             // so that if one still does not fit it is elided rather than running past the edge.
             TextBlock labelBlock = controls::MakeText(winrt::to_hstring(text), 11.0, true);
             labelBlock.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
             entry.Children().Append(labelBlock);
 
-            Grid::SetRow(entry, static_cast<int32_t>(legendIndex / 2));
-            Grid::SetColumn(entry, static_cast<int32_t>(legendIndex % 2));
+            // The entry has to be added to the panel as well as remembered: the layout pass below
+            // assigns its cell, but a panel does not draw what was never appended to it, which is what
+            // made the whole legend disappear.
             m_compositionLegend.Children().Append(entry);
-
-            ++legendIndex;
+            m_legendEntries.push_back(entry);
         }
+
+        // The entries were built; where they sit is decided by the width, which is not known until the
+        // panel has been laid out. Laying them out here as well handles the case where it already has
+        // been, which is what a later refresh sees.
+        _layoutLegend(m_compositionLegend.ActualWidth());
+    }
+
+    void MemoryPage::_layoutLegend(double availableWidth)
+    {
+        if (m_compositionLegend == nullptr || m_legendEntries.empty())
+        {
+            return;
+        }
+
+        // An entry's width is measured rather than assumed: the labels carry different amounts of text,
+        // and a fixed column count is what put two per row on a wide page.
+        //
+        // Before the first layout pass the width is zero, in which case the entries are left in a single
+        // column until the size-changed handler reports a real width.
+        constexpr double MIN_ENTRY_WIDTH = 190.0;
+        constexpr double COLUMN_SPACING = 16.0;
+
+        size_t columns = 1;
+        if (availableWidth > 0.0)
+        {
+            columns = static_cast<size_t>((availableWidth + COLUMN_SPACING) / (MIN_ENTRY_WIDTH + COLUMN_SPACING));
+            columns = (std::max)(columns, static_cast<size_t>(1));
+            // More columns than entries would leave the grid wider than its content and the entries
+            // spread across empty cells.
+            columns = (std::min)(columns, m_legendEntries.size());
+        }
+
+        m_compositionLegend.ColumnDefinitions().Clear();
+        m_compositionLegend.RowDefinitions().Clear();
+
+        for (size_t column = 0; column < columns; ++column)
+        {
+            // Equal columns. The gap between them is the grid's own column spacing, set where the panel
+            // was built, rather than a margin on each column.
+            m_compositionLegend.ColumnDefinitions().Append(controls::MakeStarColumn());
+        }
+
+        size_t const rows = (m_legendEntries.size() + columns - 1) / columns;
+        for (size_t row = 0; row < rows; ++row)
+        {
+            m_compositionLegend.RowDefinitions().Append(controls::MakeAutoRow());
+        }
+
+        for (size_t index = 0; index < m_legendEntries.size(); ++index)
+        {
+            Grid::SetRow(m_legendEntries[index], static_cast<int32_t>(index / columns));
+            Grid::SetColumn(m_legendEntries[index], static_cast<int32_t>(index % columns));
+        }
+
+        m_legendColumns = columns;
     }
 
     void MemoryPage::_updateDetails(domain::SystemView const& system)
@@ -498,15 +620,84 @@ namespace tmpp::ui
 
         assign(m_column2, 0, FormatBytes(system.memory.totalPhysical));
 
-        // These need probes that do not exist yet. Saying so keeps the difference between
-        // "nothing in use" and "not measured" visible.
-        assign(m_column2, 1, UnavailableValue());
-        assign(m_column2, 2, UnavailableValue());
-        assign(m_column2, 3, UnavailableValue());
-
-        for (size_t i = 0; i < m_column3.size(); ++i)
+        // The kernel's own accounting, from GetPerformanceInfo. It arrives with the memory read, so a
+        // machine whose version of that call fails keeps the dashes rather than showing zeroes.
+        if (system.memory.kernelAccountingAvailable)
         {
-            assign(m_column3, i, UnavailableValue());
+            assign(m_column2, 1, FormatBytes(system.memory.systemCacheBytes));
+            assign(m_column2, 2, FormatBytes(system.memory.pagedPoolBytes));
+            assign(m_column2, 3, FormatBytes(system.memory.nonPagedPoolBytes));
+        }
+        else
+        {
+            assign(m_column2, 1, UnavailableValue());
+            assign(m_column2, 2, UnavailableValue());
+            assign(m_column2, 3, UnavailableValue());
+        }
+
+        // Column 3 describes what is installed, which the firmware table answers. A machine without a
+        // readable table keeps the dashes, since a zero would read as a measurement that was taken.
+        platform::SystemMemorySlots const& slots = m_coordinator.MemorySlots();
+        if (slots.available && slots.usedSlots > 0)
+        {
+            // The rows state a single figure each, and a machine with mixed modules has no one answer.
+            // The first populated module is reported, and a star marks a column whose modules differ;
+            // the per-module list below carries what each one actually is.
+            platform::SystemMemoryModule const* first = nullptr;
+            bool mixedSpeed = false;
+            bool mixedType = false;
+            bool mixedForm = false;
+
+            for (platform::SystemMemoryModule const& module : slots.modules)
+            {
+                if (!module.populated)
+                {
+                    continue;
+                }
+
+                if (first == nullptr)
+                {
+                    first = &module;
+                    continue;
+                }
+
+                mixedSpeed = mixedSpeed || (module.configuredSpeedMhz != first->configuredSpeedMhz);
+                mixedType = mixedType || (module.typeName != first->typeName);
+                mixedForm = mixedForm || (module.formFactorName != first->formFactorName);
+            }
+
+            if (first != nullptr)
+            {
+                auto const described = [](std::string const& name) {
+                    return name.empty() || name == "Unknown" ? std::string{} : name;
+                };
+
+                std::string speed;
+                if (first->configuredSpeedMhz > 0)
+                {
+                    speed = std::to_string(first->configuredSpeedMhz) + " MHz";
+                    if (mixedSpeed)
+                    {
+                        speed += " *";
+                    }
+                }
+
+                std::string const form = described(first->formFactorName);
+                std::string const type = described(first->typeName);
+
+                assign(m_column3, 0, speed.empty() ? UnavailableValue() : speed);
+                assign(m_column3, 2, form.empty() ? UnavailableValue() : form + (mixedForm ? " *" : ""));
+                assign(m_column3, 3, type.empty() ? UnavailableValue() : type + (mixedType ? " *" : ""));
+            }
+
+            assign(m_column3, 1, std::to_string(slots.usedSlots) + " of " + std::to_string(slots.totalSlots));
+        }
+        else
+        {
+            for (size_t i = 0; i < m_column3.size(); ++i)
+            {
+                assign(m_column3, i, UnavailableValue());
+            }
         }
     }
 }

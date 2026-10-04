@@ -155,5 +155,8 @@ namespace tmpp::ui
 
         /// Follow the system, or force light or dark.
         winrt::Microsoft::UI::Xaml::Controls::ComboBox m_theme{nullptr};
+
+        /// How the performance page orders its disk rows.
+        winrt::Microsoft::UI::Xaml::Controls::ComboBox m_diskOrder{nullptr};
     };
 }

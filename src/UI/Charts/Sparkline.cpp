@@ -2,6 +2,8 @@
 
 #include "UI/Charts/Sparkline.h"
 
+#include "UI/Theming/Controls.h"
+
 #include "UI/Theming/Theme.h"
 
 #include <algorithm>
@@ -53,7 +55,14 @@ namespace tmpp::ui
 
         m_canvas.Children().Append(m_fill);
         m_canvas.Children().Append(m_line);
-        m_root.Children().Append(m_canvas);
+
+        // The thumbnail carries the same faint rounded frame as every other chart, from the same
+        // factory, so the border width, radius and opacity cannot drift from the large ones.
+        //
+        // The frame wraps the canvas rather than replacing it: the drawing code needs the canvas's exact
+        // size, and a border inset would shift every point.
+        m_frame = controls::MakeChartFrame(m_canvas);
+        m_root.Children().Append(m_frame);
     }
 
     void Sparkline::SetSeries(ChartSeries const& series, double maximum)

@@ -59,6 +59,20 @@ namespace tmpp::core
     };
 
     /**
+     * @brief How the performance page orders its disk rows.
+     */
+    enum class DiskSortOrder
+    {
+        /// By the device index the firmware assigns, which is the order Windows' own tool uses and the
+        /// order the devices are physically attached in.
+        DeviceIndex = 0,
+
+        /// By the first volume letter the device backs, so a user looking for C: finds it by scanning
+        /// alphabetically rather than by knowing which physical device it lives on.
+        FirstDriveLetter,
+    };
+
+    /**
      * @brief A chart's appearance, as the user configured it.
      *
      * The colour is stored as its three channels rather than packed into one integer: a settings
@@ -120,6 +134,10 @@ namespace tmpp::core
         // Startup
         /// Which page to open on. LastUsed resumes wherever the user left off.
         StartupPage startupPage{StartupPage::Processes};
+
+        /// How the disk rows are ordered. A machine's disks are named by the volumes they back, so the
+        /// two orders give genuinely different lists rather than the same one reversed.
+        DiskSortOrder diskSortOrder{DiskSortOrder::DeviceIndex};
 
         /// The page in use when the application last closed. Only consulted when startupPage is
         /// LastUsed, and updated on every close so the two cannot disagree.

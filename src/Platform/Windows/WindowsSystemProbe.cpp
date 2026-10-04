@@ -4,6 +4,8 @@
 
 #include <windows.h>
 
+#include <psapi.h>
+
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -448,6 +450,30 @@ namespace tmpp::platform
         info.totalVirtual = status.ullTotalVirtual;
         info.availableVirtual = status.ullAvailVirtual;
         info.memoryLoadPercent = status.dwMemoryLoad;
+        // The kernel's own accounting, which GlobalMemoryStatusEx does not report. GetPerformanceInfo
+        // returns all of it in one call, so the pool sizes, system cache, commit peak and the machine's
+        // handle count cost a single query between them.
+        PERFORMANCE_INFORMATION performance{};
+        performance.cb = sizeof(performance);
+
+        if (GetPerformanceInfo(&performance, sizeof(performance)) != FALSE)
+        {
+            uint64_t const pageSize = performance.PageSize;
+            auto const pages = [pageSize](SIZE_T count) { return static_cast<uint64_t>(count) * pageSize; };
+
+            info.pagedPoolBytes = pages(performance.KernelPaged);
+            info.nonPagedPoolBytes = pages(performance.KernelNonpaged);
+            info.systemCacheBytes = pages(performance.SystemCache);
+            info.kernelTotalBytes = pages(performance.KernelTotal);
+
+            info.committedBytes = pages(performance.CommitTotal);
+            info.commitLimitBytes = pages(performance.CommitLimit);
+            info.peakCommittedBytes = pages(performance.CommitPeak);
+
+            info.systemHandleCount = performance.HandleCount;
+            info.kernelAccountingAvailable = true;
+        }
+
         return info;
     }
 

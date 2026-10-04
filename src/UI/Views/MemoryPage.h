@@ -66,6 +66,15 @@ namespace tmpp::ui
          */
         void _addModuleList();
 
+        /**
+         * @brief Places the legend entries in as many columns as the width allows.
+         *
+         * A fixed two per row is what put two across a wide page and left the rest of the width empty.
+         *
+         * @param availableWidth Width of the legend panel, or zero before the first layout pass.
+         */
+        void _layoutLegend(double availableWidth);
+
         core::SamplingCoordinator& m_coordinator;
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
@@ -84,6 +93,13 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Controls::Grid m_compositionLegend{nullptr};
         std::vector<winrt::Microsoft::UI::Xaml::Controls::TextBlock> m_legendValues;
 
+        /// The legend entries themselves, so their row and column can be reassigned when the width
+        /// changes.
+        std::vector<winrt::Microsoft::UI::Xaml::Controls::StackPanel> m_legendEntries;
+
+        /// How many columns the legend currently uses.
+        size_t m_legendColumns{0};
+
         /// One row per memory module, built once from the firmware table.
         struct ModuleRow
         {
@@ -98,6 +114,15 @@ namespace tmpp::ui
 
         /// The list of memory modules, filled once because the firmware does not change.
         winrt::Microsoft::UI::Xaml::Controls::StackPanel m_moduleList{nullptr};
+
+        /// The rows themselves, hidden and shown by the expander above them.
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel m_moduleRowsHost{nullptr};
+
+        /// The clickable header that opens and closes the module list.
+        winrt::Microsoft::UI::Xaml::Controls::Button m_moduleToggle{nullptr};
+
+        /// The chevron on that header, which points down when closed and up when open.
+        winrt::Microsoft::UI::Xaml::Controls::FontIcon m_moduleChevron{nullptr};
 
         std::vector<DetailRow> m_column1;
         std::vector<DetailRow> m_column2;

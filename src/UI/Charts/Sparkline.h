@@ -60,6 +60,9 @@ namespace tmpp::ui
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Canvas m_canvas{nullptr};
+
+        /// The faint rounded frame around the thumbnail, from the same factory as every other chart.
+        winrt::Microsoft::UI::Xaml::Controls::Border m_frame{nullptr};
         winrt::Microsoft::UI::Xaml::Shapes::Polyline m_line{nullptr};
         winrt::Microsoft::UI::Xaml::Shapes::Polygon m_fill{nullptr};
 

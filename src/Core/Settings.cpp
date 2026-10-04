@@ -129,6 +129,10 @@ namespace tmpp::core
         settings.startupPage = _getEnum(startup, "page", settings.startupPage, 3);
         settings.lastUsedPage = _getEnum(startup, "lastUsedPage", settings.lastUsedPage, 3);
 
+        // The disk order lives with the startup settings because it is a display preference rather than
+        // a property of any one page.
+        settings.diskSortOrder = _getEnum(startup, "diskSortOrder", settings.diskSortOrder, 1);
+
         // Appearance. Each chart's colour is stored as three channels rather than one packed
         // integer, so the file stays readable and hand-editable.
         json const& appearance = _subObject(root, "appearance");
@@ -200,6 +204,7 @@ namespace tmpp::core
         json startup;
         startup["page"] = static_cast<int>(settings.startupPage);
         startup["lastUsedPage"] = static_cast<int>(settings.lastUsedPage);
+        startup["diskSortOrder"] = static_cast<int>(settings.diskSortOrder);
         root["startup"] = std::move(startup);
 
         json appearance;
