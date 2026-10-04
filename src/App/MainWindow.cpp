@@ -906,9 +906,6 @@ namespace tmpp
         text += std::to_wstring(m_coordinator->IntervalMs());
         text += L" ms interval";
         text += L"  \x2022  ";
-        text += std::to_wstring(m_coordinator->LogicalProcessorCount());
-        text += L" logical processors";
-        text += L"  \x2022  ";
         text += std::to_wstring(m_coordinator->SampleCount());
         text += L" samples";
 

@@ -112,6 +112,7 @@
     <ClCompile Include="test_published_view.cpp" />
     <ClCompile Include="test_smbios_memory.cpp" />
     <ClCompile Include="test_disk_order.cpp" />
+    <ClCompile Include="test_memory_legend_layout.cpp" />
     <ClCompile Include="test_probe_timing.cpp" />
     <ClCompile Include="test_network_api_benchmark.cpp" />
     <ClCompile Include="test_row_host_math.cpp" />

@@ -443,6 +443,7 @@ namespace tmpp::ui
             // with four zero-length segments, which would look like a measurement of nothing.
             m_composition->Clear();
             m_compositionLegend.Children().Clear();
+            m_legendEntries.clear();
             m_legendValues.clear();
             return;
         }
@@ -496,11 +497,16 @@ namespace tmpp::ui
         }
         m_composition->SetSegments(segments);
 
-        // The legend is rebuilt to match what the strip actually shows, so a category with no
-        // bytes is not labelled with a value of zero beside a colour that is absent.
+        // The legend is rebuilt to match what the strip shows, so a category with no bytes is not
+        // labelled with a value of zero beside a colour that is absent.
+        //
+        // The remembered entries are cleared with the panel's children. Leaving them behind was a real
+        // defect: the vector grew by one entry per category on every sample while the panel only ever
+        // held the current ones, and the layout sizes the grid from the vector, so the legend grew a row
+        // taller every second and pushed the chart above it up the page.
         m_compositionLegend.Children().Clear();
+        m_legendEntries.clear();
         m_legendValues.clear();
-
         // Where each entry sits is decided by _layoutLegend once the panel's width is known; this loop
         // only builds them.
         for (Category const& category : categories)
@@ -574,6 +580,31 @@ namespace tmpp::ui
             columns = (std::min)(columns, m_legendEntries.size());
         }
 
+        // The entry set is what the layout is derived from, so it is captured before the definitions are
+        // touched.
+        size_t const entryCount = m_legendEntries.size();
+        size_t const entriesPerRow = columns;
+        size_t const wantedRows = (entryCount + entriesPerRow - 1) / entriesPerRow;
+
+        // The entries are rebuilt on every sample, so their cells must be assigned on every pass: a new
+        // element defaults to cell (0,0), and skipping the placement because the counts already match is
+        // what stacked all of them on top of each other.
+        for (size_t index = 0; index < m_legendEntries.size(); ++index)
+        {
+            Grid::SetRow(m_legendEntries[index], static_cast<int32_t>(index / columns));
+            Grid::SetColumn(m_legendEntries[index], static_cast<int32_t>(index % columns));
+        }
+
+        // Only the definitions are left alone when they already fit. Rebuilding them changes the panel's
+        // height, which raises SizeChanged and calls back into here; the column and row counts are all
+        // that decide the layout, so a pass that would produce the same pair has nothing to change.
+        if (m_compositionLegend.ColumnDefinitions().Size() == columns &&
+            m_compositionLegend.RowDefinitions().Size() == wantedRows)
+        {
+            m_legendColumns = columns;
+            return;
+        }
+
         m_compositionLegend.ColumnDefinitions().Clear();
         m_compositionLegend.RowDefinitions().Clear();
 
@@ -584,16 +615,9 @@ namespace tmpp::ui
             m_compositionLegend.ColumnDefinitions().Append(controls::MakeStarColumn());
         }
 
-        size_t const rows = (m_legendEntries.size() + columns - 1) / columns;
-        for (size_t row = 0; row < rows; ++row)
+        for (size_t row = 0; row < wantedRows; ++row)
         {
             m_compositionLegend.RowDefinitions().Append(controls::MakeAutoRow());
-        }
-
-        for (size_t index = 0; index < m_legendEntries.size(); ++index)
-        {
-            Grid::SetRow(m_legendEntries[index], static_cast<int32_t>(index / columns));
-            Grid::SetColumn(m_legendEntries[index], static_cast<int32_t>(index % columns));
         }
 
         m_legendColumns = columns;
