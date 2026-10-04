@@ -104,6 +104,8 @@
     <ClCompile Include="test_disk_type.cpp" />
     <ClCompile Include="test_disk_response_time.cpp" />
     <ClCompile Include="test_theme_mode.cpp" />
+    <ClCompile Include="test_process_tree_order.cpp" />
+    <ClCompile Include="test_process_actions.cpp" />
     <ClCompile Include="test_probe_timing.cpp" />
     <ClCompile Include="test_network_api_benchmark.cpp" />
     <ClCompile Include="test_row_host_math.cpp" />
