@@ -61,8 +61,12 @@ namespace tmpp
         /// buttons. Without this the CPU percentage was drawn on top of them.
         constexpr double TITLE_BAR_HEIGHT = 40.0;
 
-        /// Height of the app title bar: the strip carrying "Task Manager".
-        constexpr double APP_TITLE_BAR_HEIGHT = 36.0;
+        /// Height of the app title bar: the strip carrying "Task Manager" and the search box.
+        ///
+        /// Must match the system's caption height, which is what TitleBarHeightOption::Standard sets at 32
+        /// pixels. The window buttons are drawn by the system in that region, centred on it, so a row of a
+        /// different height puts them off the centre of the line they share with the title.
+        constexpr double APP_TITLE_BAR_HEIGHT = 32.0;
 
         /// Height of the page header bar: the strip carrying the page name and the task
         /// actions. The original shows both bars stacked at the top of the window.
@@ -190,12 +194,33 @@ namespace tmpp
         // the tree is derived from.
         m_processesView->SetTerminateHandler(
             [this](uint32_t pid, bool entireTree) { return m_coordinator->TerminateProcess(pid, entireTree); });
+
+        // The process list's column widths, remembered across sessions. The view validates each width
+        // against its own column's bounds and falls back to the default for anything it rejects, so a
+        // hand-edited file cannot leave a column unreadable.
+        m_processesView->SetColumnWidths(m_currentSettings.processColumnWidths);
+
+        // A drag reports the whole set on release, and it is stored in the session's copy so the file is
+        // written once on close rather than on every drag. The application owns the file and decides when
+        // to save, which is why the view reports rather than writing.
+        m_processesView->SetColumnWidthHandler([this](std::vector<double> widths) {
+            m_currentSettings.processColumnWidths = std::move(widths);
+        });
         // The performance view owns its sidebar width for dragging, but the application owns the
         // settings file, so the width is reported back here to be remembered.
         m_performanceView = std::make_unique<ui::PerformanceView>(
             *m_coordinator,
             m_currentSettings,
             [this](double width) { m_currentSettings.performanceSidebarWidth = width; });
+
+        // The search box lives in the title bar, which this window owns, so its text is handed to the page
+        // that filters on it.
+        SetSearchHandler([this](std::string text) {
+            if (m_processesView != nullptr)
+            {
+                m_processesView->SetFilter(std::move(text));
+            }
+        });
 
         // Double-clicking the sidebar asks for the compact window, and the compact view is left the same
         // way. The view reports the gesture; resizing the window is the window's own business.
@@ -719,10 +744,17 @@ namespace tmpp
         m_bottomRow = ui::controls::MakeAutoRow();
         contentColumn.RowDefinitions().Append(m_bottomRow);
         // The first of the two bars: the application name, matching the original's
-        // "Task Manager". The window buttons sit over its right-hand end, so nothing else
-        // is drawn there.
+        // "Task Manager", with the search box centred in the middle of the strip. The window buttons sit
+        // over its right-hand end, so nothing else is drawn there.
+        //
+        // Three columns: the title, the search box taking the slack, and a spacer the width of the window
+        // buttons. Without the trailing spacer the centred box would sit under the buttons rather than in
+        // the middle of the window.
         m_titleBarSpacer = Grid();
         m_titleBarSpacer.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, 0.0, 0.0));
+        m_titleBarSpacer.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
+        m_titleBarSpacer.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
+        m_titleBarSpacer.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
 
         {
             StackPanel titleContent = ui::controls::MakeRow(10.0);
@@ -736,8 +768,45 @@ namespace tmpp
 
             titleContent.Children().Append(ui::controls::MakeText(L"Task Manager", 12.0));
 
+            Grid::SetColumn(titleContent, 0);
             m_titleBarSpacer.Children().Append(titleContent);
         }
+
+        // The search box, hosted here rather than on the page: the original puts it in the title bar so
+        // it is reachable from every page, and because a field that appears and disappears as the user
+        // changes page is harder to find than one that is always in the same place.
+        m_searchBox = ui::controls::MakeSearchBox(L"Type a name, publisher, or PID to search for");
+        m_searchBox.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
+        m_searchBox.VerticalAlignment(VerticalAlignment::Center);
+        m_searchBox.MaxWidth(400.0);
+
+        // Three quarters of the strip's height. The default height of a text box is sized for a form, and
+        // in a 32 pixel bar it fills the row edge to edge and reads as the heaviest thing in the window;
+        // this leaves it visibly a field within the bar.
+        m_searchBox.Height(APP_TITLE_BAR_HEIGHT * 0.75);
+        Grid::SetColumn(m_searchBox, 1);
+        m_titleBarSpacer.Children().Append(m_searchBox);
+
+        // The page owns the filter, so the text is handed to it as it changes. Applied on the next refresh
+        // rather than here, so a fast typist does not trigger a rebuild per keystroke.
+        m_searchBox.TextChanged(
+            [this](winrt::Windows::Foundation::IInspectable const& sender,
+                   winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&) {
+                auto const box = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>();
+                if (box == nullptr || !m_onSearch)
+                {
+                    return;
+                }
+                m_onSearch(winrt::to_string(box.Text()));
+            });
+
+        // The trailing spacer. Sized to the window buttons' reserve so the centre of the star column is the
+        // centre of the window rather than of the space left beside the buttons. The three buttons are each
+        // 46 pixels wide at the standard caption height.
+        Grid buttonSpacer = Grid();
+        buttonSpacer.Width(138.0);
+        Grid::SetColumn(buttonSpacer, 2);
+        m_titleBarSpacer.Children().Append(buttonSpacer);
 
         Grid::SetRow(m_titleBarSpacer, 0);
         contentColumn.Children().Append(m_titleBarSpacer);
@@ -821,8 +890,17 @@ namespace tmpp
                     return;
                 }
 
+                // GetCurrentPoint returns null when the pointer has no position relative to the element,
+                // which happens as it leaves or the element is removed mid-gesture; calling Position() on
+                // it dereferences null.
+                auto const point = args.GetCurrentPoint(element);
+                if (point == nullptr)
+                {
+                    return;
+                }
+
                 *dragStartWidth = m_navigation.OpenPaneLength();
-                *dragStartX = args.GetCurrentPoint(element).Position().X;
+                *dragStartX = point.Position().X;
                 element.CapturePointer(args.Pointer());
             });
 
@@ -831,7 +909,21 @@ namespace tmpp
                 winrt::Windows::Foundation::IInspectable const& sender,
                 winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
                 auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
-                if (element == nullptr || element.PointerCaptures().Size() == 0)
+                if (element == nullptr)
+                {
+                    return;
+                }
+
+                // PointerCaptures() is only non-null once the pointer system has given the element a
+                // capture collection; calling Size() before that dereferences null.
+                auto const captures = element.PointerCaptures();
+                if (captures == nullptr || captures.Size() == 0)
+                {
+                    return;
+                }
+
+                auto const point = args.GetCurrentPoint(element);
+                if (point == nullptr)
                 {
                     return;
                 }
@@ -842,7 +934,7 @@ namespace tmpp
                 constexpr double MIN_RAIL = 180.0;
                 constexpr double MAX_RAIL = 420.0;
 
-                double const delta = args.GetCurrentPoint(element).Position().X - *dragStartX;
+                double const delta = point.Position().X - *dragStartX;
                 double const width = std::clamp(*dragStartWidth + delta, MIN_RAIL, MAX_RAIL);
 
                 m_navigation.OpenPaneLength(width);
@@ -887,8 +979,17 @@ namespace tmpp
         // under the window buttons.
         ExtendsContentIntoTitleBar(true);
         SetTitleBar(m_titleBarSpacer);
+
+        // Standard rather than Tall, so the system's caption area is the same height as the row the
+        // content is laid out in.
+        //
+        // The window buttons are drawn by the system in a region whose height this option sets, and that
+        // region is centred on the window's top edge independently of the app's own rows. Tall makes it 48
+        // pixels: eight more than the 36 this strip occupies, so the buttons sat below the row's centre
+        // and looked misaligned against the title they share a line with. Standard matches the row, and
+        // the buttons centre on it.
         AppWindow().TitleBar().PreferredHeightOption(
-            winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
+            winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Standard);
 
         // The window handle is resolved once here rather than at each drag. This is the same lookup the
         // single-instance check uses: the process has one top-level window and it is titled with the

@@ -64,6 +64,24 @@ namespace tmpp::ui
         void SetRowCount(uint32_t rowCount, RowFactory factory, RowBinder binder);
 
         /**
+         * @brief Sets the width every row is laid out at.
+         *
+         * The host does not measure, so it cannot derive this: a caller that changes its columns has to
+         * tell it, or the rows would stay at the old width and the rightmost column would be clipped.
+         */
+        void SetRowWidth(double width);
+
+        /// The row visuals currently alive, by row index.
+        ///
+        /// Exposed so a caller can update them in place when something they all share changes -- a column
+        /// width, say -- rather than rebuilding the list and losing the scroll position.
+        [[nodiscard]] std::unordered_map<uint32_t, winrt::Microsoft::UI::Xaml::FrameworkElement> const& LiveRows()
+            const noexcept
+        {
+            return m_liveRows;
+        }
+
+        /**
          * @brief Re-binds every visible row without changing the row count.
          *
          * Used when values changed but the row set did not.

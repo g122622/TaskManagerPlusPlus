@@ -159,6 +159,28 @@ namespace tmpp::core
             _getNumber<double>(layout, "performanceSidebarWidth", settings.performanceSidebarWidth);
         settings.navigationExpanded = _getBool(layout, "navigationExpanded", settings.navigationExpanded);
 
+        // The process list's column widths. A non-array entry, or a value that is not a positive finite
+        // number, is skipped rather than carried through: the view validates each width against its own
+        // column's bounds and falls back to the default, so the only job here is to reject nonsense.
+        settings.processColumnWidths.clear();
+        if (auto const found = layout.find("processColumnWidths");
+            found != layout.end() && found->is_array())
+        {
+            for (auto const& entry : *found)
+            {
+                if (!entry.is_number())
+                {
+                    continue;
+                }
+
+                double const width = entry.get<double>();
+                if (width > 0.0 && width < 4000.0)
+                {
+                    settings.processColumnWidths.push_back(width);
+                }
+            }
+        }
+
         json const& window = _subObject(root, "window");
         settings.windowX = _getNumber<int32_t>(window, "x", settings.windowX);
         settings.windowY = _getNumber<int32_t>(window, "y", settings.windowY);
@@ -228,6 +250,11 @@ namespace tmpp::core
         layout["navigationWidth"] = settings.navigationWidth;
         layout["performanceSidebarWidth"] = settings.performanceSidebarWidth;
         layout["navigationExpanded"] = settings.navigationExpanded;
+
+        // Written as an array, and only when the user has dragged something. An empty array is a
+        // legitimate value that means "never dragged", so it is written too rather than omitted: the file
+        // then says what the state is rather than leaving it to be inferred from a missing key.
+        layout["processColumnWidths"] = settings.processColumnWidths;
         root["layout"] = std::move(layout);
 
         json window;

@@ -229,7 +229,16 @@ namespace tmpp::ui::controls
                 return;
             }
 
-            *startX = args.GetCurrentPoint(element).Position().X;
+            // GetCurrentPoint returns null when the pointer has no position relative to the element, which
+            // happens as it leaves or the element is removed mid-gesture. Calling Position() on it
+            // dereferences null, so every use is guarded.
+            auto const point = args.GetCurrentPoint(element);
+            if (point == nullptr)
+            {
+                return;
+            }
+
+            *startX = point.Position().X;
 
             // Capture, because the drag leaves the narrow handle almost immediately.
             element.CapturePointer(args.Pointer());
@@ -239,12 +248,26 @@ namespace tmpp::ui::controls
                                    winrt::Windows::Foundation::IInspectable const& sender,
                                    winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
             auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
-            if (element == nullptr || element.PointerCaptures().Size() == 0)
+            if (element == nullptr)
             {
                 return;
             }
 
-            double const delta = args.GetCurrentPoint(element).Position().X - *startX;
+            // PointerCaptures() is only non-null once the pointer system has given the element a capture
+            // collection; calling Size() before that dereferences null.
+            auto const captures = element.PointerCaptures();
+            if (captures == nullptr || captures.Size() == 0)
+            {
+                return;
+            }
+
+            auto const point = args.GetCurrentPoint(element);
+            if (point == nullptr)
+            {
+                return;
+            }
+
+            double const delta = point.Position().X - *startX;
             if (onResize)
             {
                 onResize(*startWidth + delta);

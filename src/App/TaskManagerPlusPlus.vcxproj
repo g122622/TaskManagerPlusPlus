@@ -193,6 +193,7 @@
     <ClCompile Include="..\UI\Views\SettingsPage.cpp" />
     <ClCompile Include="..\UI\Lists\ProcessListModel.cpp">
     </ClCompile>
+    <ClCompile Include="..\UI\Lists\ProcessIconCache.cpp" />
     <ClCompile Include="..\UI\Lists\RowHost.cpp" />
     <ClCompile Include="..\UI\Charts\Sparkline.cpp" />
   </ItemGroup>

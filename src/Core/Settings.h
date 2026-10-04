@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "Domain/SamplingConfig.h"
 #include "Platform/Result.h"
@@ -167,6 +168,18 @@ namespace tmpp::core
 
         /// Width of the performance page's own sidebar. Negative means "not yet decided".
         double performanceSidebarWidth{-1.0};
+
+        /// The process list's column widths, in effective pixels, in the column table's order.
+        ///
+        /// Empty means "never dragged", in which case each column keeps its own default. Stored as a list
+        /// rather than one named field per column so that adding a column to the table does not need a
+        /// schema change: a file with fewer entries than there are columns simply leaves the rest at their
+        /// defaults.
+        ///
+        /// A width outside its column's bounds is discarded on load rather than clamped, because a value
+        /// that far out is a hand-edited or truncated file rather than a drag, and the column's own default
+        /// is a better answer than the nearest legal one.
+        std::vector<double> processColumnWidths;
 
         // Window placement
         int32_t windowX{-1}; ///< Negative means "not yet decided".

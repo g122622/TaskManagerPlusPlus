@@ -8,6 +8,7 @@
 
 #include "WinRT.h"
 
+#include <functional>
 #include <memory>
 
 #include <winrt/Microsoft.UI.Dispatching.h>
@@ -85,6 +86,19 @@ namespace tmpp
         /// The page header bar's title, updated as the navigation selection changes so the
         /// bar names the page being shown.
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_pageTitle{nullptr};
+
+        /// The process search box, hosted in the title bar so it is reachable from every page.
+        winrt::Microsoft::UI::Xaml::Controls::TextBox m_searchBox{nullptr};
+
+        /**
+         * @brief Called with the search text as the user types.
+         *
+         * Set by the application so the process page can filter on it. The box lives in the title bar,
+         * which the window owns, so the text has to be handed to the page that uses it.
+         */
+        void SetSearchHandler(std::function<void(std::string)> handler) { m_onSearch = std::move(handler); }
+
+        std::function<void(std::string)> m_onSearch;
 
         winrt::Microsoft::UI::Xaml::Controls::NavigationView m_navigation{nullptr};
 

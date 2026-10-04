@@ -84,6 +84,7 @@
     <ClInclude Include="StoragePaths.h" />
     <ClInclude Include="SystemTypes.h" />
     <ClInclude Include="Windows\NtdllApi.h" />
+    <ClInclude Include="Windows\ProcessIconReader.h" />
     <ClInclude Include="Windows\WindowsProcessProbe.h" />
     <ClInclude Include="Windows\WindowsString.h" />
     <ClInclude Include="Windows\WindowsSystemProbe.h" />
@@ -92,6 +93,7 @@
   <ItemGroup>
     <ClCompile Include="Windows\NtdllApi.cpp" />
     <ClCompile Include="Windows\ProcessorSpeedProbe.cpp" />
+    <ClCompile Include="Windows\ProcessIconReader.cpp" />
     <ClCompile Include="Windows\HardwareCounterProbe.cpp" />
     <ClCompile Include="Windows\WindowsProcessActions.cpp" />
     <ClCompile Include="Windows\SmbiosMemoryProbe.cpp" />
@@ -105,13 +107,15 @@
 
   <!-- ole32 for CoTaskMemFree and shell32 for SHGetKnownFolderPath: storage path
        resolution uses the known-folder API, which is what lets an unpackaged
-       application find %LOCALAPPDATA%. -->
+       application find %LOCALAPPDATA%. gdi32 and comctl32 are for the process icon
+       reader: the shell's image list lives in comctl32, and the pixels are extracted
+       from the icon's bitmap through gdi32. -->
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalDependencies>ole32.lib;shell32.lib;pdh.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ole32.lib;shell32.lib;pdh.lib;gdi32.lib;comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Lib>
-      <AdditionalDependencies>ole32.lib;shell32.lib;pdh.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ole32.lib;shell32.lib;pdh.lib;gdi32.lib;comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
 

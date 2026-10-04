@@ -6,14 +6,17 @@
 // the work proportional to what is actually on screen.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <vector>
 
 #include "UI/WinRTUI.h"
 
 #include "Core/SamplingCoordinator.h"
 #include "Platform/Windows/WindowsProcessActions.h"
+#include "UI/Lists/ProcessIconCache.h"
 #include "UI/Lists/ProcessListModel.h"
 #include "UI/Lists/RowHost.h"
 
@@ -34,6 +37,34 @@ namespace tmpp::ui
 
         /// Pulls a new snapshot and repaints. Cheap when nothing changed.
         void Refresh();
+
+        /**
+         * @brief Sets the filter the list applies.
+         *
+         * Supplied by the window, whose title bar hosts the search box: the field is reachable from every
+         * page, so it cannot belong to this one.
+         */
+        void SetFilter(std::string filter);
+
+        /**
+         * @brief Adopts remembered column widths.
+         *
+         * Called once at construction with whatever the settings file held. A width of zero, or an entry
+         * outside the column's bounds, falls back to the column's own default so a hand-edited or
+         * truncated file cannot leave a column unreadable.
+         *
+         * @param widths One per column, in the column table's order. Shorter than the table is allowed.
+         */
+        void SetColumnWidths(std::vector<double> const& widths);
+
+        /**
+         * @brief Called when the user drags a column's edge.
+         *
+         * The view does not write settings itself: the application owns the file and decides when to save.
+         * The whole set is reported rather than the one that changed, so the file cannot end up holding a
+         * mixture of current and stale widths.
+         */
+        void SetColumnWidthHandler(std::function<void(std::vector<double>)> handler);
 
         /**
          * @brief The process the user has selected, or zero when none is.
@@ -101,8 +132,56 @@ namespace tmpp::ui
 
         std::vector<AggregateCell> m_aggregates;
 
+        /**
+         * @brief One column's sort chevron, retained so it can be shown or hidden as the sort changes.
+         *
+         * Held with the column it belongs to rather than by position, for the same reason the aggregates
+         * are: the two lists are built by separate loops and would otherwise not line up.
+         */
+        struct SortMark
+        {
+            SortColumn column{SortColumn::Name};
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon chevron{nullptr};
+        };
+
+        std::vector<SortMark> m_sortMarks;
+
+        /// Shows the chevron on the sorted column, pointing the way the list is ordered, and hides it on
+        /// every other.
+        void _updateSortMarks();
+
         /// Writes the machine-wide figures into the aggregate band.
         void _updateHeaderAggregates();
+
+        /**
+         * @brief Icons for the rows, keyed by image name.
+         *
+         * Reading one costs a process open and a shell lookup, so nothing is read while a row is being
+         * bound: the binder asks for what it has, and this drains a few queued reads per refresh. That is
+         * what keeps the cost off the render path however many processes appear at once.
+         */
+        ProcessIconCache m_icons;
+
+        /**
+         * @brief The live width of each column, in effective pixels.
+         *
+         * Held here rather than read from the column table because the user can drag a column's edge, and
+         * both the header and every row have to follow. The header and the rows are separate grids, so
+         * there is nowhere else one width could live that both would see.
+         */
+        std::array<double, 7> m_columnWidths{};
+
+        /// The header's column definitions, resized as a column is dragged.
+        std::vector<winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition> m_headerColumns;
+
+        /// Applies the current widths to the header and to every row on screen.
+        void _applyColumnWidths();
+
+        /// Resizes one column, applies it and reports the whole set.
+        void _setColumnWidth(size_t column, double width);
+
+        /// Called with the full width set after a drag, so the application can persist it.
+        std::function<void(std::vector<double>)> m_onColumnWidthsChanged;
 
         /// Called when the selection changes.
         std::function<void(uint32_t)> m_onSelectionChanged;
@@ -119,7 +198,6 @@ namespace tmpp::ui
         core::SamplingCoordinator& m_coordinator;
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
-        winrt::Microsoft::UI::Xaml::Controls::TextBox m_search{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_summary{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_emptyMessage{nullptr};
 

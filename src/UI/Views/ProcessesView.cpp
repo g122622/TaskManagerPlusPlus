@@ -36,7 +36,15 @@ namespace tmpp::ui
         struct ColumnSpec
         {
             wchar_t const* title;
+
+            /// Starting width, in effective pixels. The live width is held by the view, because the user
+            /// can drag it: this is the value a fresh window starts from.
             double width;
+
+            /// Narrowest the column may be dragged to. A column narrower than its own heading cannot be
+            /// read, and one dragged to nothing could not be grabbed again.
+            double minimumWidth;
+
             bool rightAligned;
             SortColumn sortColumn;
         };
@@ -50,57 +58,60 @@ namespace tmpp::ui
         /// The widths are proportions of the original's layout rather than its pixel values, since this
         /// list sizes its columns in effective pixels and the original's are drawn at a different scale.
         constexpr std::array<ColumnSpec, 7> COLUMNS{{
-            {L"Name", 300.0, false, SortColumn::Name},
-            {L"PID", 80.0, true, SortColumn::Pid},
-            {L"CPU", 90.0, true, SortColumn::Cpu},
-            {L"Memory", 120.0, true, SortColumn::Memory},
-            {L"Disk", 100.0, true, SortColumn::Disk},
-            {L"Network", 100.0, true, SortColumn::Network},
-            {L"GPU", 80.0, true, SortColumn::Gpu},
+            {L"Name", 300.0, 120.0, false, SortColumn::Name},
+            {L"PID", 80.0, 56.0, true, SortColumn::Pid},
+            {L"CPU", 90.0, 56.0, true, SortColumn::Cpu},
+            {L"Memory", 120.0, 72.0, true, SortColumn::Memory},
+            {L"Disk", 100.0, 64.0, true, SortColumn::Disk},
+            {L"Network", 100.0, 64.0, true, SortColumn::Network},
+            {L"GPU", 80.0, 56.0, true, SortColumn::Gpu},
         }};
 
-        /// Diameter of the per-row status dot.
-        constexpr double STATUS_DOT_SIZE = 8.0;
+        /// Edge length of the square an icon occupies in a row. Slightly larger than the 16 pixel bitmap
+        /// so the glyph and the image are interchangeable without the name shifting.
+        constexpr double ICON_SLOT_SIZE = 16.0;
+
+        /// Width of the grab area on a column boundary. Wide enough to hit without aiming, narrow enough
+        /// that it does not cover the heading beside it.
+        constexpr double COLUMN_HANDLE_WIDTH = 8.0;
+
+        /// Widest a column may be dragged to. Generous enough that no column has a practical ceiling, and
+        /// low enough that a hand-edited settings value can be recognised as nonsense rather than applied.
+        constexpr double MAX_COLUMN_WIDTH = 2000.0;
 
         /// Height of the band carrying the system-wide aggregates.
-        constexpr double AGGREGATE_ROW_HEIGHT = 44.0;
+        ///
+        /// Enough for the figures with clear space above and below them, and no more: the header is a
+        /// reference, and every pixel it takes is a row the list does not show.
+        constexpr double AGGREGATE_ROW_HEIGHT = 36.0;
 
         /// Height of the band carrying the column names.
-        constexpr double LABEL_ROW_HEIGHT = 28.0;
+        constexpr double LABEL_ROW_HEIGHT = 26.0;
 
-        /// Font size of an aggregate figure. Much larger than the rows below it, which is what makes the
-        /// header readable at a glance rather than a second row of the same text.
-        constexpr double AGGREGATE_FONT_SIZE = 20.0;
+        /// Font size of an aggregate figure.
+        ///
+        /// Larger than the rows below it, which is what makes the header readable at a glance rather than a
+        /// second row of the same text, but not so much larger that the header dominates the list it sits
+        /// above.
+        constexpr double AGGREGATE_FONT_SIZE = 16.0;
 
         /// Fill for the selected process row. The Details page shows one process, so the
         /// list has to say which one is being shown.
         constexpr winrt::Windows::UI::Color ROW_SELECTION_FILL{0x33, 0x4C, 0xC2, 0xFF};
 
-        /**
-         * @brief Chooses a status colour for a process.
-         *
-         * Colour is used sparingly: a muted dot when the rate is not yet known, so a
-         * first-sample list does not look as though everything is broken, and warm
-         * only when a process is genuinely loading the machine.
-         */
-        [[nodiscard]] winrt::Windows::UI::Color _statusColor(domain::ProcessView const& process)
-        {
-            if (process.ratesUnavailable)
-            {
-                return winrt::Windows::UI::Colors::Gray();
-            }
-            if (process.cpuPercent >= 50.0)
-            {
-                return winrt::Windows::UI::Colors::OrangeRed();
-            }
-            return winrt::Windows::UI::Colors::MediumSeaGreen();
-        }
+        // One inset shared by the header and every row. The header and the rows are separate grids, so
+        // the same value has to be applied to both or their columns start at different x offsets -- which
+        // is what made them visibly disagree at a wide window, where the discrepancy has room to show.
+        constexpr double ROW_INSET = 12.0;
 
         /// Sum of the column widths, so the row host can size its canvas without
         /// measuring anything.
+        ///
+        /// Includes the inset on both sides, because the row's padding sits inside the width the host
+        /// assigns it: a canvas sized to the columns alone would clip the columns' right-hand edge.
         [[nodiscard]] constexpr double _totalRowWidth() noexcept
         {
-            double width = 0.0;
+            double width = 2.0 * ROW_INSET;
             for (ColumnSpec const& column : COLUMNS)
             {
                 width += column.width;
@@ -144,6 +155,14 @@ namespace tmpp::ui
     ProcessesView::ProcessesView(core::SamplingCoordinator& coordinator)
         : m_coordinator(coordinator), m_listModel(std::make_unique<ProcessListModel>())
     {
+        // Seeded from the column table before anything is built, so the header and the rows have a width
+        // to lay out with from the first frame. Whatever the settings file holds is applied afterwards,
+        // through SetColumnWidths.
+        for (size_t i = 0; i < m_columnWidths.size() && i < COLUMNS.size(); ++i)
+        {
+            m_columnWidths[i] = COLUMNS[i].width;
+        }
+
         _buildLayout();
     }
 
@@ -164,26 +183,14 @@ namespace tmpp::ui
         m_root.RowDefinitions().Append(controls::MakeStarRow()); // rows
 
         // --- Toolbar -----------------------------------------------------------
+        //
+        // Only the summary and the action message: the search box lives in the window's title bar, so it
+        // is reachable from every page and does not move as the user navigates.
         StackPanel toolbar;
         toolbar.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
         toolbar.Spacing(12.0);
         toolbar.VerticalAlignment(VerticalAlignment::Center);
         toolbar.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 8.0));
-
-        m_search = controls::MakeSearchBox(L"Search processes");
-        m_search.TextChanged(
-            [this](winrt::Windows::Foundation::IInspectable const& sender, TextChangedEventArgs const&) {
-                auto const box = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>();
-                if (box == nullptr)
-                {
-                    return;
-                }
-                // The filter is applied on the next refresh rather than here, so a fast
-                // typist does not trigger a rebuild per keystroke.
-                m_query.filter = winrt::to_string(box.Text());
-                m_renderedVersion = 0;
-            });
-        toolbar.Children().Append(m_search);
 
         m_summary = controls::MakeText(L"", 13.0, true);
         m_summary.VerticalAlignment(VerticalAlignment::Center);
@@ -212,15 +219,23 @@ namespace tmpp::ui
         Grid header = Grid();
         header.Background(controls::ThemedBrush(theme::LAYER_BACKGROUND));
 
+        // The same inset the rows use, so the header's columns and the rows' columns share one origin.
+        // The two are separate grids and neither can see the other's padding, so the value has to be
+        // applied to both; applying it to only one is what made them visibly disagree.
+        header.Padding(ThicknessHelper::FromLengths(ROW_INSET, 0.0, ROW_INSET, 0.0));
+
         // The aggregate band is taller than the label band, because its figures are several times the
         // size of the labels beneath them.
         header.RowDefinitions().Append(controls::MakeFixedRow(AGGREGATE_ROW_HEIGHT));
         header.RowDefinitions().Append(controls::MakeFixedRow(LABEL_ROW_HEIGHT));
 
-        for (ColumnSpec const& column : COLUMNS)
+        for (size_t i = 0; i < COLUMNS.size(); ++i)
         {
+            // Retained so a drag can resize them, and seeded from the live widths so a header rebuilt
+            // after a drag matches the list the user has already adjusted.
             ColumnDefinition definition;
-            definition.Width(GridLengthHelper::FromPixels(column.width));
+            definition.Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+            m_headerColumns.push_back(definition);
             header.ColumnDefinitions().Append(definition);
         }
 
@@ -254,8 +269,36 @@ namespace tmpp::ui
             ColumnSpec const& column = COLUMNS[i];
 
             // A header is a clickable sort target, matching every list view.
+            //
+            // Its content is the title plus a chevron, which is shown only on the column the list is
+            // currently ordered by. A chevron on every column would say nothing; on one, it says which
+            // column that is and, by its direction, which way round.
+            StackPanel headerContent = controls::MakeRow(4.0);
+            headerContent.HorizontalAlignment(column.rightAligned ? HorizontalAlignment::Right
+                                                                 : HorizontalAlignment::Left);
+
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon chevron;
+            chevron.FontSize(10.0);
+            chevron.Visibility(Visibility::Collapsed);
+
+            TextBlock title = controls::MakeText(column.title, 13.0, /*subtle=*/true);
+            title.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+
+            // The chevron goes after the title on a left-aligned column and before it on a right-aligned
+            // one, so it always sits on the side the text is read from.
+            if (column.rightAligned)
+            {
+                headerContent.Children().Append(chevron);
+                headerContent.Children().Append(title);
+            }
+            else
+            {
+                headerContent.Children().Append(title);
+                headerContent.Children().Append(chevron);
+            }
+
             winrt::Microsoft::UI::Xaml::Controls::Button button;
-            button.Content(winrt::box_value(winrt::hstring{column.title}));
+            button.Content(headerContent);
             button.Padding(ThicknessHelper::FromLengths(8.0, 0.0, 8.0, 0.0));
             button.Background(
                 winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
@@ -264,6 +307,9 @@ namespace tmpp::ui
             button.HorizontalAlignment(column.rightAligned ? HorizontalAlignment::Right : HorizontalAlignment::Left);
             button.HorizontalContentAlignment(column.rightAligned ? HorizontalAlignment::Right
                                                                  : HorizontalAlignment::Left);
+
+            // Retained so the mark can follow the sort as it changes, without rebuilding the header.
+            m_sortMarks.push_back({column.sortColumn, chevron});
 
             SortColumn const sortColumn = column.sortColumn;
             button.Click([this, sortColumn](winrt::Windows::Foundation::IInspectable const&,
@@ -281,6 +327,10 @@ namespace tmpp::ui
                     m_query.direction = (sortColumn == SortColumn::Name) ? SortDirection::Ascending
                                                                         : SortDirection::Descending;
                 }
+
+                // The mark moves now rather than on the next refresh, so the header responds to the click
+                // immediately even though the list itself is reordered a frame later.
+                _updateSortMarks();
                 m_renderedVersion = 0;
             });
 
@@ -289,8 +339,124 @@ namespace tmpp::ui
             header.Children().Append(button);
         }
 
+        // A handle on the boundary between each pair of columns. Placed in the left-hand column and
+        // aligned to its right edge, so dragging it moves that boundary rather than the next one along.
+        //
+        // The last column gets no handle: there is no boundary after it, and a drag there would have to
+        // resize against the window's edge rather than against a neighbour.
+        for (size_t i = 0; i + 1 < COLUMNS.size(); ++i)
+        {
+            winrt::Microsoft::UI::Xaml::Controls::Border handle;
+            handle.Width(COLUMN_HANDLE_WIDTH);
+            handle.HorizontalAlignment(HorizontalAlignment::Right);
+            handle.VerticalAlignment(VerticalAlignment::Stretch);
+
+            // A transparent brush rather than none: a null Background is not hit-testable in WinUI, so a
+            // handle without one would never receive the pointer.
+            handle.Background(
+                winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+
+            // Visible only on hover, matching the original's subtle divider: a permanent line between
+            // every pair of columns would turn the header into a ladder.
+            handle.PointerEntered(
+                [handle](winrt::Windows::Foundation::IInspectable const&,
+                         winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) mutable {
+                    handle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                        winrt::Windows::UI::Color{0x60, 0x80, 0x80, 0x80}));
+                });
+            handle.PointerExited(
+                [handle](winrt::Windows::Foundation::IInspectable const&,
+                         winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) mutable {
+                    handle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                        winrt::Windows::UI::Colors::Transparent()));
+                });
+
+            // The drag is measured from where it began rather than from the absolute pointer position, so
+            // the boundary stays under the cursor wherever the grab happened.
+            auto const startWidth = std::make_shared<double>(0.0);
+            auto const startX = std::make_shared<double>(0.0);
+
+            handle.PointerPressed([this, i, startWidth, startX](
+                                      winrt::Windows::Foundation::IInspectable const& sender,
+                                      winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (element == nullptr)
+                {
+                    return;
+                }
+
+                // GetCurrentPoint returns null when the pointer has no position relative to the element --
+                // which happens as the pointer leaves or the element is removed mid-gesture. Calling
+                // Position() on it dereferences null, so every use is guarded.
+                auto const point = args.GetCurrentPoint(element);
+                if (point == nullptr)
+                {
+                    return;
+                }
+
+                *startWidth = m_columnWidths[i];
+                *startX = point.Position().X;
+
+                // Captured because the drag leaves the narrow handle almost immediately.
+                element.CapturePointer(args.Pointer());
+            });
+
+            handle.PointerMoved([this, i, startWidth, startX](
+                                    winrt::Windows::Foundation::IInspectable const& sender,
+                                    winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (element == nullptr)
+                {
+                    return;
+                }
+
+                // PointerCaptures() is only non-null once the element is in the visual tree and the
+                // pointer system has given it a capture collection. Calling Size() on it before that is
+                // the null dereference this handler used to make -- it crashed on the first pointer move
+                // over a handle, before any capture had been taken.
+                auto const captures = element.PointerCaptures();
+                if (captures == nullptr || captures.Size() == 0)
+                {
+                    return;
+                }
+
+                auto const point = args.GetCurrentPoint(element);
+                if (point == nullptr)
+                {
+                    return;
+                }
+
+                double const delta = point.Position().X - *startX;
+                _setColumnWidth(i, *startWidth + delta);
+            });
+
+            handle.PointerReleased([this](winrt::Windows::Foundation::IInspectable const& sender,
+                                          winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (element != nullptr)
+                {
+                    element.ReleasePointerCapture(args.Pointer());
+                }
+
+                // Reported once, on release, rather than during the drag: a settings write per pointer
+                // move would be a file write per pixel.
+                if (m_onColumnWidthsChanged)
+                {
+                    m_onColumnWidthsChanged(std::vector<double>(m_columnWidths.begin(), m_columnWidths.end()));
+                }
+            });
+
+            Grid::SetColumn(handle, static_cast<int32_t>(i));
+            Grid::SetRow(handle, 1);
+            header.Children().Append(handle);
+        }
+
         Grid::SetRow(header, 1);
         m_root.Children().Append(header);
+
+        // The initial mark, so the header states how the list is ordered from the first frame rather than
+        // only after the user clicks something.
+        _updateSortMarks();
 
         // --- Rows --------------------------------------------------------------
         Grid listArea = Grid();
@@ -308,10 +474,133 @@ namespace tmpp::ui
         m_root.Children().Append(listArea);
     }
 
+    void ProcessesView::_updateSortMarks()
+    {
+        for (SortMark& mark : m_sortMarks)
+        {
+            if (mark.chevron == nullptr)
+            {
+                continue;
+            }
+
+            bool const sorted = (mark.column == m_query.column);
+            mark.chevron.Visibility(sorted ? Visibility::Visible : Visibility::Collapsed);
+
+            if (sorted)
+            {
+                // Segoe Fluent Icons: up and down chevrons. The glyph states the direction the values run
+                // in, so an ascending name column points up and a descending CPU column points down.
+                mark.chevron.Glyph(m_query.direction == SortDirection::Ascending ? L"\xE70E" : L"\xE70D");
+            }
+        }
+    }
+
+    void ProcessesView::SetColumnWidths(std::vector<double> const& widths)
+    {
+        for (size_t i = 0; i < m_columnWidths.size() && i < widths.size(); ++i)
+        {
+            double const requested = widths[i];
+
+            // A width outside its column's bounds is discarded rather than clamped. A value that far out
+            // is a hand-edited or truncated file rather than a drag, and the column's own default is a
+            // better answer than the nearest legal one.
+            if (requested < COLUMNS[i].minimumWidth || requested > MAX_COLUMN_WIDTH)
+            {
+                continue;
+            }
+
+            m_columnWidths[i] = requested;
+        }
+
+        _applyColumnWidths();
+    }
+
+    void ProcessesView::SetColumnWidthHandler(std::function<void(std::vector<double>)> handler)
+    {
+        m_onColumnWidthsChanged = std::move(handler);
+    }
+
+    void ProcessesView::_setColumnWidth(size_t column, double width)
+    {
+        if (column >= m_columnWidths.size())
+        {
+            return;
+        }
+
+        // Clamped to the column's own floor. There is no upper bound beyond the window's width: a column
+        // dragged past the right edge simply pushes the ones after it out of view, which is what every
+        // list does and is recoverable by dragging back.
+        double const clamped = (std::max)(width, COLUMNS[column].minimumWidth);
+        if (std::abs(clamped - m_columnWidths[column]) < 0.5)
+        {
+            return;
+        }
+
+        m_columnWidths[column] = clamped;
+        _applyColumnWidths();
+    }
+
+    void ProcessesView::_applyColumnWidths()
+    {
+        // The row host is built in _buildLayout, and a width can be applied before it exists: the
+        // constructor seeds the widths and then builds, and a settings file is applied afterwards. The
+        // guard keeps that ordering from being a null dereference.
+        if (m_rowHost == nullptr)
+        {
+            return;
+        }
+
+        // The header's definitions are the ones a drag changes directly. They are only enumerated by the
+        // vector's size, which is what was actually created, so no entry can be a null definition.
+        for (size_t i = 0; i < m_headerColumns.size() && i < m_columnWidths.size(); ++i)
+        {
+            m_headerColumns[i].Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+        }
+
+        // The rows are separate grids and do not share the header's definitions, so each row on screen is
+        // updated in place. Rebuilding them would discard the recycled visuals and reset the scroll
+        // position on every pointer move.
+        //
+        // The row width the host uses for its canvas is updated too, or the rows would be laid out at the
+        // old total and the rightmost column would be clipped as soon as anything was widened.
+        double total = 2.0 * ROW_INSET;
+        for (double const width : m_columnWidths)
+        {
+            total += width;
+        }
+        m_rowHost->SetRowWidth(total);
+
+        for (auto const& [index, element] : m_rowHost->LiveRows())
+        {
+            (void)index;
+            if (auto const row = element.try_as<Grid>())
+            {
+                for (size_t i = 0; i < m_columnWidths.size() && i < row.ColumnDefinitions().Size(); ++i)
+                {
+                    row.ColumnDefinitions().GetAt(static_cast<uint32_t>(i))
+                        .Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+                }
+            }
+        }
+    }
+
+    void ProcessesView::SetFilter(std::string filter)
+    {
+        if (m_query.filter == filter)
+        {
+            return;
+        }
+
+        m_query.filter = std::move(filter);
+
+        // The next refresh is forced to rebuild the ordering, which is where the filter is applied.
+        m_renderedVersion = 0;
+    }
+
     winrt::Microsoft::UI::Xaml::FrameworkElement ProcessesView::_createRow()
     {
         Grid row = Grid();
-        row.Padding(ThicknessHelper::FromLengths(12.0, 0.0, 12.0, 0.0));
+        row.Padding(ThicknessHelper::FromLengths(ROW_INSET, 0.0, ROW_INSET, 0.0));
         row.VerticalAlignment(VerticalAlignment::Center);
 
         // A transparent background rather than none: a null Background is not hit-testable in WinUI,
@@ -327,18 +616,37 @@ namespace tmpp::ui
             row.ColumnDefinitions().Append(definition);
         }
 
-        // Name column: a status dot plus the image name.
+        // Name column: the process's icon, then its image name.
+        //
+        // The icon is a fixed-size slot holding either an image or the placeholder glyph, so the name
+        // starts at the same x on every row whether or not that row's icon has resolved yet. A slot sized
+        // to its content would make the names stagger while the icons arrived.
         StackPanel nameCell;
         nameCell.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
-        nameCell.Spacing(6.0);
+        nameCell.Spacing(8.0);
         nameCell.VerticalAlignment(VerticalAlignment::Center);
 
-        winrt::Microsoft::UI::Xaml::Controls::Border dot;
-        dot.Width(STATUS_DOT_SIZE);
-        dot.Height(STATUS_DOT_SIZE);
-        dot.CornerRadius(winrt::Microsoft::UI::Xaml::CornerRadiusHelper::FromUniformRadius(STATUS_DOT_SIZE / 2.0));
-        dot.VerticalAlignment(VerticalAlignment::Center);
-        nameCell.Children().Append(dot);
+        Grid iconSlot;
+        iconSlot.Width(ICON_SLOT_SIZE);
+        iconSlot.Height(ICON_SLOT_SIZE);
+        iconSlot.VerticalAlignment(VerticalAlignment::Center);
+
+        // Both are created up front and one is hidden, rather than the slot's content being replaced.
+        // Swapping the child would mean removing and adding elements on a recycled row, and the two are
+        // the same size so there is nothing to gain from it.
+        winrt::Microsoft::UI::Xaml::Controls::Image iconImage;
+        iconImage.Width(ICON_SLOT_SIZE);
+        iconImage.Height(ICON_SLOT_SIZE);
+        iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
+        iconImage.Visibility(Visibility::Collapsed);
+        iconSlot.Children().Append(iconImage);
+
+        winrt::Microsoft::UI::Xaml::Controls::FontIcon placeholder = ProcessIconCache::PlaceholderIcon();
+        placeholder.HorizontalAlignment(HorizontalAlignment::Center);
+        placeholder.VerticalAlignment(VerticalAlignment::Center);
+        iconSlot.Children().Append(placeholder);
+
+        nameCell.Children().Append(iconSlot);
         nameCell.Children().Append(controls::MakeText(L"", 13.0));
 
         Grid::SetColumn(nameCell, 0);
@@ -415,15 +723,39 @@ namespace tmpp::ui
 
         row.ContextFlyout(menu);
 
-        // Column 0: dot and name. The idle process has no image name from the
+        // Column 0: icon and name. The idle process has no image name from the
         // platform, which is its report rather than a failure; naming it is ours.
         if (auto const nameCell = row.Children().GetAt(0).try_as<StackPanel>())
         {
-            if (auto const dot = nameCell.Children().GetAt(0).try_as<winrt::Microsoft::UI::Xaml::Controls::Border>())
+            if (auto const slot = nameCell.Children().GetAt(0).try_as<Grid>())
             {
-                using winrt::Microsoft::UI::Xaml::Media::SolidColorBrush;
-                dot.Background(SolidColorBrush(_statusColor(process)));
+                // The image is shown only when there is one, and the placeholder is hidden in that case.
+                // Leaving both visible would draw the glyph behind the icon.
+                auto const image = slot.Children().GetAt(0).try_as<winrt::Microsoft::UI::Xaml::Controls::Image>();
+                auto const placeholder =
+                    slot.Children().GetAt(1).try_as<winrt::Microsoft::UI::Xaml::Controls::FontIcon>();
+
+                // A lookup never reads anything: on a miss it queues the name and returns null, so this
+                // binder cannot be the thing that stalls a frame. The placeholder is drawn until the read
+                // happens between frames.
+                auto const source = m_icons.Lookup(process.imageName);
+                if (source == nullptr)
+                {
+                    m_icons.Queue(process.imageName, process.identity.pid);
+                }
+
+                if (image != nullptr)
+                {
+                    image.Source(source);
+                    image.Visibility(source != nullptr ? Visibility::Visible : Visibility::Collapsed);
+                }
+
+                if (placeholder != nullptr)
+                {
+                    placeholder.Visibility(source == nullptr ? Visibility::Visible : Visibility::Collapsed);
+                }
             }
+
             if (auto const label = nameCell.Children().GetAt(1).try_as<TextBlock>())
             {
                 label.Text(winrt::to_hstring(ProcessDisplayName(process.identity.pid, process.imageName)));
@@ -651,6 +983,14 @@ namespace tmpp::ui
         bool const forced = (m_renderedVersion == 0);
         if (version == m_renderedVersion && !forced)
         {
+            // The queued icons are still drained even when no new sample has arrived. They are read
+            // between frames precisely so that a burst of new processes does not block one, and skipping
+            // them here would stall the queue whenever the list happened to be otherwise idle -- which is
+            // exactly when a user is most likely to be looking at rows whose icons have not appeared.
+            if (m_icons.ReadPending())
+            {
+                m_rowHost->RefreshVisibleRows();
+            }
             return;
         }
 
@@ -662,6 +1002,17 @@ namespace tmpp::ui
         m_listModel->Update(m_snapshot, m_query);
         _updateSummary();
         _updateHeaderAggregates();
+
+        // A few queued icons are read here, between frames, rather than inside the row binder. The binder
+        // asks only for what the cache already holds, so however many new processes appear in one sample,
+        // no single frame waits on the shell.
+        //
+        // When any were resolved the visible rows are rebound so the new icons appear. That is a repaint
+        // of the rows on screen, not a rebuild: the row set and the scroll position are untouched.
+        if (m_icons.ReadPending())
+        {
+            m_rowHost->RefreshVisibleRows();
+        }
 
         bool const empty = m_listModel->VisibleCount() == 0;
         m_emptyMessage.Visibility(empty ? Visibility::Visible : Visibility::Collapsed);

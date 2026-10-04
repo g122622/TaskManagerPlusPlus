@@ -51,8 +51,15 @@ namespace tmpp::ui
 
         // A Canvas gives absolute positioning and reports a definite size, which is
         // what lets the scroll extent be set from the row count alone.
+        //
+        // Pinned to the top-left rather than stretched. A stretched element with an explicit size is
+        // centred in the space it was given instead of being pinned to an edge, which had two visible
+        // consequences: the rows floated to the middle of a wide window and no longer lined up with the
+        // column headers above them, and with a filter that leaves one row, that row appeared in the
+        // middle of the page rather than at the top of the list.
         m_canvas = Canvas();
-        m_canvas.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
+        m_canvas.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
+        m_canvas.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Top);
         m_scroller.Content(m_canvas);
 
         m_root.Children().Append(m_scroller);
@@ -95,6 +102,25 @@ namespace tmpp::ui
         m_hasRange = false;
 
         _updateVisibleRows();
+    }
+
+    void RowHost::SetRowWidth(double width)
+    {
+        if (std::abs(width - m_rowWidth) < 0.5)
+        {
+            return;
+        }
+
+        m_rowWidth = width;
+        m_canvas.Width(m_rowWidth);
+
+        // Every live row is re-laid out at the new width. The canvas would otherwise clip a row that grew
+        // past it, and the columns inside a row would keep the old total.
+        for (auto const& [index, element] : m_liveRows)
+        {
+            (void)index;
+            element.Width(m_rowWidth);
+        }
     }
 
     void RowHost::RefreshVisibleRows()
