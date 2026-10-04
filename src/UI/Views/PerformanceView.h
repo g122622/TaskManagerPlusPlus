@@ -135,6 +135,17 @@ namespace tmpp::ui
             size_t subIndex{0};
             winrt::Microsoft::UI::Xaml::Controls::TextBlock title{nullptr};
             winrt::Microsoft::UI::Xaml::Controls::TextBlock subtitle{nullptr};
+
+            /**
+             * @brief An optional third reading, below the qualifier.
+             *
+             * Only the memory row uses it, for its commit charge. That figure belongs beside the in-use and
+             * available totals rather than on the page behind them, because it is what a user looks at
+             * when asking whether the machine is about to run out of memory -- and the sidebar is where
+             * that question gets asked, not the page.
+             */
+            winrt::Microsoft::UI::Xaml::Controls::TextBlock detail{nullptr};
+
             std::unique_ptr<Sparkline> sparkline;
         };
 

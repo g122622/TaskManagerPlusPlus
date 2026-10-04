@@ -516,8 +516,18 @@ namespace tmpp::ui
             subtitle.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
             subtitle.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
 
+            // A third band, used by the memory row to report its commit charge. Every row carries the
+            // block so the rows keep one layout, and a row with no third reading leaves it collapsed --
+            // which costs nothing, because the stack is centred in the row and a collapsed child takes no
+            // space.
+            TextBlock detail = controls::MakeText(L"", 12.0, true);
+            detail.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            detail.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+            detail.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
             text.Children().Append(title);
             text.Children().Append(subtitle);
+            text.Children().Append(detail);
 
             Grid::SetColumn(text, 1);
             rowContent.Children().Append(text);
@@ -546,6 +556,7 @@ namespace tmpp::ui
             row.button = button;
             row.title = title;
             row.subtitle = subtitle;
+            row.detail = detail;
             row.sparkline = std::move(sparkline);
             row.kind = spec.kind;
             row.subIndex = spec.subIndex;
@@ -694,6 +705,19 @@ namespace tmpp::ui
             }
         };
 
+        // The optional third reading. It is collapsed when there is nothing to say, so a row that does not
+        // use it keeps its two-line layout and does not reserve a blank band.
+        auto setDetail = [this](size_t index, std::string const& text) {
+            if (index >= m_rows.size() || m_rows[index].detail == nullptr)
+            {
+                return;
+            }
+
+            m_rows[index].detail.Text(winrt::to_hstring(text));
+            m_rows[index].detail.Visibility(text.empty() ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                                                       : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        };
+
         for (size_t i = 0; i < m_rows.size() && i < m_sections.size(); ++i)
         {
             SectionSpec const& spec = m_sections[i];
@@ -703,6 +727,12 @@ namespace tmpp::ui
             }
 
             std::string subtitle;
+
+            // Cleared before the switch, so only the branch that has something to say shows a third line.
+            // Without this a row would keep the reading it was given while it was some other metric, and
+            // the sidebar is rebuilt when the device list changes -- so a stale commit charge could outlive
+            // the row it belonged to.
+            setDetail(i, "");
 
             switch (spec.kind)
             {
@@ -726,6 +756,21 @@ namespace tmpp::ui
                     subtitle = FormatBytes(system.memoryUsedBytes) + " / " +
                                FormatBytes(system.memory.totalPhysical);
                     subtitle += " (" + FormatPercent(system.memoryUsedPercent) + ")";
+
+                    // The commit charge, which is the figure that decides whether the machine can still
+                    // allocate: it can exceed the physical total because it counts what has been promised
+                    // to every process, backed or not. Reported as a value against its limit rather than
+                    // as a percentage, because the limit is what moves -- a page file that grows changes
+                    // it -- so the pair says more than the ratio would.
+                    if (system.memory.kernelAccountingAvailable)
+                    {
+                        setDetail(i, "Commit: " + FormatBytes(system.memory.committedBytes) + " / " +
+                                         FormatBytes(system.memory.commitLimitBytes));
+                    }
+                    else
+                    {
+                        setDetail(i, "Commit: " + std::string{UnavailableValue()});
+                    }
 
                     ChartSeries series;
                     series.values = history.memoryUsed;
