@@ -47,7 +47,7 @@ namespace tmpp::ui
         inline constexpr double PERFORMANCE_SIDEBAR_WIDTH = 260.0;
 
         /// Height of a performance sidebar row.
-        inline constexpr double SIDEBAR_ROW_HEIGHT = 68.0;
+        inline constexpr double SIDEBAR_ROW_HEIGHT = 62.0;
 
         /// Height reserved for the status bar.
         inline constexpr double STATUS_BAR_HEIGHT = 28.0;

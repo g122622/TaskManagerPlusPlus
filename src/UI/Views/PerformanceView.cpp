@@ -33,7 +33,7 @@ namespace tmpp::ui
         /// The aspect is about 2:3, matching the original's thumbnails, which are considerably less
         /// wide than the row they sit in. A wider thumbnail crowds the label beside it.
         constexpr double SPARKLINE_WIDTH = 56.0;
-        constexpr double SPARKLINE_HEIGHT = 48.0;
+        constexpr double SPARKLINE_HEIGHT = 42.0;
 
         /// Accent fill for the selected sidebar row.
         constexpr winrt::Windows::UI::Color SELECTION_FILL{0x33, 0x4C, 0xC2, 0xFF};

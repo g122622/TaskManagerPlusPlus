@@ -501,9 +501,8 @@ namespace tmpp::ui
         m_compositionLegend.Children().Clear();
         m_legendValues.clear();
 
-        // Two entries per row, placed explicitly. Appending without a row and column leaves every
-        // entry in cell (0,0), which is what stacked all four on top of each other.
-        size_t legendIndex = 0;
+        // Where each entry sits is decided by _layoutLegend once the panel's width is known; this loop
+        // only builds them.
         for (Category const& category : categories)
         {
             if (category.bytes == 0)

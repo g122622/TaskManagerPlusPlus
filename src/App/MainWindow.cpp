@@ -716,8 +716,8 @@ namespace tmpp
 
         Grid::SetRow(m_titleBarSpacer, 0);
         contentColumn.Children().Append(m_titleBarSpacer);
-
         m_pageHeader = pageHeader;
+        Grid::SetRow(m_pageHeader, 1);
         contentColumn.Children().Append(m_pageHeader);
 
         m_contentHost = Grid();
