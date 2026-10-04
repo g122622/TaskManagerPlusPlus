@@ -96,9 +96,17 @@ namespace tmpp::ui::controls
         // The content is centred vertically, which the template does not do by itself.
         //
         // A TextBox lays its text out from the top of its content area, so at the template's height that is
-        // invisible; at a reduced height the text and the placeholder sit against the top edge and read as
-        // having slipped down out of the box.
+        // invisible; at a reduced height the text sits against the top edge instead of in the middle.
         box.VerticalContentAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+        // The padding is made symmetric, with no vertical component.
+        //
+        // The template's padding is asymmetric -- five pixels at the top against six at the bottom, plus the
+        // underline the control draws along its lower edge -- so content centred inside that box is centred
+        // on the padding rather than on the field, and lands a little low. Taking the vertical padding out
+        // leaves the centring to the box's own height, which is what the eye reads as the middle. The
+        // horizontal padding is kept, since the text does need to clear the field's rounded edge.
+        box.Padding(ThicknessHelper::FromLengths(12.0, 0.0, 12.0, 0.0));
 
         // The placeholder is given its own brush because the theme's is very faint by design -- it is meant
         // for a full-size form field, where the label above carries the meaning. Here the placeholder is the
