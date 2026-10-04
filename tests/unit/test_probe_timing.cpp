@@ -29,15 +29,15 @@ namespace tmpp::platform::test
         // The first call of each may initialise a subsystem, so it is measured separately and not
         // held against the steady-state figure.
         auto const diskFirstStart = std::chrono::steady_clock::now();
-        probe.ReadDisks();
+        (void)probe.ReadDisks();
         double const diskFirst = _millisSince(diskFirstStart);
 
         auto const netFirstStart = std::chrono::steady_clock::now();
-        probe.ReadNetwork();
+        (void)probe.ReadNetwork();
         double const netFirst = _millisSince(netFirstStart);
 
         auto const gpuFirstStart = std::chrono::steady_clock::now();
-        probe.ReadGpu();
+        (void)probe.ReadGpu();
         double const gpuFirst = _millisSince(gpuFirstStart);
 
         std::printf("\n--- probe timings (ms) ---\n");
@@ -53,15 +53,15 @@ namespace tmpp::platform::test
         for (int i = 0; i < ROUNDS; ++i)
         {
             auto const diskStart = std::chrono::steady_clock::now();
-            probe.ReadDisks();
+            (void)probe.ReadDisks();
             diskTotal += _millisSince(diskStart);
 
             auto const netStart = std::chrono::steady_clock::now();
-            probe.ReadNetwork();
+            (void)probe.ReadNetwork();
             networkTotal += _millisSince(netStart);
 
             auto const gpuStart = std::chrono::steady_clock::now();
-            probe.ReadGpu();
+            (void)probe.ReadGpu();
             gpuTotal += _millisSince(gpuStart);
         }
 

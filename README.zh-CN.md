@@ -7,8 +7,10 @@
 本项目旨在做到轻量、快速，并在**界面与交互上 1:1 复刻 Windows 11 任务管理器**，
 同时在三个方面做出实质性改进：图表颜色自定义、性能指标采集性能、代码可维护性。
 
-> **项目状态：早期开发中（M1-0 已完成）。**
-> 构建链路已端到端验证通过，应用窗口可正常启动。功能开发尚未开始。
+> **项目状态：里程碑 M1 已完成，M2 起步。**
+> 应用已具备进程、性能与详细信息页。CPU 与内存走原生 API；磁盘、网络、GPU 取自
+> Windows 性能计数器与 DXGI；性能页每个指标都可配置颜色与线宽。227 个单测通过，
+> Debug 与 Release 均可从干净克隆构建并自包含运行。
 
 ## 主要特性
 
@@ -18,8 +20,12 @@
   热路径上不使用 WMI。
 - **界面永不卡顿** —— 采样在后台线程执行，发布不可变的版本化快照，
   UI 线程不会等待采集完成。
-- **图表颜色可定制** —— 支持逐指标调色与预设主题。
-- **中英双语** —— 支持简体中文与 English。
+- **图表颜色可定制** —— 逐指标配色（使用系统颜色选择器）、可调线宽、
+  浅色/深色/跟随系统主题。
+- **记住上次状态** —— 窗口位置与尺寸、两个侧栏宽度、导航栏展开状态，以及启动页。
+
+尚未实现（见 [docs/ROADMAP.md](docs/ROADMAP.md)）：逐进程网络计数器（需提权）、
+NVIDIA 显卡的 NVML 温度与功耗，以及中英文语言切换。
 
 ## 环境要求
 
@@ -35,15 +41,19 @@
 ## 构建
 
 ```powershell
-# Debug
-tools\m1build.bat Debug
+# Debug，并运行测试
+tools\build.bat Debug test
 
 # Release
-tools\m1build.bat Release
+tools\build.bat Release
 ```
 
-该脚本会配置 MSVC 环境、还原 NuGet 包并构建解决方案。
-产物位于 `build\x64\<Configuration>\`。
+`tools\build.bat` 会自行定位 Visual Studio 与 vcpkg，在首次构建时安装 vcpkg
+依赖，还原 NuGet 包并构建解决方案。产物位于 `build\x64\<Configuration>\`。
+
+Visual Studio 通过 `vswhere` 查找，找不到时回退到一组常见路径；两者都未命中
+可将 `VSBASE` 设为安装目录。vcpkg 优先取 `VCPKG_ROOT`，手动安装依赖同样用它：
+`tools\build.bat <配置> deps`。
 
 环境搭建与疑难排查见 [docs/BUILD.md](docs/BUILD.md)。
 
@@ -56,6 +66,9 @@ cd build\x64\Debug
 
 > 本程序**必须运行在交互式桌面会话**中。WinUI 3 无法在服务窗口站
 > （例如 Session 0）上初始化，会在任何应用代码执行之前于运行时内部 fail-fast。
+>
+> 这也意味着单实例检查无法从服务会话中验证：`Local\` 命名互斥体与
+> `FindWindow` 都按设计限定在单个会话内，从 Session 0 启动两次不会互相看见。
 
 ## 文档
 

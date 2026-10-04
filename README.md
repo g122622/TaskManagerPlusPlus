@@ -8,20 +8,30 @@ TaskManagerPlusPlus aims to be lightweight, fast, and visually faithful to the
 Windows 11 Task Manager, while improving on it where it matters most: chart
 colour customisation, metric collection performance, and code maintainability.
 
-> **Project status: early development (M1-0 complete).**
-> The build chain is verified end to end and the application window launches.
-> Feature work has not started yet.
+> **Project status: milestone M1 complete, M2 starting.**
+> The application runs with process, performance and details pages. CPU and memory
+> are read natively; disk, network and GPU come from the Windows performance
+> counters and DXGI; every metric on the performance page is plotted with configurable
+> colours and stroke widths. 227 unit tests pass, and Debug and Release both build
+> and run self-contained from a clean clone.
 
 ## Highlights
 
 - **Faithful to Windows 11** — layout, spacing, colour, icons and interaction
   mirror the built-in Task Manager, so there is nothing new to learn.
 - **Native metric collection** — every counter comes from native Windows APIs on
-  a high-performance path. No WMI on the hot path.
+  a high-performance path. No WMI on the hot path, and no administrator rights
+  required.
 - **Non-blocking UI** — sampling runs on background threads and publishes
   immutable versioned snapshots, so the UI never waits on a probe.
-- **Customisable charts** — per-metric colours plus preset themes.
-- **Bilingual** — Simplified Chinese and English.
+- **Customisable charts** — per-metric colours chosen with the system colour
+  picker, a configurable stroke width, and light, dark or system theme.
+- **Remembers where you were** — window position and size, both sidebar widths,
+  the navigation rail's state, and which page to open on.
+
+Planned but not yet implemented: per-process network counters (needs elevation),
+NVML temperature and power figures for NVIDIA adapters, and a Chinese/English
+language switch. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -37,15 +47,21 @@ colour customisation, metric collection performance, and code maintainability.
 ## Building
 
 ```powershell
-# Debug
-tools\m1build.bat Debug
+# Debug, then run the tests
+tools\build.bat Debug test
 
 # Release
-tools\m1build.bat Release
+tools\build.bat Release
 ```
 
-The script sets up the MSVC environment, restores NuGet packages, and builds the
-solution. Output lands in `build\x64\<Configuration>\`.
+`tools\build.bat` locates Visual Studio and vcpkg itself, installs the vcpkg
+dependencies on a first build, restores the NuGet packages and builds the solution.
+Output lands in `build\x64\<Configuration>\`.
+
+Visual Studio is found through `vswhere`, with a short list of conventional paths as
+a fallback. If neither finds it, set `VSBASE` to the installation directory. vcpkg is
+taken from `VCPKG_ROOT` when that is set, which is also what `build.bat <cfg> deps`
+uses to install the dependencies by hand.
 
 See [docs/BUILD.md](docs/BUILD.md) for environment setup and troubleshooting.
 
@@ -59,6 +75,10 @@ cd build\x64\Debug
 > The application must run in an **interactive desktop session**. WinUI 3 cannot
 > initialise on a service window station (for example, Session 0), where it
 > fail-fasts inside the runtime before any application code executes.
+>
+> This also means its single-instance check cannot be exercised from a service
+> session: `Local\` named mutexes and `FindWindow` are both scoped to a session by
+> design, so two launches from Session 0 will not see each other.
 
 ## Documentation
 
