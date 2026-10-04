@@ -214,24 +214,63 @@ namespace tmpp::ui
         next.push_back(SectionSpec{L"CPU", L"\xE950", SectionKind::Cpu, true, 0});
         next.push_back(SectionSpec{L"Memory", L"\xEEA0", SectionKind::Memory, true, 0});
 
-        for (size_t i = 0; i < system.disks.size(); ++i)
+        // The device rows are taken from the last sample that reported any. A sample that reports none is
+        // a failed read rather than an observation that the hardware is gone, and rebuilding the list
+        // from it would make every disk and network row disappear and come back -- which is what a user
+        // sees as the items flickering out of the sidebar.
+        if (!system.disks.empty())
         {
-            core::Settings const& settings = m_settings;
-            (void)settings;
+            m_knownDiskCount = system.disks.size();
+        }
 
-            // The instance name is already the form the original uses: the device index followed by
-            // the volumes it backs, as in "2 C: D:".
+        if (!system.networks.empty())
+        {
+            m_knownNetworkCount = system.networks.size();
+        }
+
+        // The rows are built from the known counts, not from the current sample's list. A sample with
+        // fewer devices than were last seen is a failed read, and the rows are kept until one arrives
+        // that reports them; the figures for a device that has genuinely gone show as unavailable until
+        // the next sample removes its row.
+        for (size_t i = 0; i < m_knownDiskCount; ++i)
+        {
             std::wstring title = L"Disk ";
-            title += winrt::to_hstring(system.disks[i].instanceName).c_str();
+            if (i < system.disks.size())
+            {
+                // The instance name is the form the original uses: the device index followed by the
+                // volumes it backs, as in "2 C: D:".
+                title += winrt::to_hstring(system.disks[i].instanceName).c_str();
+                m_diskTitles[i] = title;
+            }
+            else if (auto const known = m_diskTitles.find(i); known != m_diskTitles.end())
+            {
+                title = known->second;
+            }
+            else
+            {
+                title += std::to_wstring(i);
+            }
+
             next.push_back(SectionSpec{std::move(title), L"\xEDA2", SectionKind::Disk, true, i});
         }
 
-        for (size_t i = 0; i < system.networks.size(); ++i)
+        for (size_t i = 0; i < m_knownNetworkCount; ++i)
         {
-            std::wstring const name = system.networks[i].adapterName.empty()
-                                          ? std::wstring{L"Network"}
-                                          : winrt::to_hstring(system.networks[i].adapterName).c_str();
-            next.push_back(SectionSpec{name, L"\xE968", SectionKind::Network, true, i});
+            std::wstring name = L"Network";
+            if (i < system.networks.size())
+            {
+                if (!system.networks[i].adapterName.empty())
+                {
+                    name = winrt::to_hstring(system.networks[i].adapterName).c_str();
+                }
+                m_networkTitles[i] = name;
+            }
+            else if (auto const known = m_networkTitles.find(i); known != m_networkTitles.end())
+            {
+                name = known->second;
+            }
+
+            next.push_back(SectionSpec{std::move(name), L"\xE968", SectionKind::Network, true, i});
         }
 
         next.push_back(SectionSpec{L"GPU", L"\xE7F4", SectionKind::Gpu, true, 0});
@@ -247,6 +286,7 @@ namespace tmpp::ui
         {
             return false;
         }
+
 
         m_sections = std::move(next);
 

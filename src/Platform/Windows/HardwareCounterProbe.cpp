@@ -284,9 +284,15 @@ namespace tmpp::platform
                                                 PERF_DETAIL_WIZARD,
                                                 0);
 
+        // Every early return here used to hand back an empty list as a success. Nothing upstream could
+        // tell that apart from a machine with no disks, and the sidebar builds one row per device, so a
+        // single enumeration failure made every device row disappear and come back. A failure to
+        // enumerate is now reported as a failure, which leaves the previous reading standing.
         if (static_cast<DWORD>(status) != PDH_MORE_DATA || instanceBufferSize == 0)
         {
-            return disks;
+            return Error{ErrorCode::NativeFailure,
+                         "the physical disk list could not be enumerated, PDH status " + _pdhError(status),
+                         "HardwareCounterProbe::ReadDisks"};
         }
 
         std::vector<wchar_t> counterBuffer(counterBufferSize > 0 ? counterBufferSize : 1);
@@ -305,7 +311,9 @@ namespace tmpp::platform
                                      0);
         if (status != ERROR_SUCCESS)
         {
-            return disks;
+            return Error{ErrorCode::NativeFailure,
+                         "the physical disk list could not be enumerated, PDH status " + _pdhError(status),
+                         "HardwareCounterProbe::ReadDisks"};
         }
 
         // The instance names are a double-null-terminated list.
@@ -530,6 +538,9 @@ namespace tmpp::platform
             disks.push_back(std::move(disk));
         }
 
+        // A device that cannot be opened is skipped above, so reaching here with nothing means either no
+        // disks or none that report performance data. The difference matters to the caller, which is why
+        // the availability flag is separate from the list being empty.
         m_disksAvailable = !disks.empty();
         return disks;
     }
@@ -580,10 +591,15 @@ namespace tmpp::platform
             }
         }
 
+        // An empty cache after a successful enumeration means the machine genuinely reports no
+        // interfaces. Reaching here with a populated cache and no results is different: every adapter
+        // failed to answer, which is a failure to observe rather than an observation of nothing.
         if (m_interfaceIndices.empty())
         {
             return interfaces;
         }
+
+        uint32_t unanswered = 0;
 
         for (uint32_t const interfaceIndex : m_interfaceIndices)
         {
@@ -592,8 +608,11 @@ namespace tmpp::platform
 
             if (GetIfEntry2(&row) != NO_ERROR)
             {
-                // The adapter did not answer. It is skipped for this sample: rebuilding the list here
-                // is what put a multi-hundred-millisecond enumeration back into every sample.
+                // The adapter did not answer. It is skipped for this sample: rebuilding the list here is
+                // what put a multi-hundred-millisecond enumeration back into every sample. The count is
+                // kept so that a sample where nothing answered can be reported as the failure it is
+                // rather than as a machine with no network.
+                ++unanswered;
                 continue;
             }
 
@@ -666,6 +685,15 @@ namespace tmpp::platform
         if (anyPhysical)
         {
             std::erase_if(interfaces, [](SystemNetworkCounters const& entry) { return entry.virtualAdapter; });
+        }
+
+        // Nothing answered at all, although the enumeration says adapters exist. Reporting an empty list
+        // would wipe every network row; reporting a failure leaves the previous reading standing.
+        if (interfaces.empty() && unanswered > 0)
+        {
+            return Error{ErrorCode::NativeFailure,
+                         "no network interface answered the counter query",
+                         "HardwareCounterProbe::ReadNetwork"};
         }
 
         m_networkAvailable = !interfaces.empty();

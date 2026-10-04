@@ -16,7 +16,9 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "UI/WinRTUI.h"
@@ -181,6 +183,19 @@ namespace tmpp::ui
 
         /// The GPU page. Created on first selection and reused.
         std::unique_ptr<GpuPage> m_gpuPage;
+
+        /// How many device rows the list carries, taken from the last sample that reported any.
+        ///
+        /// The list is built from these rather than from the current sample, so a sample that reports no
+        /// devices does not remove every disk and network row. That is a failed read, not an observation
+        /// that the hardware is gone.
+        size_t m_knownDiskCount{0};
+        size_t m_knownNetworkCount{0};
+
+        /// The last title seen for each device, so a row keeps its name while its figures are
+        /// unavailable.
+        std::map<size_t, std::wstring> m_diskTitles;
+        std::map<size_t, std::wstring> m_networkTitles;
 
         /// Which row is open, as an index into m_rows. Reset when the list is rebuilt.
         size_t m_selectedRow{0};

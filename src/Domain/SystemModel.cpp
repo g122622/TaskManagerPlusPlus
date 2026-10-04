@@ -56,6 +56,18 @@ namespace tmpp::domain
         // comes from a different probe that can fail on its own.
         next.memoryComposition = m_latest.memoryComposition;
 
+        // The hardware fields are carried through for the same reason, and it was a real defect that
+        // they were not: this method replaces the whole view, and SetHardwareCounters does not
+        // necessarily run before the UI reads it. Every sample therefore published a view whose device
+        // lists were empty, and the sidebar showed "unavailable" against every disk until the next
+        // hardware read happened to land first. The fields are short-lived -- overwritten by
+        // SetHardwareCounters moments later in the same sample -- but "moments later" is not a
+        // guarantee the reader can rely on.
+        next.disks = m_latest.disks;
+        next.networks = m_latest.networks;
+        next.gpu = m_latest.gpu;
+        next.diskActivePercent = m_latest.diskActivePercent;
+
         bool cpuDerived = false;
         if (m_hasBaseline && elapsedMs > 0.0)
         {

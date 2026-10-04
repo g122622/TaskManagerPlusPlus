@@ -321,22 +321,61 @@ namespace tmpp::core
             std::vector<platform::SystemNetworkCounters> networks;
             platform::SystemGpuInfo gpu;
 
-            if (auto const read = m_hardwareProbe->ReadDisks(); read.Success())
+            // A failed read leaves the previous device list in place rather than replacing it with
+            // nothing. The sidebar builds one row per device, so an empty sample does not merely show a
+            // gap in the figures: every disk and network row disappears and comes back, which is what a
+            // user sees as the items flickering out of the list.
+            //
+            // The previous list is held here rather than in the model because it is exactly the value
+            // the model still holds, and the model has no way to say "unchanged" through a call whose
+            // whole purpose is to publish a new sample.
+            // A read is only accepted when it reported at least one device. A successful read that
+            // returns nothing is a failure to observe rather than an observation that the hardware is
+            // gone: the devices are physically present, and each one is skipped when it cannot be
+            // opened, so a transient failure across all of them produces an empty list that still
+            // reports success.
+            //
+            // Accepting that empty list was the cause of the sidebar showing "unavailable" against every
+            // disk: the empty result was cached as the last good reading, and every later sample
+            // republished it.
+            if (auto const read = m_hardwareProbe->ReadDisks();
+                read.Success() && !read.Value().empty())
             {
                 disks = read.Value();
                 status.disksAvailable = m_hardwareProbe->DisksAvailable();
+                m_lastDisks = disks;
+            }
+            else
+            {
+                disks = m_lastDisks;
             }
 
-            if (auto const read = m_hardwareProbe->ReadNetwork(); read.Success())
+            if (auto const read = m_hardwareProbe->ReadNetwork();
+                read.Success() && !read.Value().empty())
             {
                 networks = read.Value();
                 status.networksAvailable = m_hardwareProbe->NetworkAvailable();
+                m_lastNetworks = networks;
+            }
+            else
+            {
+                networks = m_lastNetworks;
             }
 
-            if (auto const read = m_hardwareProbe->ReadGpu(); read.Success())
+            if (auto const read = m_hardwareProbe->ReadGpu();
+                read.Success() && read.Value().available)
             {
                 gpu = read.Value();
                 status.gpuAvailable = m_hardwareProbe->GpuAvailable();
+                m_lastGpu = gpu;
+                m_hasLastGpu = true;
+            }
+            else if (m_hasLastGpu)
+            {
+                // The GPU counters are rates rather than cumulative totals, so a stale reading is a
+                // reading that was true a moment ago and is still the best available. Reporting the
+                // cached one keeps the row populated without claiming a fresh measurement.
+                gpu = m_lastGpu;
             }
 
             std::lock_guard const lock(m_mutex);

@@ -183,6 +183,17 @@ namespace tmpp::core
         /// Terminates processes. Kept here rather than in the UI so the action and the snapshot it is
         /// based on come from the same place.
         platform::WindowsProcessActions m_processActions;
+
+        /// The most recent successful hardware reading of each kind.
+        ///
+        /// A failed read publishes these rather than publishing nothing. The sidebar builds one row per
+        /// device, so an empty list would make every disk and network row disappear and come back; a
+        /// reading that is one interval old is a far smaller lie than a list that says the disks are
+        /// gone.
+        std::vector<platform::SystemDiskCounters> m_lastDisks;
+        std::vector<platform::SystemNetworkCounters> m_lastNetworks;
+        platform::SystemGpuInfo m_lastGpu;
+        bool m_hasLastGpu{false};
         platform::WindowsSystemProbe m_systemProbe;
 
         /// Live clock speed. Declared after the system probe because it is
