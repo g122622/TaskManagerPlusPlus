@@ -184,18 +184,20 @@ namespace tmpp::ui
         column2.Padding(columnPadding);
         column3.Padding(columnPadding);
 
-        // Column 1: current load and how long the machine has been up.
+        // Column 1: the live load, how long the machine has been up, and the two clock speeds. The
+        // rated speed and the one the part is actually running at belong together, which is why both
+        // sit here rather than the current speed being filed with the topology.
         m_column1.push_back(_addDetail(column1, L"Utilization"));
         m_column1.push_back(_addDetail(column1, L"Up time"));
+        m_column1.push_back(_addDetail(column1, L"Base speed"));
+        m_column1.push_back(_addDetail(column1, L"Speed"));
 
-        // Column 2: counts and the live clock.
+        // Column 2: what the machine is doing, counted rather than measured.
         m_column2.push_back(_addDetail(column2, L"Processes"));
         m_column2.push_back(_addDetail(column2, L"Threads"));
         m_column2.push_back(_addDetail(column2, L"Handles"));
-        m_column2.push_back(_addDetail(column2, L"Speed"));
 
-        // Column 3: the static topology.
-        m_column3.push_back(_addDetail(column3, L"Base speed"));
+        // Column 3: the static topology, which does not change while the process runs.
         m_column3.push_back(_addDetail(column3, L"Sockets"));
         m_column3.push_back(_addDetail(column3, L"Cores"));
         m_column3.push_back(_addDetail(column3, L"Logical processors"));
@@ -203,9 +205,6 @@ namespace tmpp::ui
         m_column3.push_back(_addDetail(column3, L"L1 cache"));
         m_column3.push_back(_addDetail(column3, L"L2 cache"));
         m_column3.push_back(_addDetail(column3, L"L3 cache"));
-
-        Grid::SetColumn(column1, 0);
-        Grid::SetColumn(column2, 1);
         Grid::SetColumn(column3, 2);
         details.Children().Append(column1);
         details.Children().Append(column2);
@@ -313,27 +312,27 @@ namespace tmpp::ui
         // Column 1.
         assign(m_column1, 0, system.ratesUnavailable ? UnavailableValue() : FormatPercent(system.cpuPercent));
         assign(m_column1, 1, FormatDuration(system.totals.uptimeSeconds));
-
-        // Column 2.
-        assign(m_column2, 0, FormatCount(system.totals.processCount));
-        assign(m_column2, 1, FormatCount(system.totals.threadCount));
-        assign(m_column2, 2, FormatCount(system.totals.handleCount));
-        assign(m_column2,
+        assign(m_column1,
+               2,
+               processor.baseClockMhz > 0 ? std::to_string(processor.baseClockMhz) + " MHz" : UnavailableValue());
+        assign(m_column1,
                3,
                system.processorSpeed.available
                    ? std::to_string(system.processorSpeed.currentMhz) + " MHz"
                    : UnavailableValue());
 
+        // Column 2.
+        assign(m_column2, 0, FormatCount(system.totals.processCount));
+        assign(m_column2, 1, FormatCount(system.totals.threadCount));
+        assign(m_column2, 2, FormatCount(system.totals.handleCount));
+
         // Column 3.
-        assign(m_column3,
-               0,
-               processor.baseClockMhz > 0 ? std::to_string(processor.baseClockMhz) + " MHz" : UnavailableValue());
-        assign(m_column3, 1, std::to_string(processor.socketCount));
-        assign(m_column3, 2, std::to_string(processor.physicalCoreCount));
-        assign(m_column3, 3, std::to_string(processor.logicalProcessorCount));
-        assign(m_column3, 4, processor.virtualizationFirmwareEnabled ? "Enabled" : "Disabled");
-        assign(m_column3, 5, _formatCache(processor.l1CacheBytes));
-        assign(m_column3, 6, _formatCache(processor.l2CacheBytes));
-        assign(m_column3, 7, _formatCache(processor.l3CacheBytes));
+        assign(m_column3, 0, std::to_string(processor.socketCount));
+        assign(m_column3, 1, std::to_string(processor.physicalCoreCount));
+        assign(m_column3, 2, std::to_string(processor.logicalProcessorCount));
+        assign(m_column3, 3, processor.virtualizationFirmwareEnabled ? "Enabled" : "Disabled");
+        assign(m_column3, 4, _formatCache(processor.l1CacheBytes));
+        assign(m_column3, 5, _formatCache(processor.l2CacheBytes));
+        assign(m_column3, 6, _formatCache(processor.l3CacheBytes));
     }
 }

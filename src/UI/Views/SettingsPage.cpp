@@ -112,6 +112,31 @@ namespace tmpp::ui
                     }
                 });
 
+            // Disk order. The two orders give genuinely different lists rather than the same one
+            // reversed, because a device is named by the volumes it backs: the device the firmware calls
+            // 2 may be the one backing C:.
+            _addRow(section,
+                    L"\xEDA2",
+                    L"Disk order",
+                    L"Which drive is listed first on the performance page",
+                    m_diskOrder);
+
+            // The order matches the DiskSortOrder enum, so the selected index is the enum value.
+            m_diskOrder.MinWidth(180.0);
+            m_diskOrder.Items().Append(winrt::box_value(winrt::hstring{L"By device number"}));
+            m_diskOrder.Items().Append(winrt::box_value(winrt::hstring{L"By first drive letter"}));
+            m_diskOrder.SelectedIndex(static_cast<int32_t>(m_settings.diskSortOrder));
+            m_diskOrder.SelectionChanged(
+                [this](winrt::Windows::Foundation::IInspectable const&,
+                       winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&) {
+                    int32_t const index = m_diskOrder.SelectedIndex();
+                    if (index >= 0)
+                    {
+                        m_settings.diskSortOrder = static_cast<core::DiskSortOrder>(index);
+                        _notifyChange();
+                    }
+                });
+
             // Theme. The setting existed in the file but was never applied, so choosing one did
             // nothing at all.
             _addRow(section,
