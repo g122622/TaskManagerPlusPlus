@@ -21,7 +21,14 @@ namespace tmpp::ui
     namespace
     {
         constexpr double HEADING_FONT_SIZE = 22.0;
-        constexpr double CHART_MIN_HEIGHT = 220.0;
+
+        /// Smallest height a chart may be squeezed to on a page carrying two of them.
+        ///
+        /// This page stacks a utilisation plot and a memory plot, so the same height budget applies as
+        /// on the disk page: two single-chart floors plus the fixed rows exceed an ordinary window, the
+        /// star rows cannot shrink past their floors, and the lower chart draws over the details under
+        /// it. See DiskPage for the full explanation.
+        constexpr double STACKED_CHART_MIN_HEIGHT = 120.0;
 
         /// The default GPU line colour, matching the sidebar's GPU row.
         constexpr winrt::Windows::UI::Color DEFAULT_GPU_COLOR{0xFF, 0xFF, 0x8A, 0xA8};
@@ -90,7 +97,7 @@ namespace tmpp::ui
         // percent means that engine is saturated.
         m_chart = std::make_unique<HistoryChart>(L"", DEFAULT_GPU_COLOR, 100.0);
         m_chart->SetHeaderVisible(false);
-        m_chart->Root().MinHeight(CHART_MIN_HEIGHT);
+        m_chart->Root().MinHeight(STACKED_CHART_MIN_HEIGHT);
 
         Grid::SetRow(m_chart->Root(), 2);
         m_root.Children().Append(m_chart->Root());
@@ -123,7 +130,7 @@ namespace tmpp::ui
         // axis would not be.
         m_memoryChart = std::make_unique<HistoryChart>(L"", DEFAULT_GPU_COLOR, 1.0);
         m_memoryChart->SetHeaderVisible(false);
-        m_memoryChart->Root().MinHeight(CHART_MIN_HEIGHT);
+        m_memoryChart->Root().MinHeight(STACKED_CHART_MIN_HEIGHT);
 
         Grid::SetRow(m_memoryChart->Root(), 4);
         m_root.Children().Append(m_memoryChart->Root());

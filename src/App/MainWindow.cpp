@@ -635,7 +635,9 @@ namespace tmpp
         pageHeader.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
         pageHeader.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
 
-        m_pageTitle = ui::controls::MakeHeading(L"Processes", 20.0);
+        // The page name, one step smaller than a section heading. It names the page rather than being
+        // the page's own title, and at 20 it competed with the headings inside the page it labels.
+        m_pageTitle = ui::controls::MakeHeading(L"Processes", 16.0);
         m_pageTitle.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(m_pageTitle, 0);
         pageHeader.Children().Append(m_pageTitle);

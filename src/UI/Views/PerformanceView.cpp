@@ -15,6 +15,9 @@ using winrt::Microsoft::UI::Xaml::Controls::Border;
 using winrt::Microsoft::UI::Xaml::Controls::Button;
 using winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition;
 using winrt::Microsoft::UI::Xaml::Controls::Grid;
+using winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility;
+using winrt::Microsoft::UI::Xaml::Controls::ScrollMode;
+using winrt::Microsoft::UI::Xaml::Controls::ScrollViewer;
 using winrt::Microsoft::UI::Xaml::Controls::StackPanel;
 using winrt::Microsoft::UI::Xaml::Controls::TextBlock;
 using winrt::Microsoft::UI::Xaml::GridLengthHelper;
@@ -303,13 +306,28 @@ namespace tmpp::ui
         m_sidebarCard = controls::MakeCard();
         m_sidebarCard.Padding(ThicknessHelper::FromLengths(3.0, 3.0, 3.0, 3.0));
         m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
-        m_sidebarCard.VerticalAlignment(VerticalAlignment::Top);
+
+        // Stretch rather than Top: a card sized to its content grows past the bottom of a short window
+        // and its last rows are simply not drawn, with nothing to say they exist. Filling the column
+        // gives the scroll area inside it a bounded height to scroll within.
+        m_sidebarCard.VerticalAlignment(VerticalAlignment::Stretch);
         m_sidebarCard.HorizontalAlignment(HorizontalAlignment::Stretch);
 
-        // No ScrollViewer: the rows always fit, and a ScrollViewer here would give its content
-        // unlimited height, which is what makes star sizing fail elsewhere.
+        // The rows are scrolled rather than clipped. This is safe here, unlike on a chart page: the
+        // sidebar is a stack of fixed-height buttons, so nothing inside depends on a star row resolving
+        // against the available height, which is what a ScrollViewer's unlimited height breaks.
+        //
+        // Vertical only, and the bar is left to appear on its own: a machine with few devices shows
+        // nothing, and one with many shows the affordance exactly when the list overflows.
+        ScrollViewer sidebarScroll;
+        sidebarScroll.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+        sidebarScroll.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+        sidebarScroll.VerticalScrollMode(ScrollMode::Auto);
+        sidebarScroll.HorizontalScrollMode(ScrollMode::Disabled);
+
         m_sidebar = controls::MakeStack(1.0);
-        m_sidebarCard.Child(m_sidebar);
+        sidebarScroll.Content(m_sidebar);
+        m_sidebarCard.Child(sidebarScroll);
 
         Grid::SetColumn(m_sidebarCard, 0);
         m_root.Children().Append(m_sidebarCard);

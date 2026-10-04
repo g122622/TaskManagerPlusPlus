@@ -21,7 +21,16 @@ namespace tmpp::ui
     namespace
     {
         constexpr double HEADING_FONT_SIZE = 22.0;
-        constexpr double CHART_MIN_HEIGHT = 220.0;
+
+        /// Smallest height a chart may be squeezed to on a page carrying two of them.
+        ///
+        /// This page stacks two plots, so their combined floor plus the fixed rows is the height below
+        /// which the page no longer fits. A single-chart page can afford 220 per plot; two of those need
+        /// 440 before any caption or detail row, so a window of ordinary height was over-subscribed and
+        /// the lower chart drew past its cell and over the details beneath it. The floor is what keeps
+        /// both plots readable in a short window, so it is deliberately modest: the chart's own minimum
+        /// plot height is 24, so this still leaves a curve room to be read.
+        constexpr double STACKED_CHART_MIN_HEIGHT = 120.0;
 
         /// The default disk line colour, matching the sidebar's disk row.
         constexpr winrt::Windows::UI::Color DEFAULT_DISK_COLOR{0xFF, 0x6E, 0xD8, 0xB0};
@@ -52,6 +61,10 @@ namespace tmpp::ui
         m_root.RowDefinitions().Append(controls::MakeAutoRow()); // details
 
         // --- Heading -----------------------------------------------------------
+        //
+        // The heading names the section. The device's model goes at the right-hand end of the same line,
+        // which is where the original puts the identity of the hardware; a second "Disk" prefix here was
+        // redundant because the sidebar row already carries it.
         Grid headingRow = Grid();
         headingRow.ColumnDefinitions().Append(controls::MakeStarColumn());
         headingRow.ColumnDefinitions().Append(controls::MakeAutoColumn());
@@ -60,11 +73,14 @@ namespace tmpp::ui
         Grid::SetColumn(m_heading, 0);
         headingRow.Children().Append(m_heading);
 
-        // The device's model and capacity, at the right-hand end of the heading line, which is where
-        // the original puts them.
+        // The model is long, so it is trimmed from its end rather than being allowed to push the
+        // heading aside.
         m_modelCaption = controls::MakeText(L"", 13.0, true);
+        m_modelCaption.HorizontalAlignment(HorizontalAlignment::Right);
         m_modelCaption.VerticalAlignment(VerticalAlignment::Bottom);
-        m_modelCaption.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 4.0));
+        m_modelCaption.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        m_modelCaption.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+        m_modelCaption.Margin(ThicknessHelper::FromLengths(12.0, 0.0, 0.0, 4.0));
         Grid::SetColumn(m_modelCaption, 1);
         headingRow.Children().Append(m_modelCaption);
 
@@ -95,7 +111,7 @@ namespace tmpp::ui
         // A share of one device, so the axis is a real proportion and 100 percent means fully busy.
         m_activeChart = std::make_unique<HistoryChart>(L"", DEFAULT_DISK_COLOR, 100.0);
         m_activeChart->SetHeaderVisible(false);
-        m_activeChart->Root().MinHeight(CHART_MIN_HEIGHT);
+        m_activeChart->Root().MinHeight(STACKED_CHART_MIN_HEIGHT);
 
         Grid::SetRow(m_activeChart->Root(), 2);
         m_root.Children().Append(m_activeChart->Root());
@@ -124,7 +140,7 @@ namespace tmpp::ui
         // --- Transfer-rate chart -----------------------------------------------
         m_transferChart = std::make_unique<HistoryChart>(L"", DEFAULT_DISK_COLOR, 100.0);
         m_transferChart->SetHeaderVisible(false);
-        m_transferChart->Root().MinHeight(CHART_MIN_HEIGHT);
+        m_transferChart->Root().MinHeight(STACKED_CHART_MIN_HEIGHT);
 
         Grid::SetRow(m_transferChart->Root(), 4);
         m_root.Children().Append(m_transferChart->Root());
@@ -160,8 +176,8 @@ namespace tmpp::ui
         m_column2.push_back(_addDetail(column2, L"Queue length"));
         m_column2.push_back(_addDetail(column2, L"Page file"));
 
-        // Column 3: the device identity.
-        m_column3.push_back(_addDetail(column3, L"Model"));
+        // Column 3: the device identity. The model is not repeated here: it is stated in the heading,
+        // where it is read first, and a second copy a few lines below adds nothing.
         m_column3.push_back(_addDetail(column3, L"Device"));
         m_column3.push_back(_addDetail(column3, L"Type"));
         m_column3.push_back(_addDetail(column3, L"System disk"));
@@ -242,7 +258,10 @@ namespace tmpp::ui
         {
             // The heading names the device the way the sidebar row does, so a machine with several
             // disks does not show a page that could belong to any of them.
-            m_heading.Text(winrt::hstring{L"Disk "} + winrt::hstring{m_deviceLabel});
+            //
+            // The label already carries the "Disk" prefix and the device number, so it is used as it
+            // stands. Prefixing it again produced "Disk Disk 2 C: D:".
+            m_heading.Text(winrt::hstring{m_deviceLabel});
         }
     }
 
@@ -265,6 +284,22 @@ namespace tmpp::ui
             if (m_deviceIndex < system.disks.size())
             {
                 m_heading.Text(winrt::to_hstring("Disk " + system.disks[m_deviceIndex].instanceName));
+            }
+        }
+
+        // The model identifies the hardware, so it is stated in the heading rather than left to a row
+        // further down the page. The full model name is long, so the caption is trimmed by the layout
+        // rather than truncated here.
+        if (m_modelCaption != nullptr)
+        {
+            size_t const captionIndex = (m_deviceIndex < system.disks.size()) ? m_deviceIndex : 0;
+            if (captionIndex < system.disks.size() && !system.disks[captionIndex].modelName.empty())
+            {
+                m_modelCaption.Text(winrt::to_hstring(system.disks[captionIndex].modelName));
+            }
+            else
+            {
+                m_modelCaption.Text(L"");
             }
         }
 
@@ -422,15 +457,14 @@ namespace tmpp::ui
         assign(m_column2, 2, std::to_string(disk.queueDepth));
         assign(m_column2, 3, disk.hostsPageFile ? "Yes" : "No");
 
-        assign(m_column3, 0, disk.modelName.empty() ? UnavailableValue() : disk.modelName);
-        assign(m_column3, 1, disk.instanceName.empty() ? UnavailableValue() : disk.instanceName);
+        assign(m_column3, 0, disk.instanceName.empty() ? UnavailableValue() : disk.instanceName);
 
         // The type comes from the device's own seek-penalty and bus queries rather than from guessing
         // at the model string, which is what the original's "Type" row reports.
-        assign(m_column3, 2, disk.TypeName());
+        assign(m_column3, 1, disk.TypeName());
 
         // TRIM support is a solid-state capability and needs no extra query: it arrived with the
         // descriptor that named the device.
-        assign(m_column3, 3, disk.trimEnabled ? "Yes" : "No");
+        assign(m_column3, 2, disk.trimEnabled ? "Yes" : "No");
     }
 }
