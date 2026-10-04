@@ -48,12 +48,30 @@
 | --- | --- |
 | 系统内存总量 / 可用 / 已提交 | `GlobalMemoryStatusEx` |
 | 内存组成（使用中/已修改/备用/空闲） | `NtQuerySystemInformation(SystemMemoryListInformation)` |
+| 已缓存 / 分页池 / 非分页池 / 提交峰值 / 句柄总数 | `GetPerformanceInfo`（一次调用返回全部，页数 × `PageSize`） |
 | 进程工作集 / 私有字节 / 虚拟大小 / 峰值 | `SYSTEM_PROCESS_INFORMATION`（见上表） |
 | 进程缺页数 | `GetProcessMemoryInfo`（`PROCESS_MEMORY_COUNTERS_EX`） |
-| 内存条速度 / 插槽 / 外形规格 | `GetSystemFirmwareTable('RSMB')` 解析 SMBIOS 原始数据 |
+| 内存条容量 / 代数 / 频率 / 位宽 / 电压 / 厂商 / 型号 | `GetSystemFirmwareTable('RSMB')` 解析 SMBIOS Type 17 |
 
-> **TODO**：内存条详细信息需解析 SMBIOS，实现成本较高。
-> 若进度紧张可先隐藏这些字段，并在代码中标注 TODO。
+### 内存条（SMBIOS）
+
+无 Windows API 报告内存条信息：操作系统知道**有多少**内存，不知道**由什么组成**。
+唯一来源是固件表，用 `GetSystemFirmwareTable('RSMB')` 取原始 SMBIOS 后自行解析
+Type 17 结构。`SmbiosMemoryProbe` 的字段偏移曾整体错位一个字段（读出的位宽
+32767 实际是 Size 字段的“未设置”标记），且类型名称表把 DDR4 标成了 DDR2 FB-DIMM；
+两者都是通过与 `Win32_PhysicalMemory` 对照才发现的——Windows 对同四条内存同样
+报告 code 26，说明解析正确、只是命名错。本机实测：
+
+| 项 | 读数 |
+| --- | --- |
+| 插槽 | 4 个全部占用 |
+| 容量 | 4 × 32 GB = 128 GB（系统可用 127.8 GB） |
+| 代数 / 封装 | DDR4 / DIMM |
+| 频率 | 3200 MHz（配置值与标称值相同） |
+| 位宽 / 电压 | 64-bit / 1.20 V |
+| 厂商 / 型号 | JUHOR `JHD3200U1832JG`、Gloway `VGM4UX32C18BG-DTACW` |
+
+“硬件保留”= 内存条总量 − 系统可用量（本机约 211 MB），在组成条最左侧以红色绘制。
 
 ## 3. 磁盘
 
