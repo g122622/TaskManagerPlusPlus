@@ -86,6 +86,12 @@ namespace tmpp::ui::controls
         TextBox box;
         box.PlaceholderText(winrt::hstring{placeholder});
         box.MinWidth(240.0);
+
+        // The template's minimum height is 32, and a minimum wins over an explicit Height. A caller that
+        // wants a shorter box therefore has to lower this as well, or its Height is silently ignored and the
+        // box fills whatever strip it sits in. Lowered to zero here so the caller's Height is what decides;
+        // a caller that sets neither gets the template's own preferred height.
+        box.MinHeight(0.0);
         return box;
     }
 

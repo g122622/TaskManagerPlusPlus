@@ -16,6 +16,7 @@
 
 #include "Core/SamplingCoordinator.h"
 #include "Platform/Windows/WindowsProcessActions.h"
+#include "UI/Lists/ColumnResizeHandle.h"
 #include "UI/Lists/ProcessIconCache.h"
 #include "UI/Lists/ProcessListModel.h"
 #include "UI/Lists/RowHost.h"
@@ -173,6 +174,18 @@ namespace tmpp::ui
 
         /// The header's column definitions, resized as a column is dragged.
         std::vector<winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition> m_headerColumns;
+
+        /**
+         * @brief The layer the column boundaries are drawn in, over both the header and the rows.
+         *
+         * A Canvas rather than a grid of columns, because the bars are positioned from the widths to their
+         * left and are not part of the table's own layout: they take no space and the list underneath
+         * still receives the pointer everywhere except on a bar.
+         */
+        winrt::Microsoft::UI::Xaml::Controls::Canvas m_handleLayer{nullptr};
+
+        /// One bar per boundary, in column order. The last column has none.
+        std::vector<std::unique_ptr<ColumnResizeHandle>> m_columnHandles;
 
         /// Applies the current widths to the header and to every row on screen.
         void _applyColumnWidths();

@@ -9,6 +9,7 @@
 #include <array>
 #include <string>
 
+using winrt::Microsoft::UI::Xaml::Controls::Canvas;
 using winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition;
 using winrt::Microsoft::UI::Xaml::Controls::Grid;
 using winrt::Microsoft::UI::Xaml::Controls::RowDefinition;
@@ -171,16 +172,10 @@ namespace tmpp::ui
         m_root = Grid();
         m_root.Padding(ThicknessHelper::FromLengths(metrics::PAGE_MARGIN, 12.0, metrics::PAGE_MARGIN, 8.0));
 
-        // Two fixed rows (toolbar, column headers) and a star row for the list. The
-        // star is what gives the row host a definite height to fill; with an Auto row
-        // the list would size to its content and the virtualisation window would be
-        // wrong.
-        // The toolbar and headers size to their content; the list takes the remainder.
-        // Content-sized rows must be named explicitly, because GridLength defaults to 1*
-        // and a bare definition would claim an equal third of the height instead.
+        // The toolbar sizes to its content and the table takes the remainder. The table holds the header
+        // and the list in two rows of its own, so that the column boundaries can be overlaid on both.
         m_root.RowDefinitions().Append(controls::MakeAutoRow()); // toolbar
-        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // column headers
-        m_root.RowDefinitions().Append(controls::MakeStarRow()); // rows
+        m_root.RowDefinitions().Append(controls::MakeStarRow()); // header and rows
 
         // --- Toolbar -----------------------------------------------------------
         //
@@ -339,126 +334,23 @@ namespace tmpp::ui
             header.Children().Append(button);
         }
 
-        // A handle on the boundary between each pair of columns. Placed in the left-hand column and
-        // aligned to its right edge, so dragging it moves that boundary rather than the next one along.
+
+        // --- Header and rows, with the column boundaries over both -----------------
         //
-        // The last column gets no handle: there is no boundary after it, and a drag there would have to
-        // resize against the window's edge rather than against a neighbour.
-        for (size_t i = 0; i + 1 < COLUMNS.size(); ++i)
-        {
-            winrt::Microsoft::UI::Xaml::Controls::Border handle;
-            handle.Width(COLUMN_HANDLE_WIDTH);
-            handle.HorizontalAlignment(HorizontalAlignment::Right);
-            handle.VerticalAlignment(VerticalAlignment::Stretch);
+        // The header and the list are stacked in one grid so that the resize bars can be laid over the
+        // pair. A bar placed inside the header could only span the header, which would leave the boundary
+        // invisible where the user is actually reading the list.
+        Grid table = Grid();
+        table.RowDefinitions().Append(controls::MakeAutoRow()); // column headers
+        table.RowDefinitions().Append(controls::MakeStarRow()); // rows
 
-            // A transparent brush rather than none: a null Background is not hit-testable in WinUI, so a
-            // handle without one would never receive the pointer.
-            handle.Background(
-                winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
-
-            // Visible only on hover, matching the original's subtle divider: a permanent line between
-            // every pair of columns would turn the header into a ladder.
-            handle.PointerEntered(
-                [handle](winrt::Windows::Foundation::IInspectable const&,
-                         winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) mutable {
-                    handle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-                        winrt::Windows::UI::Color{0x60, 0x80, 0x80, 0x80}));
-                });
-            handle.PointerExited(
-                [handle](winrt::Windows::Foundation::IInspectable const&,
-                         winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) mutable {
-                    handle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-                        winrt::Windows::UI::Colors::Transparent()));
-                });
-
-            // The drag is measured from where it began rather than from the absolute pointer position, so
-            // the boundary stays under the cursor wherever the grab happened.
-            auto const startWidth = std::make_shared<double>(0.0);
-            auto const startX = std::make_shared<double>(0.0);
-
-            handle.PointerPressed([this, i, startWidth, startX](
-                                      winrt::Windows::Foundation::IInspectable const& sender,
-                                      winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
-                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
-                if (element == nullptr)
-                {
-                    return;
-                }
-
-                // GetCurrentPoint returns null when the pointer has no position relative to the element --
-                // which happens as the pointer leaves or the element is removed mid-gesture. Calling
-                // Position() on it dereferences null, so every use is guarded.
-                auto const point = args.GetCurrentPoint(element);
-                if (point == nullptr)
-                {
-                    return;
-                }
-
-                *startWidth = m_columnWidths[i];
-                *startX = point.Position().X;
-
-                // Captured because the drag leaves the narrow handle almost immediately.
-                element.CapturePointer(args.Pointer());
-            });
-
-            handle.PointerMoved([this, i, startWidth, startX](
-                                    winrt::Windows::Foundation::IInspectable const& sender,
-                                    winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
-                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
-                if (element == nullptr)
-                {
-                    return;
-                }
-
-                // PointerCaptures() is only non-null once the element is in the visual tree and the
-                // pointer system has given it a capture collection. Calling Size() on it before that is
-                // the null dereference this handler used to make -- it crashed on the first pointer move
-                // over a handle, before any capture had been taken.
-                auto const captures = element.PointerCaptures();
-                if (captures == nullptr || captures.Size() == 0)
-                {
-                    return;
-                }
-
-                auto const point = args.GetCurrentPoint(element);
-                if (point == nullptr)
-                {
-                    return;
-                }
-
-                double const delta = point.Position().X - *startX;
-                _setColumnWidth(i, *startWidth + delta);
-            });
-
-            handle.PointerReleased([this](winrt::Windows::Foundation::IInspectable const& sender,
-                                          winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
-                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
-                if (element != nullptr)
-                {
-                    element.ReleasePointerCapture(args.Pointer());
-                }
-
-                // Reported once, on release, rather than during the drag: a settings write per pointer
-                // move would be a file write per pixel.
-                if (m_onColumnWidthsChanged)
-                {
-                    m_onColumnWidthsChanged(std::vector<double>(m_columnWidths.begin(), m_columnWidths.end()));
-                }
-            });
-
-            Grid::SetColumn(handle, static_cast<int32_t>(i));
-            Grid::SetRow(handle, 1);
-            header.Children().Append(handle);
-        }
-
-        Grid::SetRow(header, 1);
-        m_root.Children().Append(header);
+        Grid::SetRow(header, 0);
+        table.Children().Append(header);
 
         // The initial mark, so the header states how the list is ordered from the first frame rather than
         // only after the user clicks something.
         _updateSortMarks();
 
-        // --- Rows --------------------------------------------------------------
         Grid listArea = Grid();
 
         m_rowHost = std::make_unique<RowHost>(metrics::PROCESS_ROW_HEIGHT, _totalRowWidth());
@@ -470,8 +362,68 @@ namespace tmpp::ui
         m_emptyMessage.Visibility(Visibility::Collapsed);
         listArea.Children().Append(m_emptyMessage);
 
-        Grid::SetRow(listArea, 2);
-        m_root.Children().Append(listArea);
+        Grid::SetRow(listArea, 1);
+        table.Children().Append(listArea);
+
+        // A bar on the boundary between each pair of columns, spanning the whole table.
+        //
+        // The last column gets none: there is no boundary after it, and a drag there would have to resize
+        // against the window's edge rather than against a neighbour.
+        //
+        // The bars live in an overlay rather than inside the header so that they run the full height.
+        // Each is positioned from the sum of the widths to its left, which is what ties it to the column
+        // boundary it represents; _applyColumnWidths moves them when a drag or a settings load changes a
+        // width.
+        m_handleLayer = Canvas();
+        m_handleLayer.HorizontalAlignment(HorizontalAlignment::Stretch);
+        m_handleLayer.VerticalAlignment(VerticalAlignment::Stretch);
+        m_handleLayer.IsHitTestVisible(true);
+
+        // The layer has no height until the table is measured, and the bars take their height from it. This
+        // is what sizes them on the first layout pass, and again whenever the window is resized: without it
+        // the bars would keep whatever height they were given while the layer was still zero.
+        m_handleLayer.SizeChanged(
+            [this](winrt::Windows::Foundation::IInspectable const&,
+                   winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args) {
+                double const height = args.NewSize().Height;
+                for (auto const& handle : m_columnHandles)
+                {
+                    if (handle != nullptr)
+                    {
+                        handle->Element().Height(height);
+                    }
+                }
+            });
+
+        for (size_t i = 0; i + 1 < COLUMNS.size(); ++i)
+        {
+            auto handle = std::make_unique<ColumnResizeHandle>();
+            handle->Attach(
+                static_cast<uint32_t>(i),
+                [this](uint32_t column) { return m_columnWidths[column]; },
+                [this](uint32_t column, double width) { _setColumnWidth(column, width); },
+                [this] {
+                    if (m_onColumnWidthsChanged)
+                    {
+                        m_onColumnWidthsChanged(
+                            std::vector<double>(m_columnWidths.begin(), m_columnWidths.end()));
+                    }
+                });
+
+            m_handleLayer.Children().Append(handle->Element());
+            m_columnHandles.push_back(std::move(handle));
+        }
+
+        // The overlay is the last child of the table's own grid, so it draws over both bands. It takes no
+        // space of its own: the bars are positioned absolutely and the layer is transparent between them,
+        // so the list underneath still receives the pointer everywhere except on a bar.
+        table.Children().Append(m_handleLayer);
+
+        Grid::SetRow(table, 1);
+        m_root.Children().Append(table);
+
+        // Placed once the overlay exists, so the bars start on their boundaries rather than at zero.
+        _applyColumnWidths();
     }
 
     void ProcessesView::_updateSortMarks()
@@ -579,6 +531,38 @@ namespace tmpp::ui
                 {
                     row.ColumnDefinitions().GetAt(static_cast<uint32_t>(i))
                         .Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+                }
+            }
+        }
+
+        // Each bar is placed at the sum of the widths to its left, which is exactly where its column ends.
+        // Positioned from the widths rather than from a measured layout so the bars track a drag without
+        // waiting for a layout pass.
+        double x = ROW_INSET;
+        for (size_t i = 0; i < m_columnHandles.size() && i < m_columnWidths.size(); ++i)
+        {
+            x += m_columnWidths[i];
+
+            if (m_columnHandles[i] != nullptr)
+            {
+                // The bar is centred on the boundary rather than starting at it, so its line sits on the
+                // boundary instead of a few pixels to one side.
+                Canvas::SetLeft(m_columnHandles[i]->Element(), x - (COLUMN_HANDLE_WIDTH / 2.0));
+                Canvas::SetTop(m_columnHandles[i]->Element(), 0.0);
+
+                // The height is set explicitly, from the layer's own height.
+                //
+                // A Canvas does not size its children: it gives each one its desired size and positions it,
+                // so an element with no height collapses to nothing and its line is never drawn. Leaving the
+                // height unset amounts to the same thing, because an unset Height means "size to content"
+                // and this element's only content is a border. Either way the bars were invisible.
+                //
+                // The layer's height is zero before the first layout pass, in which case the bar keeps its
+                // current height and _applyColumnWidths runs again once the table has been measured.
+                double const layerHeight = m_handleLayer.ActualHeight();
+                if (layerHeight > 0.0)
+                {
+                    m_columnHandles[i]->Element().Height(layerHeight);
                 }
             }
         }
