@@ -59,7 +59,17 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_memoryCaption{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_caption{nullptr};
 
+        /// Utilisation, as a percentage. A real proportion, so its axis is fixed.
         std::unique_ptr<HistoryChart> m_chart;
+
+        /// Dedicated memory in use, in bytes. A separate chart because it answers a different
+        /// question from utilisation, and the two have different units: how hard the adapter is
+        /// working, and how much of its own memory is committed. One axis cannot carry both.
+        std::unique_ptr<HistoryChart> m_memoryChart;
+
+        /// The caption above the memory chart, and the figure at the top of its axis.
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_memoryChartCaption{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_memoryChartPeak{nullptr};
 
         std::vector<DetailRow> m_column1;
         std::vector<DetailRow> m_column2;

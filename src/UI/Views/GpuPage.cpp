@@ -39,10 +39,12 @@ namespace tmpp::ui
         // Rows: heading (Auto), caption (Auto), chart (star), details (Auto). A default-constructed
         // RowDefinition is 1* (Star), so the helpers are what stop the heading and details taking an
         // equal share of the height.
-        m_root.RowDefinitions().Append(controls::MakeAutoRow());
-        m_root.RowDefinitions().Append(controls::MakeAutoRow());
-        m_root.RowDefinitions().Append(controls::MakeStarRow());
-        m_root.RowDefinitions().Append(controls::MakeAutoRow());
+        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // heading
+        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // utilisation caption
+        m_root.RowDefinitions().Append(controls::MakeStarRow()); // utilisation chart
+        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // memory caption
+        m_root.RowDefinitions().Append(controls::MakeStarRow()); // memory chart
+        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // details
 
         // --- Heading -----------------------------------------------------------
         Grid headingRow = Grid();
@@ -93,6 +95,39 @@ namespace tmpp::ui
         Grid::SetRow(m_chart->Root(), 2);
         m_root.Children().Append(m_chart->Root());
 
+        // --- Dedicated-memory caption -----------------------------------------
+        Grid memoryCaptionRow = Grid();
+        memoryCaptionRow.ColumnDefinitions().Append(controls::MakeStarColumn());
+        memoryCaptionRow.ColumnDefinitions().Append(controls::MakeAutoColumn());
+        memoryCaptionRow.Margin(ThicknessHelper::FromLengths(0.0, 12.0, 0.0, 4.0));
+
+        m_memoryChartCaption = controls::MakeText(L"Dedicated memory", 12.0, true);
+        m_memoryChartCaption.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(m_memoryChartCaption, 0);
+        memoryCaptionRow.Children().Append(m_memoryChartCaption);
+
+        // The top of this axis is scaled to the data, so the figure at the top has to be stated: unlike
+        // the utilisation chart, a percentage would say nothing about bytes.
+        m_memoryChartPeak = controls::MakeText(L"", 12.0, true);
+        m_memoryChartPeak.HorizontalAlignment(HorizontalAlignment::Right);
+        Grid::SetColumn(m_memoryChartPeak, 1);
+        memoryCaptionRow.Children().Append(m_memoryChartPeak);
+
+        Grid::SetRow(memoryCaptionRow, 3);
+        m_root.Children().Append(memoryCaptionRow);
+
+        // --- Dedicated-memory chart -------------------------------------------
+        //
+        // Scaled to the adapter's total rather than to the busiest sample: the memory a card has is a
+        // fixed quantity, so a curve against it is readable as a proportion, which a peak-relative
+        // axis would not be.
+        m_memoryChart = std::make_unique<HistoryChart>(L"", DEFAULT_GPU_COLOR, 1.0);
+        m_memoryChart->SetHeaderVisible(false);
+        m_memoryChart->Root().MinHeight(CHART_MIN_HEIGHT);
+
+        Grid::SetRow(m_memoryChart->Root(), 4);
+        m_root.Children().Append(m_memoryChart->Root());
+
         // --- Details -----------------------------------------------------------
         Grid details = Grid();
         details.Margin(ThicknessHelper::FromLengths(0.0, 16.0, 0.0, 0.0));
@@ -137,7 +172,7 @@ namespace tmpp::ui
         details.Children().Append(column2);
         details.Children().Append(column3);
 
-        Grid::SetRow(details, 3);
+        Grid::SetRow(details, 5);
         m_root.Children().Append(details);
     }
 
@@ -171,6 +206,10 @@ namespace tmpp::ui
         {
             m_chart->SetLineColor(color);
         }
+        if (m_memoryChart != nullptr)
+        {
+            m_memoryChart->SetLineColor(color);
+        }
     }
 
     void GpuPage::SetLineWidth(double width)
@@ -178,6 +217,10 @@ namespace tmpp::ui
         if (m_chart != nullptr)
         {
             m_chart->SetLineWidth(width);
+        }
+        if (m_memoryChart != nullptr)
+        {
+            m_memoryChart->SetLineWidth(width);
         }
     }
 
@@ -226,6 +269,46 @@ namespace tmpp::ui
         series.values = history.gpuUtilization;
         series.windowSamples = history.windowSamples;
         m_chart->SetSeries(series);
+
+        // --- Dedicated memory --------------------------------------------------
+        //
+        // The axis is the adapter's total, so the curve reads as a proportion of what the card has.
+        // When the total is unknown the busiest sample is used instead, which at least shows the shape;
+        // the caption says which of the two is in force by stating the figure at the top.
+        double memoryPeak = static_cast<double>(system.gpu.dedicatedTotalBytes);
+        if (memoryPeak <= 0.0)
+        {
+            for (double const value : history.gpuDedicatedMemory)
+            {
+                memoryPeak = (std::max)(memoryPeak, value);
+            }
+        }
+
+        ChartSeries memorySeries;
+        memorySeries.values = history.gpuDedicatedMemory;
+        memorySeries.windowSamples = history.windowSamples;
+
+        m_memoryChart->SetMaximum(memoryPeak > 0.0 ? memoryPeak : 1.0);
+        m_memoryChart->SetSeries(memorySeries);
+
+        if (m_memoryChartCaption != nullptr)
+        {
+            std::string caption = "Dedicated memory";
+            if (system.gpu.available)
+            {
+                caption += "   " + FormatBytes(system.gpu.dedicatedUsedBytes);
+                if (system.gpu.dedicatedTotalBytes > 0)
+                {
+                    caption += " of " + FormatBytes(system.gpu.dedicatedTotalBytes);
+                }
+            }
+            m_memoryChartCaption.Text(winrt::to_hstring(caption));
+        }
+
+        if (m_memoryChartPeak != nullptr)
+        {
+            m_memoryChartPeak.Text(winrt::to_hstring(FormatBytes(static_cast<uint64_t>(memoryPeak))));
+        }
 
         _updateDetails(system);
     }

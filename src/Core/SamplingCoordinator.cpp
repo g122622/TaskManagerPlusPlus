@@ -2,6 +2,9 @@
 
 #include "Platform/Clock.h"
 
+#include "Platform/Windows/HardwareCounterProbe.h"
+#include "Platform/Windows/SmbiosMemoryProbe.h"
+
 #include "Core/Logging.h"
 
 #include <algorithm>
@@ -68,6 +71,13 @@ namespace tmpp::core
         // The live speed counter is a percentage of the rated clock, so the probe
         // cannot be built before the topology has been read.
         m_hardwareProbe = std::make_unique<platform::HardwareCounterProbe>();
+
+        // Read once: the modules a machine has do not change while it runs, so this is a startup cost
+        // rather than a per-sample one.
+        if (auto const slots = platform::SmbiosMemoryProbe{}.Read(); slots.Success())
+        {
+            m_memorySlots = slots.Value();
+        }
 
         m_speedProbe = std::make_unique<platform::ProcessorSpeedProbe>(_processorInfo().info.baseClockMhz);
         if (!m_speedProbe->Available())

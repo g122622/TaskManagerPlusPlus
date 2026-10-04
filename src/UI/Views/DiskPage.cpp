@@ -281,15 +281,35 @@ namespace tmpp::ui
                                                "   \xE2\x80\xA2   over " +
                                                std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
-        // The model keeps aggregate throughput rather than a per-device active-time series, so the
-        // active-time chart is drawn from the same history scaled to its own peak. Deriving a
-        // percentage from bytes would be inventing a figure; the honest reading is that this series
-        // shows when the device was working.
-        ChartSeries activeSeries;
-        activeSeries.values = history.diskReadBytesPerSecond;
-        for (size_t i = 0; i < activeSeries.values.size() && i < history.diskWriteBytesPerSecond.size(); ++i)
+        // The device's own history, looked up by instance name.
+        //
+        // This chart previously plotted the machine-wide aggregate for every device, which is why every
+        // disk showed the same curve: the aggregate is the machine's total, not the open device's. The
+        // per-device series exists and is what the page must plot.
+        std::vector<double> const* deviceRead = nullptr;
+        std::vector<double> const* deviceWrite = nullptr;
+
+        if (deviceIndex < system.disks.size())
         {
-            activeSeries.values[i] += history.diskWriteBytesPerSecond[i];
+            auto const found = history.diskBytesPerSecondByDevice.find(system.disks[deviceIndex].instanceName);
+            if (found != history.diskBytesPerSecondByDevice.end())
+            {
+                deviceRead = &found->second.first;
+                deviceWrite = &found->second.second;
+            }
+        }
+
+        // The active-time chart plots total throughput, scaled to its own peak: the model keeps a
+        // throughput series per device rather than an active-time one, and deriving a percentage from
+        // bytes would be inventing a figure. The shape is what this chart is for.
+        ChartSeries activeSeries;
+        if (deviceRead != nullptr && deviceWrite != nullptr)
+        {
+            activeSeries.values = *deviceRead;
+            for (size_t i = 0; i < activeSeries.values.size() && i < deviceWrite->size(); ++i)
+            {
+                activeSeries.values[i] += (*deviceWrite)[i];
+            }
         }
         activeSeries.windowSamples = history.windowSamples;
 
@@ -309,11 +329,17 @@ namespace tmpp::ui
         // Reads solid, writes dashed, on one axis. Both are bytes per second so they share a scale,
         // and comparing them is the point of the chart.
         ChartSeries readSeries;
-        readSeries.values = history.diskReadBytesPerSecond;
+        if (deviceRead != nullptr)
+        {
+            readSeries.values = *deviceRead;
+        }
         readSeries.windowSamples = history.windowSamples;
 
         ChartSeries writeSeries;
-        writeSeries.values = history.diskWriteBytesPerSecond;
+        if (deviceWrite != nullptr)
+        {
+            writeSeries.values = *deviceWrite;
+        }
         writeSeries.windowSamples = history.windowSamples;
 
         // The axis is set from the busier of the two, so neither line is clipped.

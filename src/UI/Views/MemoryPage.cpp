@@ -33,6 +33,7 @@ namespace tmpp::ui
     MemoryPage::MemoryPage(core::SamplingCoordinator& coordinator) : m_coordinator(coordinator)
     {
         _buildLayout();
+        _addModuleList();
     }
 
     void MemoryPage::_buildLayout()
@@ -47,6 +48,7 @@ namespace tmpp::ui
         m_root.RowDefinitions().Append(controls::MakeStarRow()); // usage chart
         m_root.RowDefinitions().Append(controls::MakeAutoRow()); // composition strip
         m_root.RowDefinitions().Append(controls::MakeAutoRow()); // details
+        m_root.RowDefinitions().Append(controls::MakeAutoRow()); // memory modules
 
         // --- Heading -----------------------------------------------------------
         // The original's largest text on this page is the section name, with the installed
@@ -183,6 +185,133 @@ namespace tmpp::ui
 
         Grid::SetRow(details, 4);
         m_root.Children().Append(details);
+
+        // --- Memory modules -----------------------------------------------------
+        //
+        // The host for the module list, filled once by _addModuleList. It is created here because this
+        // method owns the layout, and a control used before it exists is an access violation rather than
+        // a visible mistake -- which is exactly what happened when the fill was added and this was not.
+        m_moduleList = controls::MakeStack(4.0);
+        Grid::SetRow(m_moduleList, 5);
+        m_root.Children().Append(m_moduleList);
+    }
+
+    void MemoryPage::_addModuleList()
+    {
+        // Stated rather than assumed: the cost of being wrong about this is a startup crash whose stack
+        // names neither the control nor the line.
+        if (m_moduleList == nullptr)
+        {
+            return;
+        }
+        platform::SystemMemorySlots const& slots = m_coordinator.MemorySlots();
+
+        if (!slots.available)
+        {
+            // Firmware that does not describe its memory is a machine to say nothing about rather than an
+            // error to report: an empty list would read as a machine with no modules.
+            m_moduleList.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            return;
+        }
+
+        m_moduleList.Margin(ThicknessHelper::FromLengths(0.0, 20.0, 0.0, 0.0));
+
+        m_slotsCaption = controls::MakeHeading(
+            winrt::hstring{L"Slots used: " + std::to_wstring(slots.usedSlots) + L" of " +
+                          std::to_wstring(slots.totalSlots)},
+            14.0);
+        m_moduleList.Children().Append(m_slotsCaption);
+
+        for (platform::SystemMemoryModule const& module : slots.modules)
+        {
+            StackPanel entry = controls::MakeStack(2.0);
+            entry.Margin(ThicknessHelper::FromLengths(0.0, 6.0, 0.0, 0.0));
+
+            ModuleRow row;
+
+            if (!module.populated)
+            {
+                // An empty slot is listed so the count above makes sense, and named so the reader knows
+                // which one it is.
+                row.title = controls::MakeText(winrt::hstring{winrt::to_hstring(module.slot) + L"   (empty)"}, 13.0);
+                entry.Children().Append(row.title);
+                m_moduleList.Children().Append(entry);
+                m_moduleRows.push_back(row);
+                continue;
+            }
+
+            // The title is the slot and its capacity, which is what a reader looks for first.
+            std::wstring title = winrt::to_hstring(module.slot).c_str();
+            title += L"   ";
+            title += winrt::to_hstring(FormatBytes(module.capacityBytes)).c_str();
+
+            row.title = controls::MakeText(title, 13.0);
+            entry.Children().Append(row.title);
+
+            // The detail line carries everything else, which is what a reader compares between modules.
+            //
+            // The helper takes an hstring because that is what to_hstring produces and what most of the
+            // pieces are; the values that are built as wstring are wrapped at their call sites.
+            std::wstring detail;
+            auto append = [&detail](winrt::hstring const& text) {
+                if (text.empty())
+                {
+                    return;
+                }
+                if (!detail.empty())
+                {
+                    detail += L"  \x2022  ";
+                }
+                detail += text.c_str();
+            };
+
+            append(winrt::to_hstring(module.typeName));
+            append(winrt::to_hstring(module.formFactorName));
+
+            if (module.configuredSpeedMhz > 0)
+            {
+                std::wstring speed = std::to_wstring(module.configuredSpeedMhz) + L" MHz";
+
+                // The rated speed is stated only when it differs, which is what an underclocked module
+                // looks like. Repeating it when the two agree would be noise.
+                if (module.ratedSpeedMhz > 0 && module.ratedSpeedMhz != module.configuredSpeedMhz)
+                {
+                    speed += L" (rated " + std::to_wstring(module.ratedSpeedMhz) + L" MHz)";
+                }
+                append(winrt::hstring{speed});
+            }
+
+            // 0xFFFF is the firmware's "not populated" marker for a width, not a real width.
+            if (module.dataWidthBits > 0 && module.dataWidthBits != 0xFFFF)
+            {
+                append(winrt::hstring{std::to_wstring(module.dataWidthBits) + L"-bit"});
+            }
+
+            if (module.voltageMillivolts > 0)
+            {
+                wchar_t volts[32]{};
+                // Volts with two decimals is how modules are described; the firmware reports millivolts.
+                swprintf_s(volts, L"%.2f V", static_cast<double>(module.voltageMillivolts) / 1000.0);
+                append(winrt::hstring{volts});
+            }
+
+            if (!module.manufacturer.empty())
+            {
+                append(winrt::to_hstring(module.manufacturer));
+            }
+
+            if (!module.partNumber.empty())
+            {
+                append(winrt::to_hstring(module.partNumber));
+            }
+
+            row.detail = controls::MakeText(detail, 12.0, true);
+            row.detail.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+            entry.Children().Append(row.detail);
+
+            m_moduleList.Children().Append(entry);
+            m_moduleRows.push_back(row);
+        }
     }
 
     MemoryPage::DetailRow MemoryPage::_addDetail(StackPanel const& column, wchar_t const* label)

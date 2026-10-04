@@ -59,6 +59,13 @@ namespace tmpp::ui
         /// Feeds the composition strip and its legend from the page-list breakdown.
         void _updateComposition(domain::SystemView const& system);
 
+        /**
+         * @brief Adds the memory-module list, built from the firmware's SMBIOS table.
+         *
+         * Built once rather than per sample: the modules a machine has do not change while it runs.
+         */
+        void _addModuleList();
+
         core::SamplingCoordinator& m_coordinator;
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
@@ -76,6 +83,21 @@ namespace tmpp::ui
         /// Label row under the strip, naming each segment's share.
         winrt::Microsoft::UI::Xaml::Controls::Grid m_compositionLegend{nullptr};
         std::vector<winrt::Microsoft::UI::Xaml::Controls::TextBlock> m_legendValues;
+
+        /// One row per memory module, built once from the firmware table.
+        struct ModuleRow
+        {
+            winrt::Microsoft::UI::Xaml::Controls::TextBlock title{nullptr};
+            winrt::Microsoft::UI::Xaml::Controls::TextBlock detail{nullptr};
+        };
+
+        std::vector<ModuleRow> m_moduleRows;
+
+        /// The heading above the module list, which says how many slots are in use.
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_slotsCaption{nullptr};
+
+        /// The list of memory modules, filled once because the firmware does not change.
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel m_moduleList{nullptr};
 
         std::vector<DetailRow> m_column1;
         std::vector<DetailRow> m_column2;

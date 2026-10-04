@@ -276,26 +276,51 @@ namespace tmpp::ui
                                          "  \xE2\x80\xA2  over " + std::to_string(m_coordinator.HistorySeconds()) +
                                          " s"));
 
-        // The chart plots the aggregate history. Per-adapter history would need a series per adapter,
-        // which the model does not keep; the aggregate is what the section's row summarises.
-        ChartSeries series;
-        series.values = history.networkReceiveBytesPerSecond;
-        for (size_t i = 0; i < series.values.size() && i < history.networkSendBytesPerSecond.size(); ++i)
-        {
-            series.values[i] += history.networkSendBytesPerSecond[i];
-        }
-        series.windowSamples = history.windowSamples;
+        // The adapter's own history, looked up by name. The adapter's series is plotted rather than the
+        // aggregate, so opening a different adapter shows that adapter's traffic.
+        std::vector<double> const* received = nullptr;
+        std::vector<double> const* sent = nullptr;
 
-        // Scaled to the busiest sample: throughput in bytes per second has no fixed maximum, so a
-        // percentage axis would be meaningless here.
+        if (m_adapterIndex < system.networks.size())
+        {
+            auto const found = history.networkBytesPerSecondByAdapter.find(system.networks[m_adapterIndex].adapterName);
+            if (found != history.networkBytesPerSecondByAdapter.end())
+            {
+                received = &found->second.first;
+                sent = &found->second.second;
+            }
+        }
+
+        // Received solid, sent dashed, on one axis. Both are bytes per second so they share a scale, and
+        // comparing them is the point of the chart.
+        ChartSeries receiveSeries;
+        if (received != nullptr)
+        {
+            receiveSeries.values = *received;
+        }
+        receiveSeries.windowSamples = history.windowSamples;
+
+        ChartSeries sendSeries;
+        if (sent != nullptr)
+        {
+            sendSeries.values = *sent;
+        }
+        sendSeries.windowSamples = history.windowSamples;
+
+        // Scaled to the busier of the two, so neither line is clipped.
         double peak = 0.0;
-        for (double const value : series.values)
+        for (double const value : receiveSeries.values)
+        {
+            peak = (std::max)(peak, value);
+        }
+        for (double const value : sendSeries.values)
         {
             peak = (std::max)(peak, value);
         }
 
         m_chart->SetMaximum(peak > 0.0 ? peak : 1.0);
-        m_chart->SetSeries(series);
+        m_chart->SetSeries(receiveSeries);
+        m_chart->SetSecondarySeries(sendSeries);
 
         _updateDetails(system);
     }

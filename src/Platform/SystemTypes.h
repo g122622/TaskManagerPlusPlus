@@ -357,6 +357,71 @@ namespace tmpp::platform
     };
 
     /**
+     * @brief One memory module, as the firmware describes it.
+     *
+     * Read from the SMBIOS table rather than from an API, because no Windows API reports the modules:
+     * the operating system knows how much memory there is, not what it is made of. This is the same
+     * source the original's memory page uses.
+     */
+    struct SystemMemoryModule
+    {
+        /// The slot's designator, e.g. "DIMM_A1". Empty when the firmware does not name it.
+        std::string slot;
+
+        /// The module's part number, e.g. "CMK32GX5M2B5600C36".
+        std::string partNumber;
+
+        /// The manufacturer, e.g. "Corsair".
+        std::string manufacturer;
+
+        /// The module's serial number, as the firmware reports it.
+        std::string serialNumber;
+
+        /// Capacity in bytes, as the module declares.
+        uint64_t capacityBytes{0};
+
+        /// Configured clock in MHz, the speed the module is actually running at.
+        uint32_t configuredSpeedMhz{0};
+
+        /// The module's rated speed in MHz, which may be higher than the configured one.
+        uint32_t ratedSpeedMhz{0};
+
+        /// The SMBIOS memory type code, and its name as the original shows it.
+        uint16_t typeCode{0};
+        std::string typeName;
+
+        /// The form factor code, and its name.
+        uint8_t formFactorCode{0};
+        std::string formFactorName;
+
+        /// The width of the data bus in bits, which is what "x64" refers to.
+        uint16_t dataWidthBits{0};
+
+        /// The voltage in millivolts, zero when the firmware does not report it.
+        uint32_t voltageMillivolts{0};
+
+        /// True when the slot holds a module. Empty slots are reported too, so the page can say how
+        /// many there are, which is what "Slots used: 2 of 4" means.
+        bool populated{false};
+    };
+
+    /**
+     * @brief The machine's memory slots, populated and empty.
+     */
+    struct SystemMemorySlots
+    {
+        std::vector<SystemMemoryModule> modules;
+
+        /// Slots the firmware describes, including empty ones.
+        uint32_t totalSlots{0};
+
+        /// Slots holding a module.
+        uint32_t usedSlots{0};
+
+        /// True when the table was readable and describes at least one slot.
+        bool available{false};
+    };
+    /**
      * @brief Which system metrics this machine can provide.
      */
     struct SystemCapabilities

@@ -15,7 +15,8 @@ namespace tmpp::domain
           m_diskWriteHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
           m_networkReceiveHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
           m_networkSendHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_gpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+          m_gpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
+          m_gpuMemoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
     {
         m_latest.perProcessorCpuPercent.reserve(m_logicalProcessorCount);
 
@@ -365,16 +366,21 @@ namespace tmpp::domain
         // nowhere to store anything, and a map of them cannot be built empty.
         for (DiskActivity const& activity : diskActivities)
         {
+            // Each direction keeps its own ring. A single summed series cannot be split back into reads
+            // and writes, and the two are separately interesting, so the page needs both.
             auto const found = m_diskHistoryByDevice.find(activity.instanceName);
-            auto& ring = (found != m_diskHistoryByDevice.end())
-                             ? found->second
-                             : m_diskHistoryByDevice
-                                   .emplace(activity.instanceName, RingBuffer<double>(m_historyCapacity))
-                                   .first->second;
-            ring.Push(activity.readBytesPerSecond + activity.writeBytesPerSecond);
+            SystemModel::DirectionalRings& rings =
+                (found != m_diskHistoryByDevice.end())
+                    ? found->second
+                    : m_diskHistoryByDevice
+                          .emplace(activity.instanceName, DirectionalRings{m_historyCapacity})
+                          .first->second;
+
+            rings.first.Push(activity.readBytesPerSecond);
+            rings.second.Push(activity.writeBytesPerSecond);
         }
 
-        // Every device's ring advances on every sample, including the ones absent from this sample, so
+        // Every device's rings advance on every sample, including the ones absent from this sample, so
         // the per-device series stay the same length as the aggregate and share its axis. A ring that
         // missed a push would be plotted against a different window.
         for (auto& entry : m_diskHistoryByDevice)
@@ -385,19 +391,23 @@ namespace tmpp::domain
                                              });
             if (!present)
             {
-                entry.second.Push(0.0);
+                entry.second.first.Push(0.0);
+                entry.second.second.Push(0.0);
             }
         }
 
         for (NetworkActivity const& activity : networkActivities)
         {
             auto const found = m_networkHistoryByAdapter.find(activity.adapterName);
-            auto& ring = (found != m_networkHistoryByAdapter.end())
-                             ? found->second
-                             : m_networkHistoryByAdapter
-                                   .emplace(activity.adapterName, RingBuffer<double>(m_historyCapacity))
-                                   .first->second;
-            ring.Push(activity.receivedBytesPerSecond + activity.sentBytesPerSecond);
+            SystemModel::DirectionalRings& rings =
+                (found != m_networkHistoryByAdapter.end())
+                    ? found->second
+                    : m_networkHistoryByAdapter
+                          .emplace(activity.adapterName, DirectionalRings{m_historyCapacity})
+                          .first->second;
+
+            rings.first.Push(activity.receivedBytesPerSecond);
+            rings.second.Push(activity.sentBytesPerSecond);
         }
 
         for (auto& entry : m_networkHistoryByAdapter)
@@ -408,13 +418,15 @@ namespace tmpp::domain
                                              });
             if (!present)
             {
-                entry.second.Push(0.0);
+                entry.second.first.Push(0.0);
+                entry.second.second.Push(0.0);
             }
         }
 
         // The GPU counters are already rates, so nothing is differenced. A reading that could not be
         // taken pushes a zero for the same reason the others do: the axis has to stay consistent.
         m_gpuHistory.Push(gpu.available ? gpu.utilizationPercent : 0.0);
+        m_gpuMemoryHistory.Push(gpu.available ? static_cast<double>(gpu.dedicatedUsedBytes) : 0.0);
 
         // The aggregate figures are published alongside the per-device detail, so a chart can plot
         // the machine's total while the sidebar names each device.
@@ -435,12 +447,18 @@ namespace tmpp::domain
 
         for (auto const& entry : m_diskHistoryByDevice)
         {
-            view.diskBytesPerSecondByDevice[entry.first] = entry.second.ToVector();
+            HistoryView::DirectionalHistory deviceHistory;
+            deviceHistory.first = entry.second.first.ToVector();
+            deviceHistory.second = entry.second.second.ToVector();
+            view.diskBytesPerSecondByDevice[entry.first] = std::move(deviceHistory);
         }
 
         for (auto const& entry : m_networkHistoryByAdapter)
         {
-            view.networkBytesPerSecondByAdapter[entry.first] = entry.second.ToVector();
+            HistoryView::DirectionalHistory adapterHistory;
+            adapterHistory.first = entry.second.first.ToVector();
+            adapterHistory.second = entry.second.second.ToVector();
+            view.networkBytesPerSecondByAdapter[entry.first] = std::move(adapterHistory);
         }
 
         view.diskReadBytesPerSecond = m_diskReadHistory.ToVector();
@@ -448,6 +466,7 @@ namespace tmpp::domain
         view.networkReceiveBytesPerSecond = m_networkReceiveHistory.ToVector();
         view.networkSendBytesPerSecond = m_networkSendHistory.ToVector();
         view.gpuUtilization = m_gpuHistory.ToVector();
+        view.gpuDedicatedMemory = m_gpuMemoryHistory.ToVector();
 
         // The window length travels with the data, so no chart can be left without it.
         view.windowSamples = m_historyCapacity;

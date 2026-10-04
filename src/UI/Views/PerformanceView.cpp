@@ -548,19 +548,27 @@ namespace tmpp::ui
 
                     domain::DiskActivity const& disk = system.disks[spec.subIndex];
 
-                    // The row says how busy the device is, which is what its thumbnail plots. The
-                    // volume label is a more useful name than the device index where there is one,
-                    // but the title already carries the letters, so it is left alone.
-                    subtitle = FormatPercent(disk.activePercent) + "  active";
+                    // The row states the device's throughput in both directions, which is what a user
+                    // reads a disk by. The active percentage is a summary of the same thing and says
+                    // nothing about how much data moved, so it is not what the row should lead with.
+                    subtitle = "R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesPerSecond)) + "/s";
+                    subtitle += "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesPerSecond)) + "/s";
 
                     // The device's own series, looked up by instance name. Every disk has its own
                     // history, so a machine with several disks shows each one's trend rather than one
-                    // trend repeated on every row.
+                    // trend repeated on every row. The two directions are summed for the thumbnail,
+                    // which has no room for two lines.
                     auto const seriesForDevice = history.diskBytesPerSecondByDevice.find(disk.instanceName);
                     if (seriesForDevice != history.diskBytesPerSecondByDevice.end())
                     {
                         ChartSeries series;
-                        series.values = seriesForDevice->second;
+                        series.values = seriesForDevice->second.first;
+                        for (size_t k = 0;
+                             k < series.values.size() && k < seriesForDevice->second.second.size();
+                             ++k)
+                        {
+                            series.values[k] += seriesForDevice->second.second[k];
+                        }
                         series.windowSamples = history.windowSamples;
 
                         double peak = 0.0;
@@ -596,7 +604,13 @@ namespace tmpp::ui
                     if (seriesForAdapter != history.networkBytesPerSecondByAdapter.end())
                     {
                         ChartSeries series;
-                        series.values = seriesForAdapter->second;
+                        series.values = seriesForAdapter->second.first;
+                        for (size_t k = 0;
+                             k < series.values.size() && k < seriesForAdapter->second.second.size();
+                             ++k)
+                        {
+                            series.values[k] += seriesForAdapter->second.second[k];
+                        }
                         series.windowSamples = history.windowSamples;
 
                         double peak = 0.0;

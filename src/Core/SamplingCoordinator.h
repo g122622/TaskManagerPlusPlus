@@ -166,6 +166,14 @@ namespace tmpp::core
          */
         [[nodiscard]] platform::ProcessActionResult TerminateProcess(uint32_t pid, bool entireTree);
 
+        /**
+         * @brief The machine's memory modules, read once at startup.
+         *
+         * Read on demand rather than per sample: firmware does not change while the machine is running,
+         * and this is a firmware table walk rather than a counter.
+         */
+        [[nodiscard]] platform::SystemMemorySlots const& MemorySlots() const noexcept { return m_memorySlots; }
+
         /// Samples taken since construction, for the status bar.
         [[nodiscard]] uint64_t SampleCount() const noexcept { return m_sampler.SampleCount(); }
 
@@ -183,6 +191,10 @@ namespace tmpp::core
         /// Terminates processes. Kept here rather than in the UI so the action and the snapshot it is
         /// based on come from the same place.
         platform::WindowsProcessActions m_processActions;
+
+        /// The memory modules, read once during construction. The firmware table does not change while
+        /// the machine runs, so reading it per sample would be a repeated cost for a constant answer.
+        platform::SystemMemorySlots m_memorySlots;
 
         /// The most recent successful hardware reading of each kind.
         ///
