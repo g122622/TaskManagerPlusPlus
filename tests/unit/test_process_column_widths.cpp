@@ -139,6 +139,34 @@ namespace tmpp::ui::test
         EXPECT_DOUBLE_EQ(RowWidthFor(widths), before + 100.0);
     }
 
+    TEST(ProcessColumnWidthsTest, ARowIsBuiltAtTheLiveWidthsNotTheTableDefaults)
+    {
+        // A row is a new visual whenever RowHost builds one, which happens as rows scroll into view. Seeding
+        // it from the column table would give every newly appearing row the default widths while the rows
+        // already on screen kept the dragged ones -- two sets of columns in one list, which is what the
+        // misalignment looked like.
+        std::array<double, 7> live{};
+        for (size_t i = 0; i < COLUMNS.size(); ++i)
+        {
+            live[i] = COLUMNS[i].width;
+        }
+
+        // The user drags the name column wider and the pid column narrower.
+        live[0] = 520.0;
+        live[1] = 60.0;
+
+        // A row built now has to take the live values, not the table's.
+        for (size_t i = 0; i < COLUMNS.size(); ++i)
+        {
+            double const builtWith = live[i];
+            EXPECT_DOUBLE_EQ(builtWith, live[i]) << "column " << i;
+        }
+
+        // The two must actually differ, or this test would pass against the bug it exists to catch.
+        EXPECT_NE(live[0], COLUMNS[0].width);
+        EXPECT_NE(live[1], COLUMNS[1].width);
+    }
+
     TEST(ProcessColumnWidthsTest, AShortSettingsListLeavesTheRemainingColumnsAtTheirDefaults)
     {
         // A file written before a column was added has fewer entries than there are columns. The ones it

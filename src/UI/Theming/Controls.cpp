@@ -92,6 +92,20 @@ namespace tmpp::ui::controls
         // box fills whatever strip it sits in. Lowered to zero here so the caller's Height is what decides;
         // a caller that sets neither gets the template's own preferred height.
         box.MinHeight(0.0);
+
+        // The content is centred vertically, which the template does not do by itself.
+        //
+        // A TextBox lays its text out from the top of its content area, so at the template's height that is
+        // invisible; at a reduced height the text and the placeholder sit against the top edge and read as
+        // having slipped down out of the box.
+        box.VerticalContentAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+        // The placeholder is given its own brush because the theme's is very faint by design -- it is meant
+        // for a full-size form field, where the label above carries the meaning. Here the placeholder is the
+        // only thing naming the control, so at the theme's opacity it is close to unreadable.
+        box.PlaceholderForeground(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Color{0xC0, 0x9A, 0x9A, 0x9A}));
+
         return box;
     }
 

@@ -599,10 +599,17 @@ namespace tmpp::ui
         row.Background(
             winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
 
-        for (ColumnSpec const& column : COLUMNS)
+        // Built at the live widths, not at the column table's defaults.
+        //
+        // The table's width is what a fresh window starts from; the live value is whatever the user has
+        // dragged to. A row created after a drag is a new visual -- RowHost builds them as they scroll into
+        // view -- so seeding it from the table would make every newly appearing row draw its columns at the
+        // defaults while the rows already on screen kept the dragged widths. That is what the misalignment
+        // was: two different sets of columns in one list.
+        for (size_t i = 0; i < COLUMNS.size(); ++i)
         {
             ColumnDefinition definition;
-            definition.Width(GridLengthHelper::FromPixels(column.width));
+            definition.Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
             row.ColumnDefinitions().Append(definition);
         }
 

@@ -663,18 +663,25 @@ namespace tmpp
         pageHeader.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, ui::metrics::PAGE_MARGIN, 0.0));
         pageHeader.Background(ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
 
-        // Column 0 is the page name, column 1 takes the slack and holds the search box, and column 2 holds
-        // the page's actions at the right. The star is in the middle rather than on the name so that the
-        // search box's width follows the window while the actions stay pinned to the right.
-        pageHeader.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
+        // Two equal star columns with an Auto between them, so the Auto column is centred in the bar.
+        //
+        // A single star in the middle would not do it: the columns either side are as wide as their content,
+        // and the page name and the actions are not the same width, so the middle column's centre sits off
+        // to one side of the bar's. Two equal stars take the same amount of slack each, which is what forces
+        // the Auto column -- and the search box in it -- to the bar's centre.
         pageHeader.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
         pageHeader.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
+        pageHeader.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
 
         // The page name, sized to the strip it sits in. It names the page rather than being the page's
         // own title, so it is a label: at a heading's size it competed with the headings inside the page
         // it labels, and it no longer fits a strip this short.
         m_pageTitle = ui::controls::MakeHeading(L"Processes", 14.0);
         m_pageTitle.VerticalAlignment(VerticalAlignment::Center);
+
+        // Pinned left inside its star column. The column now takes slack rather than sizing to its content,
+        // so without this the heading would sit at the column's centre instead of the bar's left edge.
+        m_pageTitle.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
         Grid::SetColumn(m_pageTitle, 0);
         pageHeader.Children().Append(m_pageTitle);
 
@@ -687,15 +694,18 @@ namespace tmpp
         m_searchBox = ui::controls::MakeSearchBox(L"Type a name, publisher, or PID to search for");
         m_searchBox.VerticalAlignment(VerticalAlignment::Center);
 
-        // Right-aligned within the slack column, so it sits beside the page's actions rather than against
-        // the page name. The field is a control on the bar, and grouping it with the other controls keeps
-        // the left of the bar reading as the page's identity.
-        m_searchBox.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
-        m_searchBox.Margin(ThicknessHelper::FromLengths(24.0, 0.0, 12.0, 0.0));
+        // Centred in the slack column, which is what puts it in the middle of the bar: the column starts
+        // where the page name ends and stops where the actions begin, and the two are close enough in width
+        // that the column's centre and the bar's centre are within a few pixels of each other.
+        //
+        // No margin. A margin would be counted inside the alignment, so the box would be centred as if it
+        // were wider than it is and would sit off to one side by half the margin -- which is exactly the
+        // problem a right-aligned box had, one step further along.
+        m_searchBox.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
 
         // Wide, but not the whole bar: a field that spans the window would read as the page's main content
-        // rather than as a control on it. Aligned to fill the space it is given up to that limit, so it
-        // grows with the window instead of staying a fixed stub.
+        // rather than as a control on it. The minimum keeps it usable in a narrow window and the maximum
+        // stops it growing into a bar-wide band on a wide one.
         m_searchBox.MinWidth(280.0);
         m_searchBox.MaxWidth(420.0);
         m_searchBox.Height(PAGE_HEADER_HEIGHT * 0.72);
