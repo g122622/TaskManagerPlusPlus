@@ -17,6 +17,7 @@
 #include "UI/Views/PerformanceView.h"
 #include "UI/Views/SettingsPage.h"
 #include "UI/Views/ProcessesView.h"
+#include "UI/Views/DetailsPage.h"
 
 namespace tmpp
 {
@@ -122,6 +123,12 @@ namespace tmpp
 
         /// The settings page. Recreated on each visit so it reflects the settings in force.
         std::unique_ptr<ui::SettingsPage> m_settingsPage;
+
+        /// The process details page. Built once and reused.
+        std::unique_ptr<ui::DetailsPage> m_detailsPage;
+
+        /// The details page when it is the visible one, so the refresh timer can drive it.
+        ui::DetailsPage* m_activeDetailsPage{nullptr};
 
         /// The page currently shown, for the refresh timer to update.
         ui::ProcessesView* m_activeProcessesView{nullptr};

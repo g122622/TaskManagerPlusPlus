@@ -56,6 +56,10 @@ namespace tmpp::ui
         /// Diameter of the per-row status dot.
         constexpr double STATUS_DOT_SIZE = 8.0;
 
+        /// Fill for the selected process row. The Details page shows one process, so the
+        /// list has to say which one is being shown.
+        constexpr winrt::Windows::UI::Color ROW_SELECTION_FILL{0x33, 0x4C, 0xC2, 0xFF};
+
         /**
          * @brief Chooses a status colour for a process.
          *
@@ -211,6 +215,12 @@ namespace tmpp::ui
         row.Padding(ThicknessHelper::FromLengths(12.0, 0.0, 12.0, 0.0));
         row.VerticalAlignment(VerticalAlignment::Center);
 
+        // A transparent background rather than none: a null Background is not hit-testable in WinUI,
+        // so a row without one would never receive the pointer and could not be selected. The same
+        // brush doubles as the selection fill, which is set in _bindRow.
+        row.Background(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+
         for (ColumnSpec const& column : COLUMNS)
         {
             ColumnDefinition definition;
@@ -271,6 +281,16 @@ namespace tmpp::ui
 
         domain::ProcessView const& process = m_snapshot.processes[processIndex];
 
+        // The selection fill, and the click that sets it. The process id is captured by value
+        // because the row is recycled for a different process when the list is resorted.
+        row.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+            process.identity.pid == m_selectedPid ? ROW_SELECTION_FILL : winrt::Windows::UI::Colors::Transparent()));
+        uint32_t const pid = process.identity.pid;
+        row.Tapped([this, pid](winrt::Windows::Foundation::IInspectable const&,
+                               winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const&) {
+            _selectRow(pid);
+        });
+
         // Column 0: dot and name. The idle process has no image name from the
         // platform, which is its report rather than a failure; naming it is ours.
         if (auto const nameCell = row.Children().GetAt(0).try_as<StackPanel>())
@@ -301,6 +321,30 @@ namespace tmpp::ui
         setCell(3, process.ratesUnavailable ? UnavailableValue() : FormatProcessCpuPercent(process.cpuPercent));
         setCell(4, FormatBytes(process.memory.workingSetSize));
         setCell(5, FormatCount(process.threadCount));
+    }
+
+    void ProcessesView::_selectRow(uint32_t pid)
+    {
+        if (m_selectedPid == pid)
+        {
+            return;
+        }
+
+        m_selectedPid = pid;
+
+        // Repainted in place rather than by rebuilding: the row count and the ordering have not
+        // changed, and rebuilding would discard the scroll position.
+        m_rowHost->RefreshVisibleRows();
+
+        if (m_onSelectionChanged)
+        {
+            m_onSelectionChanged(pid);
+        }
+    }
+
+    void ProcessesView::SetSelectionHandler(std::function<void(uint32_t)> handler)
+    {
+        m_onSelectionChanged = std::move(handler);
     }
 
     void ProcessesView::_updateSummary()

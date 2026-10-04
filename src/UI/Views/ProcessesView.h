@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 #include "UI/WinRTUI.h"
@@ -33,6 +34,19 @@ namespace tmpp::ui
         /// Pulls a new snapshot and repaints. Cheap when nothing changed.
         void Refresh();
 
+        /**
+         * @brief The process the user has selected, or zero when none is.
+         *
+         * The Details page shows one process at a time, so the selection has to live somewhere both
+         * pages can see. It is held here because this is the only page that can set it.
+         */
+        [[nodiscard]] uint32_t SelectedPid() const noexcept { return m_selectedPid; }
+
+        /**
+         * @brief Called when the selection changes, so a detail page can follow it.
+         */
+        void SetSelectionHandler(std::function<void(uint32_t)> handler);
+
     private:
         void _buildLayout();
 
@@ -50,6 +64,15 @@ namespace tmpp::ui
 
         /// Writes one row's values from the current snapshot.
         void _bindRow(winrt::Microsoft::UI::Xaml::FrameworkElement const& element, uint32_t rowIndex);
+
+        /// Selects a process and repaints the rows to show it.
+        void _selectRow(uint32_t pid);
+
+        /// The selected process, or zero when none is.
+        uint32_t m_selectedPid{0};
+
+        /// Called when the selection changes.
+        std::function<void(uint32_t)> m_onSelectionChanged;
 
         core::SamplingCoordinator& m_coordinator;
 

@@ -768,6 +768,10 @@ namespace tmpp
             {
                 m_activePerformanceView->Refresh();
             }
+            if (m_activeDetailsPage != nullptr)
+            {
+                m_activeDetailsPage->Refresh();
+            }
             _updateStatusBar();
         });
         m_refreshTimer.Start();
