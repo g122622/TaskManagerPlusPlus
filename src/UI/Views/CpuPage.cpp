@@ -205,6 +205,11 @@ namespace tmpp::ui
         m_column3.push_back(_addDetail(column3, L"L1 cache"));
         m_column3.push_back(_addDetail(column3, L"L2 cache"));
         m_column3.push_back(_addDetail(column3, L"L3 cache"));
+        // Every column is placed explicitly. Only the third one was, which left the other two both
+        // defaulting to column 0 and drawing on top of each other: what a reader saw was two groups'
+        // labels and values interleaved in the same cell.
+        Grid::SetColumn(column1, 0);
+        Grid::SetColumn(column2, 1);
         Grid::SetColumn(column3, 2);
         details.Children().Append(column1);
         details.Children().Append(column2);

@@ -304,21 +304,24 @@ namespace tmpp
             }
         }
 
-        // The rail is collapsed rather than hidden: its pane is part of the window's chrome and would
-        // otherwise leave an empty strip down the side of the compact view.
+        // The rail's pane is hidden, not the navigation view itself. The NavigationView's content is the
+        // whole content column -- the pages, the header and the status bar -- so collapsing the view
+        // removed everything and left an empty window, which is exactly what it did.
         if (m_navigation != nullptr)
         {
-            m_navigation.Visibility(mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
-                                         : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            m_navigation.IsPaneVisible(!mini);
         }
 
-        // The title bar and the page header sit in fixed rows, so their heights are what has to go: a
-        // fixed row keeps its height whether or not its content is visible.
-        if (m_titleBarRow != nullptr)
+        // The rail's resize handle belongs to the pane and goes with it.
+        if (m_navigationSplitter != nullptr)
         {
-            m_titleBarRow.Height(ui::controls::MakeFixedRow(mini ? 0.0 : APP_TITLE_BAR_HEIGHT).Height());
+            m_navigationSplitter.Visibility(mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                                 : winrt::Microsoft::UI::Xaml::Visibility::Visible);
         }
 
+        // The title bar keeps its height: the window buttons and the drag region live in it, and a
+        // compact window still has to be movable and closable. Only the page header and the status bar
+        // go, since neither describes anything the compact list shows.
         if (m_pageHeaderRow != nullptr)
         {
             m_pageHeaderRow.Height(ui::controls::MakeFixedRow(mini ? 0.0 : PAGE_HEADER_HEIGHT).Height());

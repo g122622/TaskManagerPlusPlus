@@ -247,13 +247,17 @@ namespace tmpp::ui
         /// True while the sidebar-only layout is presented.
         bool m_miniMode{false};
 
-        /// The columns holding the page and the splitter, kept so mini mode can collapse them to zero
-        /// and restore their widths. A column definition is not a child, so it cannot simply be hidden.
+        /// The columns holding the sidebar, the page and the splitter. Kept so mini mode can collapse the
+        /// page and let the sidebar fill the window, then restore the widths the user had. A column
+        /// definition is not a child, so it cannot simply be hidden.
+        winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_sidebarColumn{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_pageColumn{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_splitterColumn{nullptr};
 
         /// The same grid lengths as a fresh layout would give them, remembered so leaving mini mode
         /// restores the widths the user had rather than a default.
+        winrt::Microsoft::UI::Xaml::GridLength m_sidebarPixelWidth{0.0,
+                                                                  winrt::Microsoft::UI::Xaml::GridUnitType::Pixel};
         winrt::Microsoft::UI::Xaml::GridLength m_pageWidth{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star};
         winrt::Microsoft::UI::Xaml::GridLength m_splitterWidth{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel};
 

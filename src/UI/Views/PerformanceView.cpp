@@ -69,6 +69,17 @@ namespace tmpp::ui
 
         if (mini)
         {
+            // The sidebar's width is remembered before it stretches, so leaving the mode restores what
+            // the user had rather than a default.
+            if (m_sidebarColumn != nullptr)
+            {
+                m_sidebarPixelWidth = m_sidebarColumn.Width();
+
+                // The sidebar takes the whole window in mini mode. It keeps a fixed width otherwise, so
+                // leaving it alone would leave the compact window mostly empty to the right of the list.
+                m_sidebarColumn.Width(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
+            }
+
             // The current widths are remembered before the columns collapse, so leaving the mode
             // restores what the user had rather than a default.
             if (m_pageColumn != nullptr)
@@ -108,11 +119,16 @@ namespace tmpp::ui
                 m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 0.0));
             }
 
-            // The list itself is no longer limited to the sidebar's width, so the rows are re-laid out.
-            m_root.Padding(ThicknessHelper::FromLengths(0.0, 0.0, metrics::PAGE_MARGIN, 0.0));
+            // The list is no longer inset for a neighbouring page, so the rows reach both edges.
+            m_root.Padding(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 0.0));
         }
         else
         {
+            if (m_sidebarColumn != nullptr)
+            {
+                m_sidebarColumn.Width(m_sidebarPixelWidth);
+            }
+
             if (m_pageColumn != nullptr)
             {
                 m_pageColumn.Width(m_pageWidth);
@@ -246,11 +262,11 @@ namespace tmpp::ui
                                         : metrics::PERFORMANCE_SIDEBAR_WIDTH;
         m_sidebarWidth = sidebarWidth;
 
-        ColumnDefinition sidebarColumn =
-            controls::MakeResizableColumn(m_sidebarSplitter,
-                                          [this](double width) { _setSidebarWidth(width); },
-                                          sidebarWidth);
-        m_root.ColumnDefinitions().Append(sidebarColumn);
+        // Kept as a member because mini mode changes its width and has to put it back.
+        m_sidebarColumn = controls::MakeResizableColumn(m_sidebarSplitter,
+                                                        [this](double width) { _setSidebarWidth(width); },
+                                                        sidebarWidth);
+        m_root.ColumnDefinitions().Append(m_sidebarColumn);
 
         // The handle sits in its own column of zero width, aligned to the boundary. Putting it inside
         // the sidebar column would let it be clipped when the column narrows.
@@ -353,7 +369,6 @@ namespace tmpp::ui
 
             m_diskOrderSettings = m_settings.diskSortOrder;
         }
-
         if (!system.networks.empty())
         {
             m_knownNetworkCount = system.networks.size();
