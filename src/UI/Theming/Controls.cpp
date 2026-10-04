@@ -266,4 +266,152 @@ namespace tmpp::ui::controls
 
         return column;
     }
+
+    void MakeWindowDragRegion(
+        winrt::Microsoft::UI::Xaml::UIElement const& element,
+        HWND windowHandle,
+        std::function<bool(winrt::Windows::Foundation::Point const&)> shouldDrag,
+        bool includeHandled)
+    {
+        if (element == nullptr || windowHandle == nullptr)
+        {
+            return;
+        }
+
+        // The press position and whether a drag is already under way. Held per gesture rather than per
+        // element, and reset on release, so two consecutive drags start from their own press.
+        struct Gesture
+        {
+            winrt::Windows::Foundation::Point origin{0.0, 0.0};
+            bool armed{false};
+            bool dragging{false};
+        };
+        auto const gesture = std::make_shared<Gesture>();
+
+        auto const startDrag = [windowHandle, gesture](winrt::Windows::Foundation::Point const& at) {
+            gesture->dragging = true;
+
+            // The move is delegated to the window manager rather than computed from pointer deltas.
+            // Those deltas would cover the basic drag, but the system's own handling also gives snapping,
+            // the double-click-to-maximise gesture and correct behaviour when the drag crosses to another
+            // monitor; reproducing them from positions would be a worse copy of something already
+            // available.
+            //
+            // Releasing the capture first is what lets the window manager take over the pointer, and the
+            // non-client hit test is what tells it this is a caption drag rather than a client one.
+            (void)at;
+            ::ReleaseCapture();
+            ::SendMessageW(windowHandle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        };
+
+        // The press arms the gesture; the drag begins once the pointer has travelled far enough. That
+        // threshold is what keeps a click and a drag apart on a surface of buttons: without it, every
+        // press would immediately become a caption drag and no button underneath would ever be clicked.
+        constexpr double DRAG_THRESHOLD = 4.0;
+
+        auto const onPressed = [gesture, shouldDrag, startDrag](
+                                   winrt::Windows::Foundation::IInspectable const& sender,
+                                   winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+            auto const point = args.GetCurrentPoint(nullptr);
+            if (point == nullptr || !point.Properties().IsLeftButtonPressed())
+            {
+                return;
+            }
+
+            if (shouldDrag)
+            {
+                // The test is given a position relative to the element rather than to the window, so a
+                // caller can express "the rail along the left" without knowing where the element sits on
+                // screen.
+                auto const host = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (host == nullptr)
+                {
+                    return;
+                }
+
+                auto const local = args.GetCurrentPoint(host);
+                if (local == nullptr || !shouldDrag(local.Position()))
+                {
+                    return;
+                }
+            }
+
+            auto const host = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+            if (host == nullptr)
+            {
+                return;
+            }
+
+            auto const local = args.GetCurrentPoint(host);
+            gesture->origin = (local != nullptr) ? local.Position() : winrt::Windows::Foundation::Point{0.0, 0.0};
+            gesture->armed = true;
+            gesture->dragging = false;
+
+            // The pointer is watched on the element itself, so the move is seen even when the drag leaves
+            // the region it began in.
+            host.CapturePointer(args.Pointer());
+        };
+
+        auto const onMoved = [gesture, startDrag, sender = element](
+                                 winrt::Windows::Foundation::IInspectable const& host,
+                                 winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+            if (!gesture->armed || gesture->dragging)
+            {
+                return;
+            }
+
+            auto const element = host.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+            if (element == nullptr)
+            {
+                return;
+            }
+
+            auto const local = args.GetCurrentPoint(element);
+            if (local == nullptr)
+            {
+                return;
+            }
+
+            double const dx = local.Position().X - gesture->origin.X;
+            double const dy = local.Position().Y - gesture->origin.Y;
+            if ((dx * dx) + (dy * dy) < DRAG_THRESHOLD * DRAG_THRESHOLD)
+            {
+                return;
+            }
+
+            (void)sender;
+            startDrag(local.Position());
+        };
+
+        auto const onReleased = [gesture](winrt::Windows::Foundation::IInspectable const& host,
+                                          winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+            gesture->armed = false;
+            gesture->dragging = false;
+
+            if (auto const element = host.try_as<winrt::Microsoft::UI::Xaml::UIElement>())
+            {
+                element.ReleasePointerCapture(args.Pointer());
+            }
+        };
+
+        if (includeHandled)
+        {
+            // A button consumes its press, so the handler has to be attached for handled events as well.
+            // The threshold above is what keeps the button usable: a press that never becomes a drag
+            // leaves the click to the button.
+            element.AddHandler(winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+                               winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler{onPressed}),
+                               /*handledEventsToo=*/true);
+        }
+        else
+        {
+            element.PointerPressed(onPressed);
+        }
+
+        // The move and release are observed through the same mechanism in both cases: the element has
+        // captured the pointer, so these arrive whether or not a child handled the original press.
+        element.PointerMoved(onMoved);
+        element.PointerReleased(onReleased);
+        element.PointerCaptureLost(onReleased);
+    }
 }

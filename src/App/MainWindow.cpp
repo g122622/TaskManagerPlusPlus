@@ -880,6 +880,44 @@ namespace tmpp
         AppWindow().TitleBar().PreferredHeightOption(
             winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
 
+        // The window handle is resolved once here rather than at each drag. This is the same lookup the
+        // single-instance check uses: the process has one top-level window and it is titled with the
+        // application name.
+        m_windowHandle = ::FindWindowW(nullptr, L"TaskManagerPlusPlus");
+
+        // Dragging is attached to the root rather than to the navigation view, and gated on where the
+        // press landed. A handler on the navigation view would also receive every press that bubbled up
+        // from the pages inside it, which would make a click on a chart start a window drag.
+        //
+        // Two regions are draggable:
+        //
+        //   * the rail, at any time. Its strip of icons is the window's only chrome when the pane is
+        //     collapsed, so it is what the window is moved by;
+        //   * the whole window once mini mode is on, where the sidebar is the entire interface.
+        //
+        // A press that a control consumes -- every button consumes its own -- never reaches this
+        // handler, so dragging a row and clicking a row stay distinct gestures.
+        ui::controls::MakeWindowDragRegion(
+            m_rootGrid,
+            m_windowHandle,
+            [this](winrt::Windows::Foundation::Point const& position) {
+                if (m_miniMode)
+                {
+                    return true;
+                }
+
+                // The rail's width, including the narrow strip shown while the pane is closed. Read
+                // from the control rather than assumed, since both widths are configurable.
+                double const railWidth = m_navigation.IsPaneOpen()
+                                             ? m_navigation.OpenPaneLength()
+                                             : m_navigation.CompactPaneLength();
+                return position.X <= railWidth;
+            },
+            // Handled presses are included as well, so the rail and the sidebar are draggable over their
+            // buttons rather than only in the gaps between them. The drag only begins once the pointer
+            // has moved, so a press that does not travel still reaches the button underneath.
+            /*includeHandled=*/true);
+
         // The remembered theme and the chart styles, applied once the root exists. Doing this only
         // from the settings page would mean a choice took effect only after visiting that page.
         _applySettings(m_currentSettings);

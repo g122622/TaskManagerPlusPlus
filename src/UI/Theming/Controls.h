@@ -185,5 +185,34 @@ namespace tmpp::ui
         [[nodiscard]] ColumnDefinition MakeResizableColumn(Border& outHandle,
                                                            std::function<void(double)> onResize,
                                                            double initialWidth);
+
+        /**
+         * @brief Makes an element a region the user can drag the window by.
+         *
+         * A window whose title bar is not laid out by the system has no drag region unless one is
+         * nominated, so a compact window with no visible title bar cannot be moved at all.
+         *
+         * The drag is handed to the window manager rather than being simulated from pointer deltas:
+         * Windows then also gives the native behaviour for free -- snapping, the double-click-to-maximise
+         * gesture, and correct handling of a drag that crosses to another monitor.
+         *
+         * Only a press the element itself receives starts a drag. A control that handles the press --
+         * every button does -- stops it before this handler runs, so a draggable surface containing
+         * buttons still has working buttons.
+         *
+         * @param element The region to make draggable.
+         * @param windowHandle The top-level window to move.
+         * @param shouldDrag Optional test of the press position, for a region that is only part of the
+         *        element. A null test makes the whole element draggable.
+         * @param includeHandled When true, the drag also starts on a press a child control consumed. A
+         *        button consumes its press, so a surface made of buttons is only draggable by its gaps
+         *        unless this is set; it is off by default because it takes the gesture away from the
+         *        child.
+         */
+        void MakeWindowDragRegion(
+            winrt::Microsoft::UI::Xaml::UIElement const& element,
+            HWND windowHandle,
+            std::function<bool(winrt::Windows::Foundation::Point const&)> shouldDrag = {},
+            bool includeHandled = false);
     }
 }

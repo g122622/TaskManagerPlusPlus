@@ -114,6 +114,11 @@ namespace tmpp
         /// The navigation rail''s resize handle. A NavigationView has no splitter, so this is an
         /// overlaid strip at the pane's right edge.
         winrt::Microsoft::UI::Xaml::Controls::Border m_navigationSplitter{nullptr};
+
+        /// The top-level window handle, used to hand a drag to the window manager. Cached because it
+        /// does not change and the lookup is a Win32 call rather than a property read.
+        HWND m_windowHandle{nullptr};
+
         winrt::Microsoft::UI::Xaml::Controls::Grid m_contentHost{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_statusText{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::InfoBar m_permissionBar{nullptr};
