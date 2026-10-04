@@ -78,7 +78,16 @@ namespace tmpp::platform
          *
          * @param pid Process to terminate.
          */
-        [[nodiscard]] ProcessActionResult Terminate(uint32_t pid) const;
+        /// @param pid Process to terminate.
+        /// @param expectedCreateTime The creation time the caller believes this process has, or zero to
+        ///        skip the check.
+        ///
+        /// The creation time is what makes this safe. A pid is reused as soon as its process exits, so a
+        /// pid taken from a list drawn a moment ago can already belong to something else entirely;
+        /// terminating on the pid alone would kill an unrelated process. Comparing the creation time
+        /// against the live process is what distinguishes "the one I meant" from "whatever holds the
+        /// number now", and a mismatch is reported as the process having exited rather than as a fault.
+        [[nodiscard]] ProcessActionResult Terminate(uint32_t pid, uint64_t expectedCreateTime = 0) const;
 
         /**
          * @brief Terminates a process and every process descended from it.
@@ -93,6 +102,8 @@ namespace tmpp::platform
          *        was looking at.
          */
         [[nodiscard]] ProcessActionResult TerminateTree(
-            uint32_t pid, std::vector<std::pair<uint32_t, uint32_t>> const& parentByPid) const;
+            uint32_t pid,
+            uint64_t expectedCreateTime,
+            std::vector<std::pair<uint32_t, uint32_t>> const& parentByPid) const;
     };
 }

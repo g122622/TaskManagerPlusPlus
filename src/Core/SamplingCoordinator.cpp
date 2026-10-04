@@ -129,16 +129,25 @@ namespace tmpp::core
         // its own view would be passing links that could already be stale.
         std::vector<std::pair<uint32_t, uint32_t>> parentByPid;
 
-        if (entireTree)
+        // The creation time of the process the user pointed at. It is taken from the same snapshot the
+        // tree is, and it is what stops a reused pid from being terminated: between the list being drawn
+        // and the menu item being clicked, the target may have exited and its identifier been given to
+        // something else. Without this the action would end an unrelated process.
+        uint64_t createTime = 0;
+
         {
             domain::ProcessSnapshotView const snapshot = CurrentProcesses();
-            parentByPid.reserve(snapshot.processes.size());
 
             for (domain::ProcessView const& process : snapshot.processes)
             {
-                // Only a parent that is itself in the snapshot is recorded. A parent that has exited
-                // has no pid to end, and recording it would walk into whatever now holds its id.
-                if (process.parentPid != 0 && process.parentPid != process.identity.pid)
+                if (process.identity.pid == pid)
+                {
+                    createTime = process.identity.createTime;
+                }
+
+                // Only a parent that is itself in the snapshot is recorded. A parent that has exited has
+                // no pid to end, and recording it would walk into whatever now holds its id.
+                if (entireTree && process.parentPid != 0 && process.parentPid != process.identity.pid)
                 {
                     parentByPid.emplace_back(process.identity.pid, process.parentPid);
                 }
@@ -146,7 +155,8 @@ namespace tmpp::core
         }
 
         platform::ProcessActionResult const result =
-            entireTree ? m_processActions.TerminateTree(pid, parentByPid) : m_processActions.Terminate(pid);
+            entireTree ? m_processActions.TerminateTree(pid, createTime, parentByPid)
+                       : m_processActions.Terminate(pid, createTime);
 
         // A process that has just ended is reflected immediately rather than at the next tick, so the
         // list does not appear to have ignored the request.

@@ -46,17 +46,100 @@ namespace tmpp::platform
             return result;
         }
 
+        /// Reads a live process's creation time.
+        ///
+        /// Zero when it cannot be read, which the caller treats as "unable to confirm" rather than as a
+        /// mismatch: a process whose creation time cannot be read is not a process to refuse on those
+        /// grounds alone.
+        [[nodiscard]] uint64_t _creationTimeOf(HANDLE handle)
+        {
+            FILETIME creation{};
+            FILETIME exit{};
+            FILETIME kernel{};
+            FILETIME user{};
+
+            if (GetProcessTimes(handle, &creation, &exit, &kernel, &user) == FALSE)
+            {
+                return 0;
+            }
+
+            ULARGE_INTEGER value{};
+            value.LowPart = creation.dwLowDateTime;
+            value.HighPart = creation.dwHighDateTime;
+            return value.QuadPart;
+        }
+
         /// Terminates one process, reporting the outcome rather than logging it.
-        [[nodiscard]] ProcessActionResult _terminateOne(uint32_t pid)
+        ///
+        /// @param expectedCreateTime The creation time the caller expects, or zero to skip the check.
+        [[nodiscard]] ProcessActionResult _terminateOne(uint32_t pid, uint64_t expectedCreateTime)
         {
             ProcessActionResult result;
 
-            // PROCESS_TERMINATE is the only right this needs. Asking for more would fail on processes
-            // where terminating is permitted but inspecting is not.
-            HANDLE const handle = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+            // PROCESS_TERMINATE and PROCESS_QUERY_LIMITED_INFORMATION: the first to end it, the second to
+            // confirm it is the process the caller meant. Asking for more would fail on processes where
+            // terminating is permitted but inspecting is not.
+            constexpr DWORD ACCESS = PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION;
+
+            HANDLE const handle = OpenProcess(ACCESS, FALSE, pid);
             if (handle == nullptr)
             {
-                return _fromLastError(GetLastError());
+                DWORD const error = GetLastError();
+
+                // An access denial does not distinguish a protected process from a pid that a protected
+                // process now holds. The second is the ordinary race -- the target exited between the
+                // list being drawn and the click -- and reporting it as a permission problem sends the
+                // user looking for rights they may already have. When the caller supplied a creation
+                // time, a process that cannot be opened at all is a process that is not the one meant,
+                // and that is reported as gone.
+                if (error == ERROR_ACCESS_DENIED && expectedCreateTime != 0)
+                {
+                    ProcessActionResult exited;
+                    exited.outcome = ProcessActionOutcome::NotFound;
+                    exited.message = "The process is no longer running.";
+                    return exited;
+                }
+
+                return _fromLastError(error);
+            }
+
+            // The pid may already have been reused. Acting on the number alone would end an unrelated
+            // process, so the creation time is checked first and a mismatch is reported as the process
+            // having exited, which is what it is.
+            //
+            // This is not hypothetical: it was observed in a test, where the second terminate landed on
+            // whatever had inherited the pid and reported "access denied" against a system process.
+            if (expectedCreateTime != 0)
+            {
+                uint64_t const live = _creationTimeOf(handle);
+                if (live != 0 && live != expectedCreateTime)
+                {
+                    CloseHandle(handle);
+
+                    ProcessActionResult reused;
+                    reused.outcome = ProcessActionOutcome::NotFound;
+                    reused.message = "The process has exited; that identifier now belongs to another process.";
+                    return reused;
+                }
+            }
+
+            // Whether the process has already ended, asked before ending it rather than inferred from
+            // the error afterwards. GetExitCodeProcess is the canonical way to ask this, and it answers
+            // for a process that has terminated while other handles to it remain open -- which is
+            // exactly the state a target is in when the user clicks a menu item a moment too late.
+            //
+            // Terminating such a process fails with an access denial, which is indistinguishable from
+            // the denial a protected live process gives. Asking first is what separates the ordinary
+            // race from a permission problem, and it is why this is not inferred from the error.
+            DWORD exitCode = 0;
+            if (GetExitCodeProcess(handle, &exitCode) != FALSE && exitCode != STILL_ACTIVE)
+            {
+                CloseHandle(handle);
+
+                ProcessActionResult exited;
+                exited.outcome = ProcessActionOutcome::NotFound;
+                exited.message = "The process is no longer running.";
+                return exited;
             }
 
             BOOL const terminated = TerminateProcess(handle, 1);
@@ -76,7 +159,7 @@ namespace tmpp::platform
         }
     }
 
-    ProcessActionResult WindowsProcessActions::Terminate(uint32_t pid) const
+    ProcessActionResult WindowsProcessActions::Terminate(uint32_t pid, uint64_t expectedCreateTime) const
     {
         // The idle process is not a process that can be ended, and neither is the system process:
         // terminating either is meaningless and the attempt reports a confusing error.
@@ -88,11 +171,13 @@ namespace tmpp::platform
             return result;
         }
 
-        return _terminateOne(pid);
+        return _terminateOne(pid, expectedCreateTime);
     }
 
     ProcessActionResult WindowsProcessActions::TerminateTree(
-        uint32_t pid, std::vector<std::pair<uint32_t, uint32_t>> const& parentByPid) const
+        uint32_t pid,
+        uint64_t expectedCreateTime,
+        std::vector<std::pair<uint32_t, uint32_t>> const& parentByPid) const
     {
         if (pid == 0 || pid == 4)
         {
@@ -148,9 +233,16 @@ namespace tmpp::platform
         ProcessActionResult total;
         total.outcome = ProcessActionOutcome::Succeeded;
 
-        for (uint32_t const target : order)
+        for (size_t i = 0; i < order.size(); ++i)
         {
-            ProcessActionResult const one = _terminateOne(target);
+            uint32_t const target = order[i];
+
+            // Only the root carries a creation time from the caller. The descendants come from the
+            // snapshot the coordinator just took, which is fresh enough that a reused identifier inside
+            // it is not a realistic hazard; the root is the one the user pointed at, and it may have
+            // been chosen from a list drawn some time ago.
+            bool const isRoot = (target == pid);
+            ProcessActionResult const one = _terminateOne(target, isRoot ? expectedCreateTime : 0);
             if (one.Succeeded())
             {
                 ++total.affected;

@@ -110,12 +110,36 @@ namespace tmpp::platform::test
 
         uint32_t const pid = info.dwProcessId;
 
-        WindowsProcessActions actions;
-        ASSERT_TRUE(actions.Terminate(pid).Succeeded());
-        WaitForSingleObject(info.hProcess, 5000);
-        CloseHandle(info.hProcess);
+        // The creation time is captured before the process ends, which is what a caller would have from
+        // the list. It is what makes the second call safe: the pid may already have been reused.
+        uint64_t createTime = 0;
+        {
+            FILETIME creation{};
+            FILETIME exit{};
+            FILETIME kernel{};
+            FILETIME user{};
+            ASSERT_TRUE(GetProcessTimes(info.hProcess, &creation, &exit, &kernel, &user) != FALSE);
 
-        ProcessActionResult const second = actions.Terminate(pid);
+            ULARGE_INTEGER value{};
+            value.LowPart = creation.dwLowDateTime;
+            value.HighPart = creation.dwHighDateTime;
+            createTime = value.QuadPart;
+        }
+
+        WindowsProcessActions actions;
+        ASSERT_TRUE(actions.Terminate(pid, createTime).Succeeded());
+
+        // The handle is deliberately left open across the second call. Windows does not reuse a pid
+        // while a handle to the process remains, so this makes the test deterministic: the pid still
+        // refers to the process that just ended, and the outcome is the ordinary "already gone".
+        //
+        // Closing the handle first would reintroduce a race the test cannot win. The pid can then be
+        // reused by a protected system process, for which OpenProcess itself fails with access denied
+        // before any identity check can run, and the outcome depends on which process the operating
+        // system happened to hand the number to.
+        WaitForSingleObject(info.hProcess, 5000);
+
+        ProcessActionResult const second = actions.Terminate(pid, createTime);
         std::printf("second terminate outcome: %d, message '%s'\n",
                     static_cast<int>(second.outcome),
                     second.message.c_str());
@@ -123,6 +147,58 @@ namespace tmpp::platform::test
         EXPECT_EQ(second.outcome, ProcessActionOutcome::NotFound)
             << "an exited process must be reported as gone rather than as a failure";
         EXPECT_FALSE(second.Succeeded());
+
+        CloseHandle(info.hProcess);
+    }
+
+    TEST(ProcessActionsDiagnostic, RefusesAProcessWhoseCreationTimeDoesNotMatch)
+    {
+        // The guard that stops a reused pid from being terminated, tested deterministically: a live
+        // process is described with the wrong creation time, which is exactly what a reused identifier
+        // looks like from the caller's side.
+        //
+        // This cannot be tested by racing the operating system. Whether a pid is reused, and by what,
+        // is outside the test's control; the mismatch itself is not.
+        PROCESS_INFORMATION const info = _startIdleProcess();
+        ASSERT_NE(info.hProcess, nullptr);
+        CloseHandle(info.hThread);
+
+        uint64_t createTime = 0;
+        {
+            FILETIME creation{};
+            FILETIME exit{};
+            FILETIME kernel{};
+            FILETIME user{};
+            ASSERT_TRUE(GetProcessTimes(info.hProcess, &creation, &exit, &kernel, &user) != FALSE);
+
+            ULARGE_INTEGER value{};
+            value.LowPart = creation.dwLowDateTime;
+            value.HighPart = creation.dwHighDateTime;
+            createTime = value.QuadPart;
+        }
+
+        WindowsProcessActions actions;
+
+        // A creation time that is not this process's, as a reused pid would present.
+        ProcessActionResult const wrong = actions.Terminate(info.dwProcessId, createTime + 1);
+        std::printf("mismatched creation time: outcome %d, message '%s'\n",
+                    static_cast<int>(wrong.outcome),
+                    wrong.message.c_str());
+
+        EXPECT_EQ(wrong.outcome, ProcessActionOutcome::NotFound)
+            << "a mismatched identity must be refused rather than acted upon";
+
+        // And the process must still be running, which is the property that matters: refusing must not
+        // have ended it.
+        EXPECT_TRUE(_isRunning(info.dwProcessId)) << "a refused termination must not end the process";
+
+        // The right creation time is accepted, which is what proves the guard is not simply refusing
+        // everything.
+        ProcessActionResult const right = actions.Terminate(info.dwProcessId, createTime);
+        EXPECT_TRUE(right.Succeeded()) << right.message;
+
+        WaitForSingleObject(info.hProcess, 5000);
+        CloseHandle(info.hProcess);
     }
 
     TEST(ProcessActionsDiagnostic, RefusesTheSystemProcesses)
@@ -187,7 +263,7 @@ namespace tmpp::platform::test
 
         // The child is not known by id here, so the tree is ended from the parent. Whatever children it
         // has at that moment are the ones the real caller would have seen in its snapshot.
-        ProcessActionResult const result = actions.TerminateTree(parentPid, parents);
+        ProcessActionResult const result = actions.TerminateTree(parentPid, 0, parents);
 
         std::printf("terminate tree: outcome %d, affected %u, failed %u, message '%s'\n",
                     static_cast<int>(result.outcome),
