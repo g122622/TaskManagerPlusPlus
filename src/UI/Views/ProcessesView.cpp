@@ -141,6 +141,18 @@ namespace tmpp::ui
         m_summary.VerticalAlignment(VerticalAlignment::Center);
         toolbar.Children().Append(m_summary);
 
+        // An action's outcome follows the process count on the same line, so it appears where the user
+        // is already looking after invoking a menu item.
+        //
+        // Constructed here rather than further down: it is appended to the toolbar on the next line,
+        // and appending a null element is an access violation rather than a visible mistake. The
+        // earlier version created it a few dozen lines later and crashed the application at startup.
+        m_actionMessage = controls::MakeText(L"", 13.0, true);
+        m_actionMessage.VerticalAlignment(VerticalAlignment::Center);
+        m_actionMessage.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+        m_actionMessage.Margin(ThicknessHelper::FromLengths(16.0, 0.0, 0.0, 0.0));
+        toolbar.Children().Append(m_actionMessage);
+
         Grid::SetRow(toolbar, 0);
         m_root.Children().Append(toolbar);
 
@@ -291,6 +303,31 @@ namespace tmpp::ui
             _selectRow(pid);
         });
 
+        // The context menu is rebuilt on every binding rather than attached once, because a row is
+        // recycled for a different process when the list is reordered and the menu has to name the
+        // right one.
+        std::string const displayName = ProcessDisplayName(process.identity.pid, process.imageName);
+
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyout menu;
+
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem endTask;
+        endTask.Text(L"End task");
+        endTask.Click([this, pid, displayName](winrt::Windows::Foundation::IInspectable const&,
+                                               winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+            _confirmAndTerminate(pid, winrt::to_hstring(displayName), /*entireTree=*/false);
+        });
+        menu.Items().Append(endTask);
+
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem endTree;
+        endTree.Text(L"End process tree");
+        endTree.Click([this, pid, displayName](winrt::Windows::Foundation::IInspectable const&,
+                                               winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+            _confirmAndTerminate(pid, winrt::to_hstring(displayName), /*entireTree=*/true);
+        });
+        menu.Items().Append(endTree);
+
+        row.ContextFlyout(menu);
+
         // Column 0: dot and name. The idle process has no image name from the
         // platform, which is its report rather than a failure; naming it is ours.
         if (auto const nameCell = row.Children().GetAt(0).try_as<StackPanel>())
@@ -345,6 +382,95 @@ namespace tmpp::ui
     void ProcessesView::SetSelectionHandler(std::function<void(uint32_t)> handler)
     {
         m_onSelectionChanged = std::move(handler);
+    }
+
+    void ProcessesView::SetTerminateHandler(std::function<platform::ProcessActionResult(uint32_t, bool)> handler)
+    {
+        m_onTerminate = std::move(handler);
+    }
+
+    void ProcessesView::_confirmAndTerminate(uint32_t pid, winrt::hstring const& name, bool entireTree)
+    {
+        if (!m_onTerminate)
+        {
+            // Nothing is wired up to act. Saying so is better than a menu item that silently does
+            // nothing.
+            ReportActionOutcome(platform::ProcessActionResult{platform::ProcessActionOutcome::Failed,
+                                                               0,
+                                                               0,
+                                                               "No handler is available to end processes."},
+                                name);
+            return;
+        }
+
+        // Confirmation before ending anything. TerminateProcess gives the target no chance to save
+        // work, and a task manager is a list of names a user can misread; the original asks too.
+        winrt::Microsoft::UI::Xaml::Controls::ContentDialog dialog;
+        dialog.XamlRoot(m_root.XamlRoot());
+        dialog.Title(winrt::box_value(winrt::hstring{entireTree ? L"End process tree?" : L"End task?"}));
+
+        winrt::hstring const body =
+            entireTree
+                ? winrt::hstring{L"This will end "} + name + L" and every process it started."
+                : winrt::hstring{L"This will end "} + name + L". Unsaved work will be lost.";
+        dialog.Content(winrt::box_value(body));
+        dialog.PrimaryButtonText(L"End");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
+
+        // The dialog is shown without awaiting it. Awaiting from a UI event handler would need a
+        // coroutine, and the outcome is handled in the continuation either way, so the callback form
+        // expresses the same thing without turning the handler into a coroutine.
+        auto const pidCopy = pid;
+        auto const treeCopy = entireTree;
+        auto const nameCopy = name;
+
+        dialog.PrimaryButtonClick(
+            [this, pidCopy, treeCopy, nameCopy](
+                winrt::Microsoft::UI::Xaml::Controls::ContentDialog const&,
+                winrt::Microsoft::UI::Xaml::Controls::ContentDialogButtonClickEventArgs const&) {
+                if (!m_onTerminate)
+                {
+                    return;
+                }
+
+                platform::ProcessActionResult const result = m_onTerminate(pidCopy, treeCopy);
+                ReportActionOutcome(result, nameCopy);
+            });
+
+        dialog.ShowAsync();
+    }
+
+    void ProcessesView::ReportActionOutcome(platform::ProcessActionResult const& result, std::wstring_view subject)
+    {
+        if (m_actionMessage == nullptr)
+        {
+            return;
+        }
+
+        winrt::hstring message;
+
+        if (result.Succeeded())
+        {
+            // The count matters for a tree, where the user asked for one thing and several ended.
+            if (result.affected > 1)
+            {
+                message = winrt::hstring{std::to_wstring(result.affected) + L" processes ended."};
+            }
+            else
+            {
+                message = winrt::hstring{winrt::hstring{subject} + L" ended."};
+            }
+        }
+        else
+        {
+            message = winrt::hstring{winrt::hstring{subject} + L": " + winrt::to_hstring(result.message)};
+        }
+
+        m_actionMessage.Text(message);
+
+        // Asking the sampler for a fresh snapshot is what makes the list reflect the change; the
+        // application does that as part of acting.
     }
 
     void ProcessesView::_updateSummary()

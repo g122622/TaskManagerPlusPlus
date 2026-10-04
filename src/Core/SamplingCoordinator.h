@@ -17,6 +17,7 @@
 #include "Domain/SystemModel.h"
 #include "Platform/Windows/HardwareCounterProbe.h"
 #include "Platform/Windows/ProcessorSpeedProbe.h"
+#include "Platform/Windows/WindowsProcessActions.h"
 #include "Platform/Windows/WindowsProcessProbe.h"
 #include "Platform/Windows/WindowsSystemProbe.h"
 
@@ -152,6 +153,19 @@ namespace tmpp::core
         /// instead of hard-coding the default.
         [[nodiscard]] uint32_t HistorySeconds() const noexcept { return m_settings.HistorySeconds(); }
 
+        /**
+         * @brief Terminates a process.
+         *
+         * Lives here because the coordinator owns both the probe that acts and the snapshot that knows
+         * the tree, so no caller has to reach for either. The tree is taken from the latest snapshot,
+         * not from whatever the UI was showing: a list drawn a second ago is not a safe basis for
+         * ending a tree, because the identifiers in it may already belong to something else.
+         *
+         * @param pid Process to terminate.
+         * @param entireTree True to terminate every descendant as well.
+         */
+        [[nodiscard]] platform::ProcessActionResult TerminateProcess(uint32_t pid, bool entireTree);
+
         /// Samples taken since construction, for the status bar.
         [[nodiscard]] uint64_t SampleCount() const noexcept { return m_sampler.SampleCount(); }
 
@@ -165,6 +179,10 @@ namespace tmpp::core
         mutable std::mutex m_mutex;
 
         platform::WindowsProcessProbe m_processProbe;
+
+        /// Terminates processes. Kept here rather than in the UI so the action and the snapshot it is
+        /// based on come from the same place.
+        platform::WindowsProcessActions m_processActions;
         platform::WindowsSystemProbe m_systemProbe;
 
         /// Live clock speed. Declared after the system probe because it is

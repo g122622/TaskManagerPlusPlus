@@ -13,6 +13,7 @@
 #include "UI/WinRTUI.h"
 
 #include "Core/SamplingCoordinator.h"
+#include "Platform/Windows/WindowsProcessActions.h"
 #include "UI/Lists/ProcessListModel.h"
 #include "UI/Lists/RowHost.h"
 
@@ -47,6 +48,21 @@ namespace tmpp::ui
          */
         void SetSelectionHandler(std::function<void(uint32_t)> handler);
 
+        /**
+         * @brief Called when the user asks to end a process.
+         *
+         * The view does not terminate anything itself: ending a process is an application-level act
+         * that has to be able to report its outcome back to the user. The handler returns the outcome
+         * so the view can show it.
+         *
+         * @param pid Process to end.
+         * @param entireTree True to end every descendant as well.
+         */
+        void SetTerminateHandler(std::function<platform::ProcessActionResult(uint32_t, bool)> handler);
+
+        /// Reports how an action turned out. Called by the application once it has acted.
+        void ReportActionOutcome(platform::ProcessActionResult const& result, std::wstring_view subject);
+
     private:
         void _buildLayout();
 
@@ -73,6 +89,15 @@ namespace tmpp::ui
 
         /// Called when the selection changes.
         std::function<void(uint32_t)> m_onSelectionChanged;
+
+        /// Called when the user asks to end a process. Empty until the application supplies one.
+        std::function<platform::ProcessActionResult(uint32_t, bool)> m_onTerminate;
+
+        /// Where an action's outcome is reported: the summary line, which is always visible.
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_actionMessage{nullptr};
+
+        /// Asks the user to confirm before ending anything, then calls the handler.
+        void _confirmAndTerminate(uint32_t pid, winrt::hstring const& name, bool entireTree);
 
         core::SamplingCoordinator& m_coordinator;
 

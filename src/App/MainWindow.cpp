@@ -172,6 +172,20 @@ namespace tmpp
     void MainWindow::_createPages()
     {
         m_processesView = std::make_unique<ui::ProcessesView>(*m_coordinator);
+
+        // The Details page follows the process list's selection rather than holding its own, so the two
+        // cannot disagree about which process is shown.
+        m_processesView->SetSelectionHandler([this](uint32_t pid) {
+            if (m_detailsPage != nullptr)
+            {
+                m_detailsPage->SetPid(pid);
+            }
+        });
+
+        // Ending a process goes through the coordinator, which owns both the action and the snapshot
+        // the tree is derived from.
+        m_processesView->SetTerminateHandler(
+            [this](uint32_t pid, bool entireTree) { return m_coordinator->TerminateProcess(pid, entireTree); });
         // The performance view owns its sidebar width for dragging, but the application owns the
         // settings file, so the width is reported back here to be remembered.
         m_performanceView = std::make_unique<ui::PerformanceView>(

@@ -122,6 +122,42 @@ namespace tmpp::core
         }
     }
 
+    platform::ProcessActionResult SamplingCoordinator::TerminateProcess(uint32_t pid, bool entireTree)
+    {
+        // The tree comes from a fresh copy of the latest snapshot rather than from the caller, so the
+        // parent links and the process list are guaranteed to be from the same sample. A caller passing
+        // its own view would be passing links that could already be stale.
+        std::vector<std::pair<uint32_t, uint32_t>> parentByPid;
+
+        if (entireTree)
+        {
+            domain::ProcessSnapshotView const snapshot = CurrentProcesses();
+            parentByPid.reserve(snapshot.processes.size());
+
+            for (domain::ProcessView const& process : snapshot.processes)
+            {
+                // Only a parent that is itself in the snapshot is recorded. A parent that has exited
+                // has no pid to end, and recording it would walk into whatever now holds its id.
+                if (process.parentPid != 0 && process.parentPid != process.identity.pid)
+                {
+                    parentByPid.emplace_back(process.identity.pid, process.parentPid);
+                }
+            }
+        }
+
+        platform::ProcessActionResult const result =
+            entireTree ? m_processActions.TerminateTree(pid, parentByPid) : m_processActions.Terminate(pid);
+
+        // A process that has just ended is reflected immediately rather than at the next tick, so the
+        // list does not appear to have ignored the request.
+        if (result.affected > 0)
+        {
+            RequestRefresh();
+        }
+
+        return result;
+    }
+
     void SamplingCoordinator::_sample(WakeReason reason)
     {
         // A manual refresh is sampled exactly like a scheduled tick; the reason is
