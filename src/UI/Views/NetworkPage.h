@@ -76,6 +76,15 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_linkCaption{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_caption{nullptr};
 
+        /**
+         * @brief The figure at the top of the chart's value axis.
+         *
+         * The axis is scaled to the busiest of the two directions rather than to a fixed proportion, so
+         * this states what that top line is worth. It is not a percentage: the link's capacity is a
+         * separate figure, shown in the heading, and the chart plots throughput rather than a share of it.
+         */
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_peakLabel{nullptr};
+
         std::unique_ptr<HistoryChart> m_chart;
 
         std::vector<DetailRow> m_column1;

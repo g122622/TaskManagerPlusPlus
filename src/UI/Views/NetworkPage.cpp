@@ -112,18 +112,25 @@ namespace tmpp::ui
         Grid::SetColumn(m_caption, 0);
         captionRow.Children().Append(m_caption);
 
-        TextBlock maximumLabel = controls::MakeText(L"100%", 12.0, true);
-        maximumLabel.HorizontalAlignment(HorizontalAlignment::Right);
-        Grid::SetColumn(maximumLabel, 1);
-        captionRow.Children().Append(maximumLabel);
+        // The figure at the top of the axis, which is scaled to the busiest of the two directions rather
+        // than to a fixed proportion. It is filled in on each refresh, so it starts empty rather than
+        // showing a figure that is not yet true.
+        //
+        // It used to read "100%", which was wrong twice over: the axis is not a percentage, and the thing
+        // it was measuring is throughput rather than a share of the link. The link's capacity is a
+        // separate figure and belongs in the heading, where it is.
+        m_peakLabel = controls::MakeText(L"", 12.0, true);
+        m_peakLabel.HorizontalAlignment(HorizontalAlignment::Right);
+        Grid::SetColumn(m_peakLabel, 1);
+        captionRow.Children().Append(m_peakLabel);
 
         Grid::SetRow(captionRow, 1);
         m_root.Children().Append(captionRow);
 
         // --- Throughput chart --------------------------------------------------
         //
-        // Plots link utilisation rather than bytes per second, so the axis is a real proportion: a
-        // link has a known capacity, and a percentage of it is the figure the original shows.
+        // Plots bytes per second, both directions on one axis, so the two can be compared directly. The
+        // top of the axis follows the data.
         m_chart = std::make_unique<HistoryChart>(L"", DEFAULT_NETWORK_COLOR, 100.0);
         m_chart->SetHeaderVisible(false);
         m_chart->Root().MinHeight(CHART_MIN_HEIGHT);
@@ -325,7 +332,17 @@ namespace tmpp::ui
             peak = (std::max)(peak, value);
         }
 
+        // The axis maximum and the figure stated at the top of it come from the same value, so the label
+        // cannot claim something the plot does not show.
+        //
+        // Formatted through the same helper the caption and the detail rows use, so the figure at the top
+        // of the axis reads in the same units and to the same precision as the readings beneath it.
+        m_peakLabel.Text(winrt::to_hstring(_rateText(peak)));
+
+        // An axis of zero would divide by it in the plotting arithmetic. One byte per second is the
+        // smallest range that leaves the plot empty, which is the honest picture of no traffic.
         m_chart->SetMaximum(peak > 0.0 ? peak : 1.0);
+
         m_chart->SetSeries(receiveSeries);
         m_chart->SetSecondarySeries(sendSeries);
 
