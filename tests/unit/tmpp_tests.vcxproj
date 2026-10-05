@@ -121,6 +121,7 @@
     <ClCompile Include="test_cumulative_bytes.cpp" />
     <ClCompile Include="test_lazy_page_style.cpp" />
     <ClCompile Include="test_process_column_widths.cpp" />
+    <ClCompile Include="test_network_probe_diagnostic.cpp" />
     <ClCompile Include="test_probe_timing.cpp" />
     <ClCompile Include="test_network_api_benchmark.cpp" />
     <ClCompile Include="test_row_host_math.cpp" />

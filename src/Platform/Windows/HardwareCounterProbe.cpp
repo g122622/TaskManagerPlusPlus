@@ -568,7 +568,53 @@ namespace tmpp::platform
 
         for (ULONG i = 0; i < table->NumEntries; ++i)
         {
-            m_interfaceIndices.push_back(static_cast<uint32_t>(table->Table[i].InterfaceIndex));
+            MIB_IF_ROW2 const& row = table->Table[i];
+
+            // Interfaces the driver reports as absent are left out, and this is the whole point of the
+            // filter: GetIfEntry2 on one of them costs about a hundred and fifty times what it costs on a
+            // live adapter, so polling them every sample added roughly two and a half seconds to a reading
+            // that should take twenty milliseconds -- more than the sampling interval, which is what made
+            // the sampler fall behind. A machine with a dozen virtual and disconnected adapters, which is
+            // an ordinary machine, is where the cost was.
+            //
+            // Only "not present" is excluded, not "not up". A wireless adapter that is currently
+            // disconnected is present and has to stay in the list: it is the interface whose state change
+            // to up the page exists to notice, and dropping it would mean connecting to a network never
+            // showed up.
+            if (row.OperStatus == IfOperStatusNotPresent)
+            {
+                continue;
+            }
+
+            // Loopback and tunnel interfaces carry no user traffic to report, and the page has nothing to
+            // say about them. The allow-list applied to each sample's results already excludes their types;
+            // leaving them out here saves polling them at all.
+            if (row.Type == IF_TYPE_SOFTWARE_LOOPBACK || row.Type == IF_TYPE_TUNNEL)
+            {
+                continue;
+            }
+
+            // The filter adapters are excluded here rather than only after the query, and this is the fix
+            // for the sampler falling behind.
+            //
+            // The per-sample loop already skips them -- they report the same traffic as the adapter beneath
+            // them, so counting them would count every packet several times -- but it skipped them after
+            // calling GetIfEntry2, and on this machine two of them block for about two and a half seconds:
+            // the Npcap packet driver and the WFP lightweight filter layered on an NDIS internet-sharing
+            // device. Measured over forty rounds, those two were the only adapters of seventy-six to exceed
+            // a millisecond, and each stalled on roughly one call in thirteen. Their mean was 187 ms against
+            // a twentieth of a millisecond for everything else, which is the two seconds that a network read
+            // was taking.
+            //
+            // Excluding them here cannot change which adapters are reported: the same flag is tested against
+            // the same row, only earlier, so the set that survives is identical and the query that used to
+            // precede the test is not made at all.
+            if (row.InterfaceAndOperStatusFlags.FilterInterface != 0)
+            {
+                continue;
+            }
+
+            m_interfaceIndices.push_back(static_cast<uint32_t>(row.InterfaceIndex));
         }
 
         return !m_interfaceIndices.empty();
