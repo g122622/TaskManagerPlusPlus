@@ -838,7 +838,10 @@ namespace tmpp
             appIcon.FontSize(14.0);
             titleContent.Children().Append(appIcon);
 
-            titleContent.Children().Append(ui::controls::MakeText(L"Task Manager", 12.0));
+            // The application's own name rather than the one it replaces. It is drawn inside the extended
+            // title bar, so it is a label like the rest of the strip and does not set the window's own
+            // title, which is what the single-instance check looks the window up by.
+            titleContent.Children().Append(ui::controls::MakeText(L"Task Manager++", 12.0));
 
             Grid::SetColumn(titleContent, 0);
             m_titleBarSpacer.Children().Append(titleContent);

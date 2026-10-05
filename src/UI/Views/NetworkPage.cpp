@@ -352,6 +352,22 @@ namespace tmpp::ui
         // smallest range that leaves the plot empty, which is the honest picture of no traffic.
         m_chart->SetMaximum(peak > 0.0 ? peak : 1.0);
 
+        // A reference line at a third of the axis, so the curve can be read against a division of the scale
+        // rather than against the frame alone. Stated in the same units as the readings, because the axis is
+        // scaled to the data and its top is a byte rate rather than a round number.
+        //
+        // Set after the maximum, so the line is placed against the axis it belongs to. An empty label hides
+        // it, which is what happens before anything has been transferred: there is no third of a peak to
+        // name.
+        if (peak > 0.0)
+        {
+            m_chart->SetReferenceLine(1.0 / 3.0, winrt::to_hstring(_rateText(peak / 3.0)));
+        }
+        else
+        {
+            m_chart->SetReferenceLine(1.0 / 3.0, L"");
+        }
+
         m_chart->SetSeries(receiveSeries);
         m_chart->SetSecondarySeries(sendSeries);
 

@@ -51,6 +51,24 @@ namespace tmpp::ui
         /// dominate a small cell.
         constexpr double GRID_LINE_THICKNESS = 0.5;
 
+        /// Opacity of the reference line. Faint enough to sit behind the curve it annotates, and strong
+        /// enough to be read as a line rather than a smudge.
+        constexpr double REFERENCE_LINE_OPACITY = 0.30;
+
+        /// Stroke width of the reference line. A hairline, for the same reason the grid's is: it is a
+        /// guide, and a heavier stroke would compete with the data it exists to help read.
+        constexpr double REFERENCE_LINE_THICKNESS = 1.0;
+
+        /// Inset of the reference label from the right edge, so it does not touch the frame.
+        constexpr double REFERENCE_LABEL_INSET = 6.0;
+
+        /// How far below the line the label sits, so the line does not strike through it.
+        constexpr double REFERENCE_LABEL_DROP = 2.0;
+
+        /// Opacity of the reference label. White at full strength was brighter than the curve, which
+        /// inverts the hierarchy: the annotation would shout over the thing it annotates.
+        constexpr double REFERENCE_LABEL_OPACITY = 0.75;
+
         [[nodiscard]] winrt::Windows::UI::Color _withAlpha(winrt::Windows::UI::Color color, double alpha)
         {
             color.A = static_cast<uint8_t>(std::clamp(alpha, 0.0, 1.0) * 255.0);
@@ -141,6 +159,35 @@ namespace tmpp::ui
         m_canvas.Children().Append(m_line);
         m_canvas.Children().Append(m_secondaryLine);
 
+        // The reference line and its label go in last, so they draw over the curve and the fill rather than
+        // under them: a guide hidden behind the shading it annotates is no guide. Both are collapsed until
+        // a caller asks for them, so a chart that does not use one is unchanged.
+        m_referenceLine = winrt::Microsoft::UI::Xaml::Shapes::Line();
+        m_referenceLine.Stroke(SolidColorBrush(winrt::Windows::UI::Colors::White()));
+        m_referenceLine.Opacity(REFERENCE_LINE_OPACITY);
+        m_referenceLine.StrokeThickness(REFERENCE_LINE_THICKNESS);
+
+        // The dash pattern is in stroke-width units, like the secondary line's, so it stays legible
+        // whatever the stroke width is set to rather than closing up or blurring.
+        m_referenceDashes = winrt::Microsoft::UI::Xaml::Media::DoubleCollection();
+        m_referenceDashes.Append(4.0);
+        m_referenceDashes.Append(4.0);
+        m_referenceLine.StrokeDashArray(m_referenceDashes);
+        m_referenceLine.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        m_canvas.Children().Append(m_referenceLine);
+
+        m_referenceLabel = controls::MakeText(L"", 11.0);
+        m_referenceLabel.Foreground(SolidColorBrush(winrt::Windows::UI::Colors::White()));
+        m_referenceLabel.Opacity(REFERENCE_LABEL_OPACITY);
+        m_referenceLabel.TextAlignment(winrt::Microsoft::UI::Xaml::TextAlignment::Right);
+
+        // The label is as wide as the plot and right-aligned inside it, which puts it at the line's right
+        // end without the chart having to measure the text: a canvas gives its children no layout, so a
+        // right-aligned block with a known width is the way to reach the edge.
+        m_referenceLabel.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        m_referenceLabel.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        m_canvas.Children().Append(m_referenceLabel);
+
         // The canvas is not a child of the frame directly: the frame holds a host so the grid layer
         // and the plot can coexist inside one outline.
         m_plotFrame = controls::MakeChartFrame(m_plotHost);
@@ -204,6 +251,61 @@ namespace tmpp::ui
     {
         m_header.Visibility(visible ? winrt::Microsoft::UI::Xaml::Visibility::Visible
                                     : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+    }
+
+    void HistoryChart::SetReferenceLine(double fractionOfMaximum, std::wstring_view label)
+    {
+        // An empty label means the caller has nothing to state for the line -- the value is not known yet,
+        // or the metric has no units to put beside it -- so the line goes rather than being drawn bare.
+        m_referenceEnabled = !label.empty();
+        m_referenceFraction = std::clamp(fractionOfMaximum, 0.0, 1.0);
+
+        if (!m_referenceEnabled)
+        {
+            if (m_referenceLine != nullptr)
+            {
+                m_referenceLine.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            }
+            if (m_referenceLabel != nullptr)
+            {
+                m_referenceLabel.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            }
+            return;
+        }
+
+        m_referenceLabel.Text(winrt::hstring{label});
+        m_referenceLine.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        m_referenceLabel.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+
+        // Placed now rather than waiting for the next sample, so a line switched on between samples appears
+        // where it belongs instead of flashing at the origin.
+        _redraw();
+    }
+
+    void HistoryChart::_drawReferenceLine(double width, double height)
+    {
+        if (!m_referenceEnabled || m_referenceLine == nullptr || m_referenceLabel == nullptr)
+        {
+            return;
+        }
+
+        // The same mapping the curve uses, so the line sits exactly where the value it states is. Computing
+        // it separately is what put the grid lines a few pixels out of place; there is no reason to repeat
+        // that here.
+        double const y = YForRatio(m_referenceFraction, height, m_lineWidth);
+
+        m_referenceLine.X1(0.0);
+        m_referenceLine.Y1(y);
+        m_referenceLine.X2(width);
+        m_referenceLine.Y2(y);
+
+        // The label spans the plot and is right-aligned inside it, so it ends at the line's right end with
+        // the inset applied, without the chart having to measure the text first.
+        Canvas::SetLeft(m_referenceLabel, 0.0);
+        Canvas::SetTop(m_referenceLabel, y + REFERENCE_LABEL_DROP);
+        m_referenceLabel.Width(width);
+        m_referenceLabel.Padding(
+            winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(0.0, 0.0, REFERENCE_LABEL_INSET, 0.0));
     }
 
     void HistoryChart::SetMaximum(double maximum)
@@ -402,5 +504,8 @@ namespace tmpp::ui
                 secondaryPoints.Append(winrt::Windows::Foundation::Point{x, y});
             }
         }
+
+        // Last, so its position follows the maximum this redraw was computed against.
+        _drawReferenceLine(width, height);
     }
 }

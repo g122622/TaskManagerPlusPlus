@@ -394,9 +394,28 @@ namespace tmpp::ui
         {
             transferPeak = (std::max)(transferPeak, value);
         }
-        transferPeak = (transferPeak > 0.0) ? transferPeak : 1.0;
+        // Whether anything moved is decided before the floor below is applied, because the floor makes the
+        // question unanswerable afterwards: one byte per second is indistinguishable from the stand-in for
+        // no traffic at all.
+        bool const hasTraffic = transferPeak > 0.0;
+        transferPeak = hasTraffic ? transferPeak : 1.0;
 
         m_transferChart->SetMaximum(transferPeak);
+
+        // A reference line at a third of the axis, so the curve can be read against a division of the scale
+        // rather than against the frame alone. Set after the maximum, so it is placed against the axis it
+        // belongs to, and hidden when nothing has moved: there is then no third of a peak to name.
+        if (hasTraffic)
+        {
+            double const third = transferPeak / 3.0;
+            m_transferChart->SetReferenceLine(
+                1.0 / 3.0, winrt::to_hstring(FormatBytes(static_cast<uint64_t>(third)) + "/s"));
+        }
+        else
+        {
+            m_transferChart->SetReferenceLine(1.0 / 3.0, L"");
+        }
+
         m_transferChart->SetSeries(readSeries);
         m_transferChart->SetSecondarySeries(writeSeries);
 

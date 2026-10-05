@@ -75,6 +75,24 @@ namespace tmpp::ui
         /// Hides the header, leaving only the plot.
         void SetHeaderVisible(bool visible);
 
+        /**
+         * @brief Draws a dashed reference line across the plot at a fraction of the axis maximum, with its
+         *        value labelled below the line's right end.
+         *
+         * A fraction of the maximum rather than a fixed value: the throughput axes are scaled to the data,
+         * so a line at a fixed byte rate would drift off the top or sink to the floor as the peak moved. A
+         * third of the maximum is a division the eye can use -- it reads the curve against the line the way
+         * a ruler reads against its graduations, which a bare axis does not offer.
+         *
+         * The label is supplied by the caller because only the caller knows the units: this chart plots
+         * whatever numbers it is given, and the figure beside the line has to be stated in the same units
+         * as the readings rather than in the axis's own terms.
+         *
+         * @param fractionOfMaximum Where to draw, as a fraction of the maximum. Clamped to 0..1.
+         * @param label Text for the right-hand end. Empty hides the line.
+         */
+        void SetReferenceLine(double fractionOfMaximum, std::wstring_view label);
+
 
         /**
          * @brief Changes the stroke width of the line.
@@ -154,6 +172,26 @@ namespace tmpp::ui
 
         /// Dash pattern for the second line, in units of the stroke width.
         winrt::Microsoft::UI::Xaml::Media::DoubleCollection m_secondaryDashes{nullptr};
+
+        /**
+         * @brief The dashed reference line and its label, drawn over the plot.
+         *
+         * Created once in the constructor and repositioned on each redraw rather than rebuilt, because a
+         * redraw happens on every sample: allocating a shape and a text block per second would churn for no
+         * reason, and the two are always in the same place relative to the axis they annotate.
+         */
+        winrt::Microsoft::UI::Xaml::Shapes::Line m_referenceLine{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_referenceLabel{nullptr};
+
+        /// Dash pattern for the reference line, in units of its stroke width.
+        winrt::Microsoft::UI::Xaml::Media::DoubleCollection m_referenceDashes{nullptr};
+
+        /// Where the line sits, as a fraction of the maximum. Meaningless unless m_referenceEnabled.
+        double m_referenceFraction{0.0};
+        bool m_referenceEnabled{false};
+
+        /// Draws or hides the reference line and places its label for the current plot size.
+        void _drawReferenceLine(double width, double height);
 
         std::vector<double> m_values;
         winrt::Windows::UI::Color m_color;

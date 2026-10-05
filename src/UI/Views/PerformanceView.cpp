@@ -907,8 +907,16 @@ namespace tmpp::ui
 
                     if (system.gpu.dedicatedTotalBytes > 0)
                     {
+                        // The share in brackets after the pair, as the memory row states its own. The
+                        // division is safe inside this guard: a total of zero is the case the branch
+                        // excludes, which is an adapter with no dedicated memory of its own.
+                        double const usedPercent =
+                            (static_cast<double>(system.gpu.dedicatedUsedBytes) * 100.0) /
+                            static_cast<double>(system.gpu.dedicatedTotalBytes);
+
                         setDetail(i, FormatBytes(system.gpu.dedicatedUsedBytes) + " / " +
-                                         FormatBytes(system.gpu.dedicatedTotalBytes));
+                                         FormatBytes(system.gpu.dedicatedTotalBytes) + " (" +
+                                         FormatPercent(usedPercent) + ")");
                     }
 
                     ChartSeries series;
