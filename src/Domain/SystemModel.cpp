@@ -264,6 +264,19 @@ namespace tmpp::domain
                     activity.writeBytesPerSecond =
                         static_cast<double>(disk.writeBytes - before.writeBytes) / elapsedSeconds;
 
+                    // The running total, integrated from the rate over the interval it was measured over.
+                    //
+                    // Multiplying the rate back by that same interval recovers the byte count the two
+                    // counters differ by, so the total is the sum of the real deltas rather than an
+                    // approximation of them -- there is no drift to accumulate. A device whose counters
+                    // went backwards is excluded above, so a reset cannot add a spurious jump.
+                    //
+                    // Held as one pair per device rather than as a series: the rates already keep a
+                    // window, and this figure is meant to cover the whole run, which no window can.
+                    auto& totals = m_diskBytesTotal[disk.instanceName];
+                    totals.first += activity.readBytesPerSecond * elapsedSeconds;
+                    totals.second += activity.writeBytesPerSecond * elapsedSeconds;
+
                     // Active time is the complement of idle time over the elapsed interval.
                     //
                     // Read service time plus write service time is not a substitute, and was the
@@ -292,6 +305,16 @@ namespace tmpp::domain
                     totalActive += activity.activePercent;
                     ++activeDevices;
                 }
+            }
+
+            // The running total is reported for every device, not only the ones that were just
+            // accumulated: a device whose counters could not be differenced this time still has the total
+            // it built up before, and zeroing it would make the figure fall back to nothing and climb
+            // again. A device seen for the first time has no entry and correctly reports zero.
+            if (auto const total = m_diskBytesTotal.find(disk.instanceName); total != m_diskBytesTotal.end())
+            {
+                activity.readBytesTotal = total->second.first;
+                activity.writeBytesTotal = total->second.second;
             }
 
             diskActivities.push_back(std::move(activity));

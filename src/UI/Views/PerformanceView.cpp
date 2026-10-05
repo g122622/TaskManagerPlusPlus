@@ -800,6 +800,16 @@ namespace tmpp::ui
                     subtitle = "R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesPerSecond)) + "/s";
                     subtitle += "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesPerSecond)) + "/s";
 
+                    // The third line carries the same two directions as running totals for the session,
+                    // against the per-second figures above it.
+                    //
+                    // The unit is what tells them apart: the line above ends in "/s" and this one does not.
+                    // A disk's throughput at any instant says little about what it has done, and a machine
+                    // that has been reading steadily for an hour looks the same on the line above as one
+                    // that has just started.
+                    setDetail(i, "R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesTotal)) +
+                                     "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesTotal)));
+
                     // The device's own series, looked up by instance name. Every disk has its own
                     // history, so a machine with several disks shows each one's trend rather than one
                     // trend repeated on every row. The two directions are summed for the thumbnail,

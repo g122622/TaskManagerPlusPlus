@@ -73,7 +73,19 @@ namespace tmpp::ui
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_heading{nullptr};
-        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_linkCaption{nullptr};
+
+        /**
+         * @brief The adapter's model, right-aligned on the heading row.
+         *
+         * It names the hardware the page is describing, which is what the heading beside it is too general
+         * to say: a machine can have several adapters and "Wi-Fi" does not distinguish between them.
+         *
+         * It was the link speed before, which the detail panel already states twice, so the heading row was
+         * carrying a figure the reader could find below rather than the one thing that identifies the
+         * device.
+         */
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_adapterModel{nullptr};
+
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_caption{nullptr};
 
         /**

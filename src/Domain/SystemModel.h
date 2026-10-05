@@ -42,6 +42,19 @@ namespace tmpp::domain
         double readBytesPerSecond{0.0};
         double writeBytesPerSecond{0.0};
 
+        /**
+         * @brief Bytes read and written since the application started measuring this device.
+         *
+         * A running total rather than a rate, accumulated across samples by the model. The device's own
+         * counters are cumulative since boot, which is not what is wanted here: the figure answers "how
+         * much has this application seen this disk do", so it begins at zero when the application does.
+         *
+         * Only the total is kept, one per device. Keeping the samples as well would be a second history
+         * to hold and would still have to be summed to get this.
+         */
+        double readBytesTotal{0.0};
+        double writeBytesTotal{0.0};
+
         /// Share of the interval spent servicing requests.
         ///
         /// Derived as the change in read plus write service time over the elapsed time. Using the
@@ -423,5 +436,16 @@ namespace tmpp::domain
 
         uint64_t m_previousHardwareCapturedAt{0};
         bool m_hasHardwareBaseline{false};
+
+        /**
+         * @brief Bytes read and written per device since the application started, keyed by instance name.
+         *
+         * One running total per device and nothing else: the rates already keep a window of samples, and
+         * this is the figure that window cannot give because it is meant to cover the whole run rather
+         * than the last minute.
+         *
+         * The pair is read then written, in that order.
+         */
+        std::map<std::string, std::pair<double, double>> m_diskBytesTotal;
     };
 }

@@ -92,11 +92,17 @@ namespace tmpp::ui
         Grid::SetColumn(m_heading, 0);
         headingRow.Children().Append(m_heading);
 
-        m_linkCaption = controls::MakeText(L"", 13.0, true);
-        m_linkCaption.VerticalAlignment(VerticalAlignment::Bottom);
-        m_linkCaption.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 4.0));
-        Grid::SetColumn(m_linkCaption, 1);
-        headingRow.Children().Append(m_linkCaption);
+        // The adapter's model, right-aligned and sitting on the heading's baseline, matching how the CPU
+        // and disk pages name their own hardware. Trimmed rather than wrapped: the heading has to keep its
+        // place, and a model name is long enough to push it off the row on a narrow window.
+        m_adapterModel = controls::MakeText(L"", 13.0, true);
+        m_adapterModel.HorizontalAlignment(HorizontalAlignment::Right);
+        m_adapterModel.VerticalAlignment(VerticalAlignment::Bottom);
+        m_adapterModel.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        m_adapterModel.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+        m_adapterModel.Margin(ThicknessHelper::FromLengths(12.0, 0.0, 0.0, 4.0));
+        Grid::SetColumn(m_adapterModel, 1);
+        headingRow.Children().Append(m_adapterModel);
 
         Grid::SetRow(headingRow, 0);
         m_root.Children().Append(headingRow);
@@ -164,7 +170,10 @@ namespace tmpp::ui
         m_column1.push_back(_addDetail(column1, L"Link speed"));
 
         // Column 2: the adapter's own figures.
-        m_column2.push_back(_addDetail(column2, L"Adapter"));
+        //
+        // The model is not among them. It names the device rather than measuring it, so it belongs on the
+        // heading row where the device is named, and repeating it here spent a row of the panel on the one
+        // thing above it already said.
         m_column2.push_back(_addDetail(column2, L"Connection"));
         m_column2.push_back(_addDetail(column2, L"Receive link"));
         m_column2.push_back(_addDetail(column2, L"Transmit link"));
@@ -377,10 +386,10 @@ namespace tmpp::ui
         assign(m_column1, 2, FormatPercent(iface.UtilizationPercent()));
         assign(m_column1, 3, _linkSpeedText(iface.receiveLinkSpeedBps));
 
-        assign(m_column2, 0, iface.adapterName.empty() ? UnavailableValue() : iface.adapterName);
-        assign(m_column2, 1, iface.connected ? "Connected" : "Disconnected");
-        assign(m_column2, 2, _linkSpeedText(iface.receiveLinkSpeedBps));
-        assign(m_column2, 3, _linkSpeedText(iface.transmitLinkSpeedBps));
+        // The column's rows shifted down when the model left it, so these follow the labels above.
+        assign(m_column2, 0, iface.connected ? "Connected" : "Disconnected");
+        assign(m_column2, 1, _linkSpeedText(iface.receiveLinkSpeedBps));
+        assign(m_column2, 2, _linkSpeedText(iface.transmitLinkSpeedBps));
 
         // The error counters are running totals, which is the form they are meaningful in: a
         // per-second rate would report zero for a healthy link and imply a fault rate that does not
@@ -391,9 +400,10 @@ namespace tmpp::ui
         assign(m_column3, 2, iface.connected ? "Connected" : "Disconnected");
         assign(m_column3, 3, iface.virtualAdapter ? "Yes" : "No");
 
-        if (m_linkCaption != nullptr)
+        if (m_adapterModel != nullptr)
         {
-            m_linkCaption.Text(winrt::to_hstring(_linkSpeedText(iface.receiveLinkSpeedBps)));
+            m_adapterModel.Text(winrt::to_hstring(iface.adapterName.empty() ? UnavailableValue()
+                                                                           : iface.adapterName));
         }
     }
 }
