@@ -368,9 +368,27 @@ namespace tmpp::domain
                     activity.sentBytesPerSecond =
                         static_cast<double>(iface.sentBytes - before.sentBytes) / elapsedSeconds;
 
+                    // The running totals, integrated the same way as the disks': multiplying each rate back
+                    // by the interval it was measured over recovers the byte count the counters differ by,
+                    // so there is no drift to accumulate. An interval whose counters went backwards is
+                    // excluded above, so an adapter that reset cannot add a spurious jump.
+                    auto& totals = m_networkBytesTotal[iface.adapterName];
+                    totals.first += activity.receivedBytesPerSecond * elapsedSeconds;
+                    totals.second += activity.sentBytesPerSecond * elapsedSeconds;
+
                     totalReceiveBps += activity.receivedBytesPerSecond;
                     totalSendBps += activity.sentBytesPerSecond;
                 }
+            }
+
+            // Reported for every adapter, not only the ones just accumulated: an adapter whose counters
+            // could not be differenced still has the total it built up before, and zeroing it would make
+            // the figure fall to nothing and climb again.
+            if (auto const total = m_networkBytesTotal.find(iface.adapterName);
+                total != m_networkBytesTotal.end())
+            {
+                activity.receivedBytesTotal = total->second.first;
+                activity.sentBytesTotal = total->second.second;
             }
 
             networkActivities.push_back(std::move(activity));

@@ -120,6 +120,18 @@ namespace tmpp::domain
         double receivedBytesPerSecond{0.0};
         double sentBytesPerSecond{0.0};
 
+        /**
+         * @brief Bytes received and sent since the application started measuring this adapter.
+         *
+         * A running total rather than a rate, accumulated across samples by the model, on the same terms
+         * as the disk totals: the adapter's own counters are cumulative since boot, and the answer wanted
+         * here is what this application has seen rather than what the machine has done.
+         *
+         * One pair per adapter, read then written, and nothing else kept.
+         */
+        double receivedBytesTotal{0.0};
+        double sentBytesTotal{0.0};
+
         uint64_t receiveLinkSpeedBps{0};
         uint64_t transmitLinkSpeedBps{0};
 
@@ -447,5 +459,12 @@ namespace tmpp::domain
          * The pair is read then written, in that order.
          */
         std::map<std::string, std::pair<double, double>> m_diskBytesTotal;
+
+        /**
+         * @brief Bytes received and sent per adapter since the application started, keyed by adapter name.
+         *
+         * The pair is read then written, in that order, matching the disk totals above it.
+         */
+        std::map<std::string, std::pair<double, double>> m_networkBytesTotal;
     };
 }

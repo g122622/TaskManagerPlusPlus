@@ -854,6 +854,12 @@ namespace tmpp::ui
                     subtitle = "S: " + FormatBytes(static_cast<uint64_t>(iface.sentBytesPerSecond)) + "/s";
                     subtitle += "  R: " + FormatBytes(static_cast<uint64_t>(iface.receivedBytesPerSecond)) + "/s";
 
+                    // The same two directions as running totals for the session, against the per-second
+                    // figures above them. The unit is what tells them apart: the line above ends in "/s"
+                    // and this one does not.
+                    setDetail(i, "S: " + FormatBytes(static_cast<uint64_t>(iface.sentBytesTotal)) +
+                                     "  R: " + FormatBytes(static_cast<uint64_t>(iface.receivedBytesTotal)));
+
                     // The adapter's own series, looked up by name, for the same reason the disk rows
                     // use theirs.
                     auto const seriesForAdapter = history.networkBytesPerSecondByAdapter.find(iface.adapterName);
@@ -892,10 +898,17 @@ namespace tmpp::ui
                         break;
                     }
 
+                    // Utilisation on the reading line, the dedicated memory below it.
+                    //
+                    // The two are different kinds of figure -- a share of the adapter and an amount of its
+                    // own memory -- so they read better on separate lines than run together, which is what
+                    // put a percentage and a byte count in one sentence.
                     subtitle = FormatPercent(system.gpu.utilizationPercent);
+
                     if (system.gpu.dedicatedTotalBytes > 0)
                     {
-                        subtitle += "  " + FormatBytes(system.gpu.dedicatedUsedBytes);
+                        setDetail(i, FormatBytes(system.gpu.dedicatedUsedBytes) + " / " +
+                                         FormatBytes(system.gpu.dedicatedTotalBytes));
                     }
 
                     ChartSeries series;

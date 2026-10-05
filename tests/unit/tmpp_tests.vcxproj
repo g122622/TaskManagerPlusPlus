@@ -118,7 +118,7 @@
     <ClCompile Include="test_process_icon.cpp" />
     <ClCompile Include="test_process_icon_cache.cpp" />
     <ClCompile Include="test_chart_baseline.cpp" />
-    <ClCompile Include="test_disk_cumulative_bytes.cpp" />
+    <ClCompile Include="test_cumulative_bytes.cpp" />
     <ClCompile Include="test_lazy_page_style.cpp" />
     <ClCompile Include="test_process_column_widths.cpp" />
     <ClCompile Include="test_probe_timing.cpp" />
