@@ -30,6 +30,24 @@ namespace tmpp::platform
          */
         [[nodiscard]] Result<ProcessSnapshot> Enumerate() const;
 
+        /**
+         * @brief Reads the size of the memory compression store from a snapshot.
+         *
+         * Windows compresses memory into a working set of its own, held by a process named
+         * "Memory Compression" that has no image on disk. That process's residency is what Windows
+         * Task Manager reports as compressed memory, which makes it the figure the composition
+         * strip marks with its hatch.
+         *
+         * Taken from the snapshot the process list is built from rather than read with a query of
+         * its own: a second bulk enumeration for a single number would double the cost of every
+         * sample (docs/METRICS.md, constraint P-001).
+         *
+         * @param snapshot A snapshot from Enumerate.
+         * @return The compression process's working set, or zero when there is no such process,
+         *         which is what a machine with memory compression disabled reports.
+         */
+        [[nodiscard]] static uint64_t CompressedMemoryBytes(ProcessSnapshot const& snapshot) noexcept;
+
         [[nodiscard]] ProcessCapabilities Capabilities() const noexcept { return m_capabilities; }
 
     private:

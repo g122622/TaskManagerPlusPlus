@@ -173,7 +173,8 @@ namespace tmpp::platform
      * lists by type; the values here are those page counts converted to bytes.
      *
      * The four categories are mutually exclusive and together account for all physical memory,
-     * which is what lets the composition bar be drawn as one continuous strip.
+     * which is what lets the composition bar be drawn as one continuous strip. Compressed memory
+     * is reported beside them without being a fifth category; see compressedBytes.
      */
     struct SystemMemoryComposition
     {
@@ -189,13 +190,35 @@ namespace tmpp::platform
         /// Pages on the free list, immediately available.
         uint64_t freeBytes{0};
 
+        /**
+         * @brief Bytes held in the memory compression store.
+         *
+         * Windows keeps its compressed pages in a working set of their own, held by a process named
+         * "Memory Compression", and this is that process's residency -- the figure Windows Task
+         * Manager reports as compressed.
+         *
+         * It is a part of inUseBytes rather than a category beside it: the compressed store is
+         * resident, so those pages are already counted in the in-use total. The strip draws this
+         * length hatched at the leading edge of the in-use segment, and adding it to the categories
+         * below would count the same bytes twice and make the strip longer than the machine's
+         * memory.
+         *
+         * Zero when memory compression is off, which leaves no compression process to read, and on
+         * a round whose process enumeration failed.
+         */
+        uint64_t compressedBytes{0};
+
         /// Page size used for the conversion, for diagnostics.
         uint64_t pageSize{0};
 
         /// True when the breakdown came from the page lists rather than being derived.
         bool available{false};
 
-        /// Total accounted for, which should equal installed physical memory.
+        /**
+         * @brief Total accounted for, which should equal installed physical memory.
+         *
+         * Compressed memory is deliberately absent from the sum: it is already inside inUseBytes.
+         */
         [[nodiscard]] uint64_t Total() const noexcept
         {
             return inUseBytes + modifiedBytes + standbyBytes + freeBytes;

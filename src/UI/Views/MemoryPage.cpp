@@ -461,12 +461,24 @@ namespace tmpp::ui
         // series palette: this strip encodes categories, not metrics, and reusing a series colour
         // would suggest the two are related. They are also the hook the colour-customisation
         // feature will drive (docs/ROADMAP.md, M1-6).
+        //
+        // Every figure the page draws is described here once, in the order it is read: the strip is
+        // built from the entries that are segments of their own, and the legend names all of them.
+        // Two tables would let a colour or a label drift between a segment and the swatch that is
+        // supposed to identify it.
         struct Category
         {
             wchar_t const* label;
             winrt::Windows::UI::Color color;
             uint64_t bytes;
-            bool shownInLegend;
+
+            /// Leading part of the segment drawn with the compression hatch, in bytes.
+            uint64_t hatchedBytes;
+
+            /// True when this figure is drawn as a segment of the strip in its own right. False for
+            /// one that is already inside another segment, which is named in the legend only: it
+            /// would otherwise be counted twice and make the strip longer than the machine's memory.
+            bool inStrip;
         };
 
         // Hardware reserved is the difference between what the modules provide and what the operating
@@ -483,11 +495,24 @@ namespace tmpp::ui
             (moduleTotalBytes > system.memory.totalPhysical) ? (moduleTotalBytes - system.memory.totalPhysical) : 0;
 
         std::vector<Category> const categories{
-            {L"Hardware reserved", winrt::Windows::UI::Color{0xFF, 0xE8, 0x4A, 0x4A}, hardwareReserved, true},
-            {L"In use", winrt::Windows::UI::Color{0xFF, 0x4C, 0x8B, 0xF5}, composition.inUseBytes, true},
-            {L"Modified", winrt::Windows::UI::Color{0xFF, 0xFF, 0xB1, 0x4A}, composition.modifiedBytes, true},
-            {L"Cached", winrt::Windows::UI::Color{0xFF, 0x7A, 0x6C, 0xE8}, composition.standbyBytes, true},
-            {L"Free", winrt::Windows::UI::Color{0xFF, 0x5A, 0x5A, 0x5A}, composition.freeBytes, true},
+            {L"Hardware reserved", winrt::Windows::UI::Color{0xFF, 0xE8, 0x4A, 0x4A}, hardwareReserved, 0, true},
+            {L"In use",
+             winrt::Windows::UI::Color{0xFF, 0x4C, 0x8B, 0xF5},
+             composition.inUseBytes,
+             composition.compressedBytes,
+             true},
+            // Compressed memory is the part of in-use the kernel has squeezed into its compression
+            // store. Those pages are still resident, so they are already inside the in-use figure:
+            // this entry points at the hatched lead of that segment rather than being a segment
+            // beside it, and its swatch carries the same hatch so the two are read as one thing.
+            {L"Compressed",
+             winrt::Windows::UI::Color{0xFF, 0x4C, 0x8B, 0xF5},
+             composition.compressedBytes,
+             composition.compressedBytes,
+             false},
+            {L"Modified", winrt::Windows::UI::Color{0xFF, 0xFF, 0xB1, 0x4A}, composition.modifiedBytes, 0, true},
+            {L"Cached", winrt::Windows::UI::Color{0xFF, 0x7A, 0x6C, 0xE8}, composition.standbyBytes, 0, true},
+            {L"Free", winrt::Windows::UI::Color{0xFF, 0x5A, 0x5A, 0x5A}, composition.freeBytes, 0, true},
         };
 
         // The percentages are of the installed memory rather than of what the operating system can use,
@@ -500,7 +525,14 @@ namespace tmpp::ui
         segments.reserve(categories.size());
         for (Category const& category : categories)
         {
-            segments.push_back(MemoryCompositionBar::Segment{category.label, category.color, category.bytes});
+            if (!category.inStrip)
+            {
+                // Named in the legend only. Appending it would draw the same bytes a second time.
+                continue;
+            }
+
+            segments.push_back(MemoryCompositionBar::Segment{
+                category.label, category.color, category.bytes, category.hatchedBytes});
         }
         m_composition->SetSegments(segments);
 
@@ -525,12 +557,21 @@ namespace tmpp::ui
 
             StackPanel entry = controls::MakeRow(6.0);
 
-            // A colour swatch, which is what ties the legend entry to its segment.
+            // A colour swatch, which is what ties the legend entry to its segment. An entry for a
+            // figure drawn inside another segment shows the hatch instead of a flat colour, because
+            // that is what the reader has to look for in the strip.
             winrt::Microsoft::UI::Xaml::Controls::Border swatch;
             swatch.Width(10.0);
             swatch.Height(10.0);
             swatch.CornerRadius(winrt::Microsoft::UI::Xaml::CornerRadiusHelper::FromUniformRadius(2.0));
-            swatch.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{category.color});
+            if (category.inStrip)
+            {
+                swatch.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{category.color});
+            }
+            else
+            {
+                swatch.Child(MakeHatchedSurface(category.color));
+            }
             entry.Children().Append(swatch);
 
             std::string text{winrt::to_string(winrt::hstring{category.label})};

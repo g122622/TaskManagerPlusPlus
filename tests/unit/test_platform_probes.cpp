@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <set>
 
 namespace tmpp::platform
@@ -128,6 +129,68 @@ namespace tmpp::platform
         }
 
         EXPECT_EQ(unnamed, 1u) << "exactly one process (the idle process) should be unnamed";
+    }
+
+    TEST(WindowsProcessProbeTest, CompressedMemoryComesFromTheCompressionProcess)
+    {
+        // Windows keeps its compressed pages in a working set of its own, held by a process named
+        // "Memory Compression", and that process's residency is what the composition strip hatches
+        // inside the in-use segment. The working set rather than the private commit: the hatch says
+        // how much physical memory the store is holding.
+        ProcessSnapshot snapshot;
+
+        ProcessInfo other;
+        other.imageName = "explorer.exe";
+        other.memory.workingSetSize = 4096;
+        other.memory.privatePageCount = 4096;
+        snapshot.processes.push_back(other);
+
+        ProcessInfo compression;
+        compression.imageName = "Memory Compression";
+        compression.memory.workingSetSize = 3ull * 1024 * 1024 * 1024;
+        compression.memory.privatePageCount = 1;
+        snapshot.processes.push_back(compression);
+
+        EXPECT_EQ(WindowsProcessProbe::CompressedMemoryBytes(snapshot), 3ull * 1024 * 1024 * 1024);
+    }
+
+    TEST(WindowsProcessProbeTest, NoCompressionProcessMeansNoCompressedMemory)
+    {
+        // Memory compression can be turned off, in which case there is no such process and there is
+        // nothing to hatch. Reading the size of some other process would put a texture on the strip
+        // that means nothing at all.
+        ProcessSnapshot snapshot;
+
+        ProcessInfo process;
+        process.imageName = "explorer.exe";
+        process.memory.workingSetSize = 4096;
+        snapshot.processes.push_back(process);
+
+        EXPECT_EQ(WindowsProcessProbe::CompressedMemoryBytes(snapshot), 0u);
+    }
+
+    TEST(WindowsProcessProbeTest, ReadsTheCompressionStoreOnThisMachine)
+    {
+        WindowsProcessProbe probe;
+        auto const result = probe.Enumerate();
+        ASSERT_TRUE(result.Success()) << result.GetError().Message();
+
+        // Memory compression is on by default on Windows 11, so this machine should have the process,
+        // and this is also what pins the name the probe matches on against the name the kernel
+        // actually reports: a misspelling would read zero forever, and the only visible symptom would
+        // be a hatch that never appears.
+        uint64_t const compressed = WindowsProcessProbe::CompressedMemoryBytes(result.Value());
+        std::printf("\n--- memory compression ---\nstore: %llu bytes (%.2f GB)\n",
+                    compressed,
+                    static_cast<double>(compressed) / (1024.0 * 1024.0 * 1024.0));
+
+        MEMORYSTATUSEX memory{};
+        memory.dwLength = sizeof(memory);
+        ASSERT_NE(GlobalMemoryStatusEx(&memory), FALSE);
+
+        // Larger than the machine's own memory would mean the figure had been scaled twice, which
+        // both the page counts and the working set are prone to.
+        EXPECT_LT(compressed, memory.ullTotalPhys);
     }
 
     TEST(WindowsProcessProbeTest, AssignsUniquePids)

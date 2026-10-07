@@ -48,10 +48,29 @@
 | --- | --- |
 | 系统内存总量 / 可用 / 已提交 | `GlobalMemoryStatusEx` |
 | 内存组成（使用中/已修改/备用/空闲） | `NtQuerySystemInformation(SystemMemoryListInformation)` |
+| 已压缩内存（压缩存储的大小） | `SYSTEM_PROCESS_INFORMATION`：批量快照中名为 `Memory Compression` 的进程的**工作集** |
 | 已缓存 / 分页池 / 非分页池 / 提交峰值 / 句柄总数 | `GetPerformanceInfo`（一次调用返回全部，页数 × `PageSize`） |
 | 进程工作集 / 私有字节 / 虚拟大小 / 峰值 | `SYSTEM_PROCESS_INFORMATION`（见上表） |
 | 进程缺页数 | `GetProcessMemoryInfo`（`PROCESS_MEMORY_COUNTERS_EX`） |
 | 内存条容量 / 代数 / 频率 / 位宽 / 电压 / 厂商 / 型号 | `GetSystemFirmwareTable('RSMB')` 解析 SMBIOS Type 17 |
+
+### 已压缩内存的取数与呈现
+
+Windows 把压缩页放在**自己的一个工作集**里，由名为 `Memory Compression` 的进程持有
+（该进程没有磁盘映像，因此进程列表与图标读取器都单独识别它）。这个工作集就是任务管理器
+「压缩」一栏的含义，也是本项目的取数来源：`WindowsProcessProbe::CompressedMemoryBytes()`
+从**同一次**进程批量快照里取该进程的 `WorkingSetSize`，`SamplingCoordinator` 把它填进
+`SystemMemoryComposition::compressedBytes`。
+
+- **不额外查询一次。** 再调一次 `NtQuerySystemInformation(SystemProcessInformation)` 只为拿一个
+  数字，会让每轮采样的进程枚举成本翻倍（约束 P-001）。快照本来就在手上，因此这是零成本读取。
+- **它是 `inUseBytes` 的一部分，不是第五个分段。** 压缩页仍然驻留在物理内存中，已经计入
+  「使用中」。组成条把它画成**使用中段左侧的斜白条纹**（`MakeHatchedSurface`），图例里以
+  同样的斜纹色块列一条 `Compressed` 条目并给出数值；如果把它当作独立分段追加，条的总长会
+  超过机器实际内存，等于把同一批字节算了两遍。
+- **0 表示没有可画的东西**（系统关闭了内存压缩，或该轮进程枚举失败），此时该段不画斜纹、
+  图例也不出现这一条，而不是画一段零长度。
+- 斜纹长度在绘制时被**钳制**到不超过所在分段（两个数字来自不同数据源，可能不一致）。
 
 ### 内存条（SMBIOS）
 

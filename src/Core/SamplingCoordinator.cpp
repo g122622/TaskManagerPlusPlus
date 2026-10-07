@@ -328,8 +328,19 @@ namespace tmpp::core
         // strip rather than affecting the memory figures.
         if (auto const composition = m_systemProbe.ReadMemoryComposition(); composition.Success())
         {
+            platform::SystemMemoryComposition value = composition.Value();
+
+            // The compressed figure is taken from the process snapshot already in hand rather than
+            // from a query of its own: the compression store is the residency of the process Windows
+            // dedicates to it, and a second bulk enumeration for one number would double the cost of
+            // the round (docs/METRICS.md, P-001). A round whose process enumeration failed reports
+            // zero, which the strip draws as no hatch rather than as a stale length.
+            value.compressedBytes = processes.Success()
+                                        ? platform::WindowsProcessProbe::CompressedMemoryBytes(processes.Value())
+                                        : 0;
+
             std::lock_guard const lock(m_mutex);
-            m_systemModel.SetMemoryComposition(composition.Value());
+            m_systemModel.SetMemoryComposition(value);
         }
 
         // --- Rolling totals.

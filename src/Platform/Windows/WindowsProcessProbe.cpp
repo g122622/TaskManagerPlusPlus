@@ -109,6 +109,10 @@ namespace tmpp::platform
         /// Reserved capacity, matching the referenced implementation's tuning.
         constexpr size_t ESTIMATED_PROCESS_COUNT = 512;
 
+        /// The process that holds the memory compression store. Its name is set by the kernel and
+        /// has no image behind it, which is why the icon reader special-cases it as well.
+        constexpr char COMPRESSION_PROCESS_NAME[] = "Memory Compression";
+
         [[nodiscard]] uint64_t _toTicks(LARGE_INTEGER value) noexcept
         {
             return static_cast<uint64_t>(value.QuadPart);
@@ -222,5 +226,24 @@ namespace tmpp::platform
         }
 
         return snapshot;
+    }
+
+    uint64_t WindowsProcessProbe::CompressedMemoryBytes(ProcessSnapshot const& snapshot) noexcept
+    {
+        // The working set rather than the private commit: the compressed pages are resident, and the
+        // question the strip asks is how much physical memory the store is holding. It is also the
+        // figure this application shows for the process in its own list, so the hatch and the process
+        // row cannot disagree about it.
+        for (ProcessInfo const& process : snapshot.processes)
+        {
+            if (process.imageName == COMPRESSION_PROCESS_NAME)
+            {
+                return process.memory.workingSetSize;
+            }
+        }
+
+        // Memory compression off, or a snapshot taken before the process exists. Either way there is
+        // nothing hatched to draw, and zero is the honest answer rather than a guess.
+        return 0;
     }
 }

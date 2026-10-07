@@ -7,6 +7,11 @@
 //
 // The byte counts come from the page lists, which are verified against the installed total by
 // the probe's own diagnostic; what is tested here is what the strip does with them.
+//
+// The last group covers the compression hatch: compressed memory is drawn as a lead of the in-use
+// segment rather than as a segment of its own, and the rule that keeps it there -- never longer
+// than the segment holding it, never counted towards the strip's total -- is what this file
+// states, because getting it wrong double-counts memory that is already resident.
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -20,19 +25,44 @@ namespace tmpp::ui::test
         struct Segment
         {
             uint64_t bytes;
+            uint64_t hatchedBytes{0};
+
+            /// Whether this figure is drawn as a segment of the strip. False for one that is already
+            /// inside another segment and is named in the legend only.
+            bool inStrip{true};
         };
+
+        /// Mirrors the clamp the bar applies to a hatched lead.
+        [[nodiscard]] uint64_t HatchedLength(uint64_t bytes, uint64_t hatchedBytes)
+        {
+            return (hatchedBytes < bytes) ? hatchedBytes : bytes;
+        }
 
         [[nodiscard]] std::vector<Segment> VisibleSegments(std::vector<Segment> const& input)
         {
             std::vector<Segment> visible;
             for (Segment const& segment : input)
             {
-                if (segment.bytes > 0)
+                // Only the figures that are segments of the strip are drawn; the rest are named in
+                // the legend. This is the filter that stops compressed memory being added twice.
+                if (segment.bytes > 0 && segment.inStrip)
                 {
-                    visible.push_back(segment);
+                    Segment entry = segment;
+                    entry.hatchedBytes = HatchedLength(segment.bytes, segment.hatchedBytes);
+                    visible.push_back(entry);
                 }
             }
             return visible;
+        }
+
+        [[nodiscard]] uint64_t Total(std::vector<Segment> const& segments)
+        {
+            uint64_t total = 0;
+            for (Segment const& segment : VisibleSegments(segments))
+            {
+                total += segment.bytes;
+            }
+            return total;
         }
     }
 
@@ -118,5 +148,78 @@ namespace tmpp::ui::test
 
         ASSERT_EQ(visible.size(), 1u);
         EXPECT_EQ(visible[0].bytes, 4096u);
+    }
+
+    // ------------------------------------------------------------------------
+    // The compression hatch
+    // ------------------------------------------------------------------------
+
+    TEST(MemoryCompositionTest, ACompressedFigureIsDrawnInsideItsOwnSegment)
+    {
+        // The ordinary shape of this: part of in-use is compressed memory, so the hatch covers a
+        // lead of that segment and the rest of it is left plain. The compressed length must not
+        // lengthen the segment -- the pages are resident, so they are already counted in it.
+        constexpr uint64_t IN_USE = 60ull * 1024 * 1024 * 1024;
+        constexpr uint64_t COMPRESSED = 3ull * 1024 * 1024 * 1024;
+
+        std::vector<Segment> const input{{IN_USE, COMPRESSED}};
+        auto const visible = VisibleSegments(input);
+
+        ASSERT_EQ(visible.size(), 1u);
+        EXPECT_EQ(visible[0].bytes, IN_USE) << "the hatch must not lengthen the segment holding it";
+        EXPECT_EQ(visible[0].hatchedBytes, COMPRESSED);
+        EXPECT_LT(visible[0].hatchedBytes, visible[0].bytes) << "a lead must leave a plain remainder";
+    }
+
+    TEST(MemoryCompositionTest, AHatchLongerThanItsSegmentIsClampedToIt)
+    {
+        // The two figures come from different sources -- a page list and a process's residency -- so
+        // they can disagree. A hatch drawn longer than its segment would paint over the neighbour to
+        // its right and read as a category of its own.
+        std::vector<Segment> const input{{4096, 8192}};
+        auto const visible = VisibleSegments(input);
+
+        ASSERT_EQ(visible.size(), 1u);
+        EXPECT_EQ(visible[0].hatchedBytes, 4096u) << "a hatch cannot be longer than its own segment";
+    }
+
+    TEST(MemoryCompositionTest, NoHatchWithoutACompressedFigure)
+    {
+        // Memory compression off, or a round that could not read the compression process: the
+        // segment is drawn plain rather than with an empty hatch surface.
+        std::vector<Segment> const input{{8192, 0}};
+        auto const visible = VisibleSegments(input);
+
+        ASSERT_EQ(visible.size(), 1u);
+        EXPECT_EQ(visible[0].hatchedBytes, 0u);
+    }
+
+    TEST(MemoryCompositionTest, CompressedMemoryIsNotASegmentOfItsOwn)
+    {
+        // The property the hatch exists to preserve: the strip accounts for the installed memory
+        // exactly once. Compressed memory is reported beside the four categories and is already part
+        // of in-use, so drawing it as a segment as well would make the strip longer than the machine
+        // has -- which is why the entry is named in the legend and not appended to the strip.
+        constexpr uint64_t INSTALLED = 128ull * 1024 * 1024 * 1024;
+        constexpr uint64_t RESERVED = 211ull * 1024 * 1024;
+        constexpr uint64_t IN_USE = 77ull * 1024 * 1024 * 1024;
+        constexpr uint64_t COMPRESSED = 4ull * 1024 * 1024 * 1024;
+        constexpr uint64_t MODIFIED = 1ull * 1024 * 1024 * 1024;
+        constexpr uint64_t CACHED = 46ull * 1024 * 1024 * 1024;
+        constexpr uint64_t FREE = INSTALLED - RESERVED - IN_USE - MODIFIED - CACHED;
+
+        std::vector<Segment> const input{
+            {RESERVED, 0, true},
+            {IN_USE, COMPRESSED, true},
+            {COMPRESSED, COMPRESSED, false},
+            {MODIFIED, 0, true},
+            {CACHED, 0, true},
+            {FREE, 0, true},
+        };
+
+        auto const visible = VisibleSegments(input);
+
+        EXPECT_EQ(visible.size(), 5u) << "the compressed entry names a part of in-use, it is not a segment";
+        EXPECT_EQ(Total(input), INSTALLED) << "the parts must still account for the installed memory";
     }
 }
