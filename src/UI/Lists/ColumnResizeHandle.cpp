@@ -1,6 +1,6 @@
 #include "UI/Lists/ColumnResizeHandle.h"
 
-#include "UI/Lists/ResizeCursor.h"
+#include "UI/Theming/Controls.h"
 
 using winrt::Microsoft::UI::Xaml::Controls::Grid;
 using winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs;
@@ -110,7 +110,10 @@ namespace tmpp::ui
         // settings load or an earlier drag can have moved it.
         m_startWidth = m_widthOf ? m_widthOf(m_column) : 0.0;
 
-        auto const point = args.GetCurrentPoint(m_root);
+        // Measured in the window's frame, not the handle's. The handle sits on the boundary it moves, so a
+        // position measured from the handle is measured from a frame that moves with the drag: the
+        // handle's own movement cancels the pointer's and the boundary tracks at half speed.
+        auto const point = args.GetCurrentPoint(nullptr);
         if (point == nullptr)
         {
             return;
@@ -130,7 +133,7 @@ namespace tmpp::ui
             return;
         }
 
-        auto const point = args.GetCurrentPoint(m_root);
+        auto const point = args.GetCurrentPoint(nullptr);
         if (point == nullptr)
         {
             return;

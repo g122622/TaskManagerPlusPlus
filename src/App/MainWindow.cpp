@@ -9,6 +9,7 @@
 #include "UI/Theming/Controls.h"
 #include "UI/Diagnostics.h"
 #include "UI/Theming/Formatting.h"
+#include "UI/Theming/ResizeDrag.h"
 #include "UI/Theming/Theme.h"
 
 #include <winrt/Microsoft.UI.Dispatching.h>
@@ -930,7 +931,9 @@ namespace tmpp
             });
 
         // The drag is measured as movement from where it began rather than from the absolute pointer
-        // position, so the boundary stays under the cursor wherever the drag starts.
+        // position, so the boundary stays under the cursor wherever the drag starts. The position is read
+        // in the window's frame: the rail's edge -- and so the handle on it -- moves as the pane widens,
+        // and a position measured from the handle would be measured from a frame that moves with the drag.
         auto const dragStartWidth = std::make_shared<double>(0.0);
         auto const dragStartX = std::make_shared<double>(0.0);
 
@@ -947,7 +950,7 @@ namespace tmpp
                 // GetCurrentPoint returns null when the pointer has no position relative to the element,
                 // which happens as it leaves or the element is removed mid-gesture; calling Position() on
                 // it dereferences null.
-                auto const point = args.GetCurrentPoint(element);
+                auto const point = args.GetCurrentPoint(nullptr);
                 if (point == nullptr)
                 {
                     return;
@@ -976,7 +979,7 @@ namespace tmpp
                     return;
                 }
 
-                auto const point = args.GetCurrentPoint(element);
+                auto const point = args.GetCurrentPoint(nullptr);
                 if (point == nullptr)
                 {
                     return;
@@ -988,8 +991,8 @@ namespace tmpp
                 constexpr double MIN_RAIL = 180.0;
                 constexpr double MAX_RAIL = 420.0;
 
-                double const delta = point.Position().X - *dragStartX;
-                double const width = std::clamp(*dragStartWidth + delta, MIN_RAIL, MAX_RAIL);
+                double const width = ui::DraggedWidth(*dragStartWidth, *dragStartX, point.Position().X,
+                                                      MIN_RAIL, MAX_RAIL);
 
                 m_navigation.OpenPaneLength(width);
                 m_currentSettings.navigationWidth = width;

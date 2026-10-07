@@ -3,6 +3,14 @@
 
 #include "UI/Theming/Controls.h"
 
+#include <inspectable.h>
+
+// The generated ABI declarations. The consuming projection is already in the shared header, but the
+// abi<> specialisations live in the per-namespace headers that the projection includes for its own use.
+// Including this one is what makes abi<IUIElementProtected> visible, so SetResizeCursor's call is a
+// normal virtual call against the shape the projection generated rather than an index into a table.
+#include <winrt/impl/Microsoft.UI.Xaml.0.h>
+
 namespace tmpp::ui::controls
 {
     Media::Brush ThemedBrush(wchar_t const* key)
@@ -219,7 +227,10 @@ namespace tmpp::ui::controls
         return frame;
     }
 
-    ColumnDefinition MakeResizableColumn(Border& outHandle, std::function<void(double)> onResize, double initialWidth)
+    ColumnDefinition MakeResizableColumn(Border& outHandle,
+                                         std::function<double()> currentWidth,
+                                         std::function<void(double)> onResize,
+                                         double initialWidth)
     {
         // WinUI has no GridSplitter, so the handle is a narrow Border with pointer handlers.
         //
@@ -229,12 +240,17 @@ namespace tmpp::ui::controls
         column.Width(GridLengthHelper::FromPixels(initialWidth));
 
         outHandle = Border();
-        outHandle.Width(metrics::SPLITTER_WIDTH);
-        outHandle.HorizontalAlignment(HorizontalAlignment::Right);
+        // Stretched down the side and sized and placed across by the caller: where the boundary is depends
+        // on the layout, and the caller is the only one that knows it.
+        outHandle.VerticalAlignment(VerticalAlignment::Stretch);
 
         // A transparent brush rather than none: a null Background is not hit-testable in WinUI, so
         // the handle would never receive the pointer.
         outHandle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+
+        // The horizontal resize cursor, which is what says the boundary can be dragged. Without it the
+        // strip is six pixels of nothing that only reacts once the pointer happens to be on it.
+        SetResizeCursor(outHandle);
 
         // The handle only becomes visible while the pointer is over it, matching the original's
         // subtle divider.
@@ -249,13 +265,20 @@ namespace tmpp::ui::controls
                 handle.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
             });
 
-        // The drag is measured as movement from where it started rather than from the absolute
-        // pointer position, so the boundary stays under the cursor wherever the drag begins.
+        // The width as it stands when the press lands, rather than the width the column was built with:
+        // an earlier drag, a settings load or a return from the compact layout can all have moved the
+        // boundary, and a drag that starts from a stale width makes the pane jump on the first move.
         auto const startWidth = std::make_shared<double>(initialWidth);
+
+        // The pointer's position when the drag began, in the window's frame rather than the handle's.
+        // The handle sits on the boundary it moves, so a position measured from the handle is measured
+        // from a frame that moves with the drag: the handle's own movement cancels the pointer's and the
+        // boundary tracks at half speed. The window does not move during a drag, so its frame is stable.
         auto const startX = std::make_shared<double>(0.0);
 
-        outHandle.PointerPressed([startX](winrt::Windows::Foundation::IInspectable const& sender,
-                                          winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+        outHandle.PointerPressed([startX, startWidth, currentWidth](
+                                     winrt::Windows::Foundation::IInspectable const& sender,
+                                     winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
             auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
             if (element == nullptr)
             {
@@ -265,12 +288,13 @@ namespace tmpp::ui::controls
             // GetCurrentPoint returns null when the pointer has no position relative to the element, which
             // happens as it leaves or the element is removed mid-gesture. Calling Position() on it
             // dereferences null, so every use is guarded.
-            auto const point = args.GetCurrentPoint(element);
+            auto const point = args.GetCurrentPoint(nullptr);
             if (point == nullptr)
             {
                 return;
             }
 
+            *startWidth = currentWidth ? currentWidth() : 0.0;
             *startX = point.Position().X;
 
             // Capture, because the drag leaves the narrow handle almost immediately.
@@ -294,33 +318,72 @@ namespace tmpp::ui::controls
                 return;
             }
 
-            auto const point = args.GetCurrentPoint(element);
+            auto const point = args.GetCurrentPoint(nullptr);
             if (point == nullptr)
             {
                 return;
             }
 
-            double const delta = point.Position().X - *startX;
             if (onResize)
             {
-                onResize(*startWidth + delta);
+                onResize(*startWidth + (point.Position().X - *startX));
             }
         });
 
-        outHandle.PointerReleased([startWidth, onResize](
-                                      winrt::Windows::Foundation::IInspectable const& sender,
-                                      winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
+        outHandle.PointerReleased([](winrt::Windows::Foundation::IInspectable const& sender,
+                                     winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args) {
             auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
             if (element == nullptr)
             {
                 return;
             }
             element.ReleasePointerCapture(args.Pointer());
-            (void)startWidth;
-            (void)onResize;
         });
 
+        // A gesture the pointer system cancels -- the window losing the pointer, a touch becoming a
+        // scroll -- has to end the drag as well. Otherwise the handle keeps its capture state and the
+        // next move over it resizes the column with no button held.
+        outHandle.PointerCaptureLost(
+            [](winrt::Windows::Foundation::IInspectable const& sender,
+               winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&) {
+                auto const element = sender.try_as<winrt::Microsoft::UI::Xaml::UIElement>();
+                if (element != nullptr)
+                {
+                    element.ReleasePointerCaptures();
+                }
+            });
+
         return column;
+    }
+
+    void SetResizeCursor(winrt::Microsoft::UI::Xaml::UIElement const& element)
+    {
+        if (element == nullptr)
+        {
+            return;
+        }
+
+        // Created once and shared: InputSystemCursor::Create returns a cached instance, but calling it per
+        // handle would still be a call per handle for a value that never varies.
+        static winrt::Microsoft::UI::Input::InputCursor const resizeCursor =
+            winrt::Microsoft::UI::Input::InputSystemCursor::Create(
+                winrt::Microsoft::UI::Input::InputSystemCursorShape::SizeWestEast);
+
+        auto const unknown = element.as<::IUnknown>();
+
+        winrt::com_ptr<::IUnknown> queried;
+        if (FAILED(unknown->QueryInterface(winrt::guid_of<winrt::Microsoft::UI::Xaml::IUIElementProtected>(),
+                                           queried.put_void())))
+        {
+            // A failed query leaves the default arrow rather than failing anything: the cursor is an
+            // affordance, and the boundary is draggable without it.
+            return;
+        }
+
+        using Abi = winrt::impl::abi<winrt::Microsoft::UI::Xaml::IUIElementProtected>::type;
+
+        auto* const access = reinterpret_cast<Abi*>(queried.get());
+        access->put_ProtectedCursor(winrt::get_abi(resizeCursor));
     }
 
     void MakeWindowDragRegion(

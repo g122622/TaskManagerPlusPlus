@@ -44,6 +44,20 @@ namespace tmpp::ui
         /// Sentinel for "this row reports no particular device", used where a section carries no
         /// sub-index.
         constexpr size_t NO_SUB_INDEX = static_cast<size_t>(-1);
+
+        /// Space between the sidebar card and the page content beside it.
+        ///
+        /// Part of the layout rather than decoration: it is what separates the list from the charts, and
+        /// the drag handle below is placed inside it rather than added to it.
+        constexpr double SIDEBAR_GAP = 14.0;
+
+        /// Where the drag handle sits inside that gap: hard against the card, so the highlight that
+        /// appears under the pointer reads as the sidebar's own edge rather than as part of the page.
+        ///
+        /// The remainder of the gap stays empty, so the distance between the sidebar and the content is
+        /// the same whether or not the handle is there: a handle given a column of its own would add its
+        /// width to that distance.
+        constexpr double SIDEBAR_HANDLE_INSET = SIDEBAR_GAP - metrics::SPLITTER_WIDTH;
     }
 
     PerformanceView::PerformanceView(core::SamplingCoordinator& coordinator,
@@ -89,12 +103,6 @@ namespace tmpp::ui
             {
                 m_pageWidth = m_pageColumn.Width();
                 m_pageColumn.Width(GridLengthHelper::FromPixels(0.0));
-            }
-
-            if (m_splitterColumn != nullptr)
-            {
-                m_splitterWidth = m_splitterColumn.Width();
-                m_splitterColumn.Width(GridLengthHelper::FromPixels(0.0));
             }
 
             // The page is removed rather than hidden: a collapsed element is still measured on every
@@ -145,11 +153,6 @@ namespace tmpp::ui
                 m_pageColumn.Width(m_pageWidth);
             }
 
-            if (m_splitterColumn != nullptr)
-            {
-                m_splitterColumn.Width(m_splitterWidth);
-            }
-
             if (m_sidebarSplitter != nullptr)
             {
                 m_sidebarSplitter.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
@@ -157,7 +160,7 @@ namespace tmpp::ui
 
             if (m_detailHost != nullptr && m_detailHost.Parent() == nullptr)
             {
-                Grid::SetColumn(m_detailHost, 2);
+                Grid::SetColumn(m_detailHost, 1);
                 m_root.Children().Append(m_detailHost);
             }
 
@@ -169,7 +172,7 @@ namespace tmpp::ui
                 m_sidebarCard.Background(restored.Background());
                 m_sidebarCard.BorderBrush(restored.BorderBrush());
                 m_sidebarCard.BorderThickness(restored.BorderThickness());
-                m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
+                m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, SIDEBAR_GAP, 0.0));
             }
 
             m_root.Padding(ThicknessHelper::FromLengths(metrics::CONTENT_LEFT_INSET, 8.0,
@@ -239,10 +242,19 @@ namespace tmpp::ui
         // Clamped between a width that still shows the labels and one that leaves the detail area
         // usable. Without a floor the sidebar can be dragged to nothing and the labels become
         // unreachable; without a ceiling it can swallow the charts the page exists to show.
+        //
+        // The ceiling does not follow the window: in a narrow window any width above the default is
+        // already wider than the page beside it, and taking the room for the page out of the ceiling
+        // would snap the sidebar back the moment the user dragged it -- a fixed limit lets them decide
+        // how to divide a window that is too small for both.
         constexpr double MIN_SIDEBAR = 180.0;
         constexpr double MAX_SIDEBAR = 520.0;
 
-        double const clamped = std::clamp(width, MIN_SIDEBAR, MAX_SIDEBAR);
+        // Rounded to whole effective pixels. Pointer positions arrive at fractions of one -- a pointer at
+        // 150 per cent scaling lands on a third of a pixel -- and a width carrying that fraction through to
+        // the settings file is noise a reader has to interpret. A hundredth of an inch of lag behind the
+        // pointer is not visible; 211.33334350585938 in the settings is.
+        double const clamped = std::round(std::clamp(width, MIN_SIDEBAR, MAX_SIDEBAR));
         if (std::abs(clamped - m_sidebarWidth) < 0.5)
         {
             return;
@@ -280,24 +292,23 @@ namespace tmpp::ui
         m_sidebarWidth = sidebarWidth;
 
         // Kept as a member because mini mode changes its width and has to put it back.
-        m_sidebarColumn = controls::MakeResizableColumn(m_sidebarSplitter,
-                                                        [this](double width) { _setSidebarWidth(width); },
-                                                        sidebarWidth);
+        //
+        // The width is read back from this view rather than captured, so each drag starts from where the
+        // boundary actually is: the first drag moves it, and a drag that began from the original width
+        // would snap the sidebar back to it on the first pixel of movement.
+        m_sidebarColumn = controls::MakeResizableColumn(
+            m_sidebarSplitter,
+            [this]() { return m_sidebarWidth; },
+            [this](double width) { _setSidebarWidth(width); },
+            sidebarWidth);
         m_root.ColumnDefinitions().Append(m_sidebarColumn);
 
-        // The handle sits in its own column of zero width, aligned to the boundary. Putting it inside
-        // the sidebar column would let it be clipped when the column narrows.
-        m_splitterColumn = ColumnDefinition();
-        m_splitterColumn.Width(GridLengthHelper::FromPixels(0.0));
-        m_root.ColumnDefinitions().Append(m_splitterColumn);
-
+        // Two columns and nothing between them. The boundary between the sidebar and the page is where the
+        // sidebar's own column ends, so the content keeps the distance from the sidebar that the layout
+        // has always given it.
         m_pageColumn = ColumnDefinition();
         m_pageColumn.Width(GridLengthHelper::FromValueAndType(1.0, GridUnitType::Star));
         m_root.ColumnDefinitions().Append(m_pageColumn);
-
-        m_sidebarSplitter.VerticalAlignment(VerticalAlignment::Stretch);
-        Grid::SetColumn(m_sidebarSplitter, 1);
-        m_root.Children().Append(m_sidebarSplitter);
 
         // --- Sidebar -----------------------------------------------------------
         //
@@ -305,7 +316,9 @@ namespace tmpp::ui
         // is what lets the list follow the machine's devices.
         m_sidebarCard = controls::MakeCard();
         m_sidebarCard.Padding(ThicknessHelper::FromLengths(3.0, 3.0, 3.0, 3.0));
-        m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 14.0, 0.0));
+
+        // The gap on the right is the separation from the page, and it is where the drag handle lives.
+        m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, SIDEBAR_GAP, 0.0));
 
         // Stretch rather than Top: a card sized to its content grows past the bottom of a short window
         // and its last rows are simply not drawn, with nothing to say they exist. Filling the column
@@ -332,6 +345,19 @@ namespace tmpp::ui
         Grid::SetColumn(m_sidebarCard, 0);
         m_root.Children().Append(m_sidebarCard);
 
+        // The drag handle, in the gap the card leaves and hard against the card's right edge.
+        //
+        // A child of the sidebar's own column rather than a column of its own: a column for the handle
+        // would add its width to the gap between the sidebar and the page, and that gap is part of the
+        // layout rather than something the handle is allowed to spend. Inside the column it is arranged
+        // well within its cell, so it is hit-testable without relying on how the panel treats a child
+        // that overflows one.
+        m_sidebarSplitter.Width(metrics::SPLITTER_WIDTH);
+        m_sidebarSplitter.HorizontalAlignment(HorizontalAlignment::Right);
+        m_sidebarSplitter.Margin(ThicknessHelper::FromLengths(0.0, 0.0, SIDEBAR_HANDLE_INSET, 0.0));
+        Grid::SetColumn(m_sidebarSplitter, 0);
+        m_root.Children().Append(m_sidebarSplitter);
+
         // Double-clicking the sidebar asks for the compact window. The view reports the gesture rather
         // than performing it: resizing the window it lives in is not something a page can do.
         m_sidebarCard.DoubleTapped(
@@ -345,7 +371,7 @@ namespace tmpp::ui
 
         // --- Detail area -------------------------------------------------------
         m_detailHost = Grid();
-        Grid::SetColumn(m_detailHost, 2);
+        Grid::SetColumn(m_detailHost, 1);
         m_root.Children().Append(m_detailHost);
     }
 

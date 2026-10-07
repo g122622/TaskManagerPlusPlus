@@ -170,19 +170,48 @@ namespace tmpp::ui
         [[nodiscard]] Border MakeChartFrame(Grid& outContent, double radius = metrics::CHART_CORNER_RADIUS);
 
         /**
+         * @brief Sets the cursor shown while the pointer is over an element.
+         *
+         * WinUI exposes the cursor through ProtectedCursor, which is a protected member of UIElement: it
+         * has no public setter, and the documented way to reach it is to derive from a XAML element.
+         * Deriving is not available to this project -- a derived XAML type needs an IDL-registered
+         * activation factory, and this application has no IDL, so the compiler rejects the class as
+         * abstract. The interface that carries the property is IUIElementProtected, however, and a plain
+         * element can be queried for it directly: the same property through the same interface, reached
+         * by a query rather than by inheritance.
+         *
+         * Does nothing when the interface is unavailable, which leaves the default arrow rather than
+         * failing: the cursor is an affordance, and a missing one is a worse experience than a crash but
+         * a much better one than refusing to build the handle at all.
+         *
+         * @param element The element to set it on. It has to be a XAML element with a cursor, which every
+         *        UIElement is.
+         */
+        void SetResizeCursor(winrt::Microsoft::UI::Xaml::UIElement const& element);
+
+        /**
          * @brief Creates a grid column whose width can be dragged.
          *
-         * WinUI has no GridSplitter, so the handle is a thin transparent Border carrying a
-         * manipulation handler. The drag is reported through a callback rather than applied to the
-         * column from here: the caller owns both the column and the persisted width, and two places
-         * setting the width is how they drift apart.
+         * WinUI has no GridSplitter, so the handle is a thin transparent Border carrying the pointer
+         * handlers. The drag is reported through a callback rather than applied to the column from here:
+         * the caller owns both the column and the persisted width, and two places setting the width is
+         * how they drift apart.
          *
-         * @param outHandle Receives the handle, which the caller must place at the boundary between
-         *        the two columns it separates.
+         * The handle draws the horizontal resize cursor and a grey wash while the pointer is over it.
+         * Both are the whole affordance: a strip that is invisible at rest and only reacts once the
+         * pointer is exactly on it is found by accident, if at all.
+         *
+         * @param outHandle Receives the handle. The caller gives it a width -- SPLITTER_WIDTH is the usual
+         *        -- and places it so that it lies along the boundary it moves. It is stretched down the
+         *        side already. Where it sits is the caller's decision because that is what decides whether
+         *        the grab area takes space from the layout or fits inside it.
+         * @param currentWidth Reads the pane's width as it is now. Read when a drag begins rather than
+         *        remembered from construction, so a second drag starts from where the first ended.
          * @param onResize Called with the new width as the handle is dragged.
-         * @param initialWidth Starting width, which seeds the drag.
+         * @param initialWidth Width the column is created with.
          */
         [[nodiscard]] ColumnDefinition MakeResizableColumn(Border& outHandle,
+                                                           std::function<double()> currentWidth,
                                                            std::function<void(double)> onResize,
                                                            double initialWidth);
 

@@ -126,6 +126,7 @@
     <ClCompile Include="test_network_api_benchmark.cpp" />
     <ClCompile Include="test_row_host_math.cpp" />
     <ClCompile Include="test_ui_logic.cpp" />
+    <ClCompile Include="test_splitter_drag.cpp" />
     <ClCompile Include="test_window_position.cpp" />
     <!-- The UI layer is compiled into consumers rather than a library; pull its
          sources in here so the formatting and list-cache logic is testable. -->

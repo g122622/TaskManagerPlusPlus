@@ -190,7 +190,9 @@ namespace tmpp::ui
         /// The sidebar's current width, clamped on every change.
         double m_sidebarWidth{0.0};
 
-        /// The drag handle at the sidebar's right edge.
+        /// The drag handle, which sits in the gap the sidebar card leaves on its right, hard against the
+        /// card. Placed inside the sidebar's own column rather than in a column of its own, so it takes no
+        /// space from the gap between the sidebar and the page.
         winrt::Microsoft::UI::Xaml::Controls::Border m_sidebarSplitter{nullptr};
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
@@ -258,19 +260,17 @@ namespace tmpp::ui
         /// True while the sidebar-only layout is presented.
         bool m_miniMode{false};
 
-        /// The columns holding the sidebar, the page and the splitter. Kept so mini mode can collapse the
-        /// page and let the sidebar fill the window, then restore the widths the user had. A column
-        /// definition is not a child, so it cannot simply be hidden.
+        /// The columns holding the sidebar and the page. Kept so mini mode can collapse the page and let
+        /// the sidebar fill the window, then restore the widths the user had. A column definition is not a
+        /// child, so it cannot simply be hidden.
         winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_sidebarColumn{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_pageColumn{nullptr};
-        winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_splitterColumn{nullptr};
 
         /// The same grid lengths as a fresh layout would give them, remembered so leaving mini mode
         /// restores the widths the user had rather than a default.
         winrt::Microsoft::UI::Xaml::GridLength m_sidebarPixelWidth{0.0,
                                                                   winrt::Microsoft::UI::Xaml::GridUnitType::Pixel};
         winrt::Microsoft::UI::Xaml::GridLength m_pageWidth{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star};
-        winrt::Microsoft::UI::Xaml::GridLength m_splitterWidth{0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel};
 
         /// The sidebar card, which is the only thing shown in mini mode.
         winrt::Microsoft::UI::Xaml::Controls::Border m_sidebarCard{nullptr};
