@@ -11,7 +11,8 @@
 > 应用已具备进程、性能与详细信息页。CPU 与内存走原生 API；磁盘、网络、GPU 取自
 > Windows 性能计数器与 DXGI；内存条信息取自固件的 SMBIOS 表。性能页每个指标都可
 > 配置颜色与线宽，每块磁盘与每个网卡各有独立图表；双击侧栏可收起为仅列表的紧凑
-> 窗口。268 个单测通过，Debug 与 Release 均可从干净克隆构建并自包含运行。
+> 窗口。324 个单测通过，三种配置均可构建；发布形态为自包含目录，目标机无需安装
+> 任何东西。
 
 ## 主要特性
 
@@ -63,11 +64,35 @@ Visual Studio 通过 `vswhere` 查找，找不到时回退到一组常见路径�
 
 环境搭建与疑难排查见 [docs/BUILD.md](docs/BUILD.md)。
 
+## 发布
+
+```powershell
+# 构建 Release，并生成 dist\TaskManagerPlusPlus-<版本>-win-x64 与其 zip
+tools\package.ps1 -Build
+```
+
+构建输出目录**不是**发布包：它同时含有静态库、测试程序与 gmock。打包脚本只复制运行
+所需的内容，把 VC++ 运行库放到 exe 旁边（这样目标机无需安装任何东西），校验包的完整性
+后再压缩。
+
+这里涉及两个配置：`Release` 不含任何调试信息（无 PDB、无调试目录），需要符号做剖析或
+崩溃分析时用 `RelWithDebInfo`。
+
+WinUI 3 原生应用**无法**收敛成单个可执行文件：不存在静态版 `Microsoft.UI.Xaml*.lib`，
+而微软的 `PublishSingleFile` 是 .NET 的模型。因此交付形态是干净的目录 + zip，
+包内清单与校验方式见 [docs/BUILD.md](docs/BUILD.md)。
+
 ## 运行
 
 ```powershell
 cd build\x64\Debug
 .\tmpp.exe
+```
+
+或直接运行打包结果（同一个 exe，只是旁边带着它的运行时）：
+
+```powershell
+dist\TaskManagerPlusPlus-0.1.0-win-x64\tmpp.exe
 ```
 
 > 本程序**必须运行在交互式桌面会话**中。WinUI 3 无法在服务窗口站

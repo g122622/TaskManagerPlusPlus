@@ -14,8 +14,9 @@ colour customisation, metric collection performance, and code maintainability.
 > counters and DXGI; memory modules come from the firmware's SMBIOS table. Every
 > metric on the performance page is plotted with configurable colours and stroke
 > widths, each disk and adapter has its own chart, and double-clicking the sidebar
-> collapses the window to the list alone. 268 unit tests pass, and Debug and Release
-> both build and run self-contained from a clean clone.
+> collapses the window to the list alone. 324 unit tests pass, and all three
+> configurations build; the release is packaged as a self-contained folder that
+> needs nothing installed on the target machine.
 
 ## Highlights
 
@@ -73,11 +74,38 @@ uses to install the dependencies by hand.
 
 See [docs/BUILD.md](docs/BUILD.md) for environment setup and troubleshooting.
 
+## Releasing
+
+```powershell
+# Build Release, then assemble dist\TaskManagerPlusPlus-<version>-win-x64 and its zip
+tools\package.ps1 -Build
+```
+
+The build output directory is not a release: it also holds the static libraries, the
+test binary and gmock. The packaging script copies only what runs, puts the Visual C++
+runtime next to the executable so that nothing has to be installed, verifies that the
+result is complete, and zips it.
+
+Two configurations matter here. `Release` is built without any debug information —
+no PDB, no debug directory — and `RelWithDebInfo` is the one that keeps symbols, for
+profiling and crash dumps.
+
+A WinUI 3 native application cannot be collapsed into a single executable: there is no
+static `Microsoft.UI.Xaml*.lib`, and Microsoft's `PublishSingleFile` is a .NET model.
+The deliverable is therefore a clean folder and a zip. See
+[docs/BUILD.md](docs/BUILD.md) for what the package contains and how it is checked.
+
 ## Running
 
 ```powershell
 cd build\x64\Debug
 .\tmpp.exe
+```
+
+Or run the packaged build, which is the same executable with its runtime beside it:
+
+```powershell
+dist\TaskManagerPlusPlus-0.1.0-win-x64\tmpp.exe
 ```
 
 > The application must run in an **interactive desktop session**. WinUI 3 cannot

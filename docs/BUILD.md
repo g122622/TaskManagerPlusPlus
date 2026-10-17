@@ -32,9 +32,25 @@ tools\m1build.bat Debug deps
 # Debug
 tools\m1build.bat Debug
 
-# Release
+# Release（发布用；不含任何调试信息）
 tools\m1build.bat Release
+
+# RelWithDebInfo（全优化 + 调试信息，用于崩溃转储与性能分析）
+tools\m1build.bat RelWithDebInfo
 ```
+
+### 三个配置的分工
+
+| 配置 | 调试信息 | PDB | 用途 |
+| --- | --- | --- | --- |
+| `Debug` | `ProgramDatabase` | 有 | 日常开发与单测 |
+| `Release` | **`None`** | **无** | **发布** |
+| `RelWithDebInfo` | `ProgramDatabase` | 有 | 需要符号的剖析、崩溃分析 |
+
+> **`Release` 是真正的发布配置**：`ClCompile` 的 `DebugInformationFormat` 被覆盖为
+> `None`，链接器也设 `GenerateDebugInformation=false`，因此既不产出 PDB，也不在镜像里
+> 留下调试目录。在本次调整之前，`Release` 实际上是"带调试信息的优化构建"，
+> 那个角色现由 `RelWithDebInfo` 承担。
 
 `tools\m1build.bat` 依次执行：
 
@@ -43,6 +59,8 @@ tools\m1build.bat Release
 3. `MSBuild` 构建解决方案。
 
 产物：`build\x64\<Configuration>\`，含 `tmpp.exe` 与 `tmpp_tests.exe`。
+该目录**不是**发布包——它同时含有静态库、测试程序与 gmock，Release 之外还含 PDB。
+发布包由 `tools\package.ps1` 生成，见第 7 节。
 
 ### 运行单元测试
 
@@ -56,7 +74,7 @@ build\x64\Debug\tmpp_tests.exe --gtest_filter=WindowsProcessProbeTest.*
 
 ### 通过 Visual Studio 构建
 
-打开 `TaskManagerPlusPlus.sln` 直接构建。Debug 与 Release 均只配置了 x64。
+打开 `TaskManagerPlusPlus.sln` 直接构建。`Debug`、`Release`、`RelWithDebInfo` 均只配置了 x64。
 
 ## 3. 疑难排查
 
@@ -215,13 +233,127 @@ query session
 ## 6. 验证构建
 
 ```powershell
-# 构建两个配置
+# 构建三个配置
 tools\m1build.bat Debug
 tools\m1build.bat Release
+tools\m1build.bat RelWithDebInfo
 
 # 确认可执行文件存在
 Test-Path build\x64\Debug\tmpp.exe
+
+# 单测（三个配置各自的二进制）
+build\x64\Release\tmpp_tests.exe --gtest_brief=1
+
+# Release 不应产出 PDB
+Get-ChildItem build\x64\Release -Filter *.pdb      # 期望：无输出
+
+# 版本资源已写入 exe
+(Get-Item build\x64\Release\tmpp.exe).VersionInfo | Select-Object FileVersion, ProductName
 ```
+
+> 单测中有 1 个用例在**处理器性能计数器不可用或核心处于 parked 状态**时自行跳过
+> （`tests\unit\test_platform_system_extended.cpp`），因此不同时刻的总数可能是
+> 324 通过，或 323 通过 + 1 跳过。这是环境的正常波动，不是失败。
+
+## 7. 发布打包
+
+```powershell
+# 打包（默认 Release）
+tools\package.ps1
+
+# 先构建、再打包
+tools\package.ps1 -Build
+
+# 跳过 zip，只留目录
+tools\package.ps1 -NoZip
+
+# 只校验一个已生成的目录
+tools\verify-portable.ps1
+tools\verify-portable.ps1 -Path dist\TaskManagerPlusPlus-0.1.0-win-x64
+```
+
+### 7.1 为什么交付的不是"单个 exe"
+
+WinUI 3 的原生 C++ 应用**无法**收敛成单个可执行文件：
+
+- 不存在静态版的 `Microsoft.UI.Xaml*.lib`，其运行时只能以独立 DLL 形式随包分发。
+- 微软文档明确 `PublishSingleFile` 是 .NET 的模型，对 WinUI 3 原生应用不适用。
+
+因此交付形态是**干净的目录 + zip**。`tmpp.exe` 自身仅约 1 MB，包体大头是 Windows App
+SDK 的自包含运行时（`onnxruntime.dll` 约 20.7 MB、`DirectML.dll` 约 17.8 MB、
+`Microsoft.ui.xaml.dll` 约 14.4 MB 等），这些 DLL 是必需的。
+
+### 7.2 产物
+
+| 项 | 内容 |
+| --- | --- |
+| 目录 | `dist\TaskManagerPlusPlus-<版本>-win-x64\` |
+| 压缩包 | `dist\TaskManagerPlusPlus-<版本>-win-x64.zip`（内含顶层目录，解压即得一个文件夹） |
+
+包内实际内容：`tmpp.exe`、Windows App SDK 自包含运行时 DLL 与 `.pri` / `.winmd`、
+79 个本地化子目录（WinUI 自身的 `.mui`）、VC++ 运行库 DLL、`LICENSE`、`README.txt`。
+
+打包脚本排除的构建产物：`*.pdb`、`*.lib`、`*.exp`、`*.ilk`、`*.idb`、`*.obj`、
+`*.tlog`、`tmpp_tests.exe`、`gmock*.dll`、`run.bat`。排除之后脚本会**再断言一次**
+结果，因为 `robocopy` 的 `/XF` 只按文件名匹配，子目录里的同名残留会漏过。
+
+### 7.3 VC++ 运行库随包分发
+
+应用动态链接 CRT，启动时需要 `msvcp140.dll`、`vcruntime140.dll` 等。**Windows 并不
+自带**这些 DLL（它们随 VC++ 可再发行组件安装），所以干净系统上可能不存在。
+
+打包脚本从 VS 可再发行目录
+`VC\Redist\MSVC\<版本>\x64\Microsoft.VC*.CRT` 复制 10 个 DLL（约 1.9 MB）进包，
+即微软文档所述的**应用本地部署**方式；这样除操作系统本身外不再有外部依赖。
+传 `-NoCrt` 可跳过（届时要求目标机已安装可再发行组件）。
+
+### 7.4 版本一致性由打包脚本把关
+
+版本号只有一个来源：`vcpkg.json` 的 `version` 字段，包名取自它。而 `src/App/app.rc`
+中的版本资源是手写的，因此打包脚本会**比对 exe 的 `ProductVersion`**，不一致即拒绝
+打包，避免出现"文件名一个版本、属性页另一个版本"。修改版本时两处都要改。
+
+### 7.5 应用图标与版本资源（B-003）
+
+`src/App/app.rc` 写入两类资源：
+
+- **图标** `RT_GROUP_ICON` id 1。Windows 对可执行文件取**编号最小**的图标组，故 id 1
+  即 Explorer、任务栏与 Alt-Tab 使用的图标。`app.ico` 含 8 个尺寸
+  （256/64/48/40/32/24/20/16，均 32bpp），以免高 DPI 下拿 32×32 放大。
+- **版本资源** `RT_VERSION`，即属性页"详细信息"读取的字段。在此文件存在之前，
+  本程序的 exe **完全没有版本信息**。
+
+`app.ico` 提取自 `%windir%\System32\taskmgr.exe` 的图标组 30651，可用
+`tools\extract-icon.ps1` 复现（该脚本按 `RT_GROUP_ICON` 目录重建多尺寸 `.ico`，
+不执行被检查的模块）：
+
+```powershell
+tools\extract-icon.ps1 -Module $env:windir\System32\taskmgr.exe -List
+tools\extract-icon.ps1 -Module $env:windir\System32\taskmgr.exe -GroupId 30651 -Output src\App\app.ico
+```
+
+> **清单不放在 `.rc` 里。** 应用清单由工程的 `<Manifest>` 项嵌入，以便合并 Windows App
+> SDK 的可激活类注册；若在 `.rc` 中再声明 `RT_MANIFEST`，会出现两份清单并链接失败。
+
+### 7.6 打包后的校验
+
+`tools\package.ps1` 在压缩前调用 `tools\verify-portable.ps1`；后者**直接读取二进制**，
+不依赖任何文件清单：
+
+1. **清单完整性**——解析 `tmpp.exe` 内嵌的 `RT_MANIFEST`，确认其中引用的每个文件都在
+   包内（当前 25 个引用、0 缺失）。该清单是免注册 WinRT 激活的依据，缺文件表现为
+   **启动时激活失败**，而不是功能降级。
+2. **导入闭包**——解析包内每个 exe/dll 的 PE 导入表，确认每个被导入的 DLL 要么在包内，
+   要么由操作系统提供（`System32`，或 `api-ms-win-*` / `ext-ms-win-*` 这类虚拟 API 集）。
+   当前：68 个包内解析、1066 个由系统提供、**0 个未解析**。
+
+两个检查都不执行被检查的二进制，因此不需要 VS 开发环境，也不需要 `dumpbin`。
+
+### 7.7 发布前的冒烟测试
+
+应用**必须**在交互式桌面会话中启动（原因见第 5 节）。打包后在 `dist` 目录内直接运行
+`tmpp.exe`，确认窗口正常出现即可；`build\` 下的同名文件即使被占用也不影响打包，
+但 `dist\...\tmpp.exe` 若正在运行，会阻止下一次重新打包（脚本会先删除该目录）。
 
 ## 12. 构建性能：诊断与结论
 
