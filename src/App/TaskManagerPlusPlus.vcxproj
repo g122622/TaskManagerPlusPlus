@@ -21,6 +21,10 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
 
   <PropertyGroup Label="Globals">
@@ -99,7 +103,15 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
+  <!-- Release ships no debug information at all: no /Zi, no PDB, no linker debug
+       directory. RelWithDebInfo is the configuration that keeps it, so the two are
+       no longer the same thing. See the DebugInformationFormat note below. -->
   <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='RelWithDebInfo'" Label="Configuration">
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <LinkIncremental>false</LinkIncremental>
@@ -144,20 +156,51 @@
     <ClCompile>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <!-- The resource compiler does not inherit the compiler's preprocessor
+         definitions, so the Debug flag has to be handed to it separately. app.rc
+         turns it into the VS_FF_DEBUG bit of the version resource, which is what
+         makes the file's property sheet report a debug build. -->
+    <ResourceCompile>
+      <PreprocessorDefinitions>TMPP_DEBUG=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
   </ItemDefinitionGroup>
 
+  <!-- Release: no debug information anywhere. The shared item definition above asks
+       for ProgramDatabase, so it is overridden to None here; the linker is likewise
+       told not to emit a debug directory or a PDB. This is what makes Release a true
+       release rather than a RelWithDebInfo build under another name. -->
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DebugInformationFormat>None</DebugInformationFormat>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!-- RelWithDebInfo: full optimisation with debug information, which is what the
+       Release configuration used to be. Keep this when a crash dump or a profiler
+       needs to resolve symbols; ship Release instead. -->
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='RelWithDebInfo'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
 
   <ItemGroup>
     <Manifest Include="app.manifest" />
+    <!-- The icon and version resources. Kept apart from app.manifest on purpose:
+         see the header comment in app.rc. -->
+    <ResourceCompile Include="app.rc" />
   </ItemGroup>
 
   <ItemGroup>
