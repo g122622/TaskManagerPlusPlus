@@ -6,9 +6,11 @@
 
 #include <psapi.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <winternl.h>
 
 namespace tmpp::platform
@@ -674,6 +676,135 @@ namespace tmpp::platform
         }
 
         return info;
+    }
+
+    Result<ProcessorTopology> WindowsSystemProbe::ReadProcessorTopology() const
+    {
+        // RelationAll in one call would be cheaper, but the structure is a union of every relationship
+        // kind and reading the processor entries out of it means re-deriving which member is live.
+        // Asking only for the cores keeps the walk to one shape of record.
+        DWORD byteLength = 0;
+        if (GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &byteLength) != 0 || byteLength == 0)
+        {
+            // A successful call with a zero length should not happen, and a failing one means the
+            // query is unavailable rather than that the machine has no processors. Either way there is
+            // no topology to report, and the caller falls back on the plain logical count.
+            return Error{ErrorCode::NotSupported,
+                         "The processor core relationship query returned no data.",
+                         "WindowsSystemProbe::ReadProcessorTopology"};
+        }
+
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        {
+            return Error{ErrorCode::NativeFailure,
+                         "GetLogicalProcessorInformationEx(RelationProcessorCore) failed with error " +
+                             std::to_string(GetLastError()) + ".",
+                         "WindowsSystemProbe::ReadProcessorTopology"};
+        }
+
+        auto buffer = std::make_unique<std::byte[]>(byteLength);
+        if (GetLogicalProcessorInformationEx(RelationProcessorCore,
+                                             reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.get()),
+                                             &byteLength) == 0)
+        {
+            return Error{ErrorCode::NativeFailure,
+                         "GetLogicalProcessorInformationEx(RelationProcessorCore) failed with error " +
+                             std::to_string(GetLastError()) + ".",
+                         "WindowsSystemProbe::ReadProcessorTopology"};
+        }
+
+        ProcessorTopology topology;
+
+        // One entry per physical core, each carrying the group mask of the logical processors that
+        // belong to it. That is the only place the logical-to-physical mapping is stated: the
+        // per-processor arrays the rest of the application reads are flat and unlabelled.
+        uint32_t physicalCoreIndex = 0;
+        uint8_t highestEfficiencyClass = 0;
+        uint8_t lowestEfficiencyClass = 0xFF;
+
+        DWORD offset = 0;
+        while (offset < byteLength)
+        {
+            auto const* entry =
+                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX const*>(buffer.get() + offset);
+
+            if (entry->Size == 0)
+            {
+                // A zero size would make the walk stand still; treating it as the end is the only
+                // safe reading of a malformed record.
+                break;
+            }
+
+            if (entry->Relationship == RelationProcessorCore)
+            {
+                PROCESSOR_RELATIONSHIP const& relationship = entry->Processor;
+                highestEfficiencyClass = (std::max)(highestEfficiencyClass, relationship.EfficiencyClass);
+                lowestEfficiencyClass = (std::min)(lowestEfficiencyClass, relationship.EfficiencyClass);
+
+                // The first mask entry is the group the core lives in for every machine this project
+                // supports; GroupCount above one would mean a single physical core spanning groups,
+                // which does not occur.
+                uint16_t const group = relationship.GroupCount > 0 ? relationship.GroupMask[0].Group : 0;
+                KAFFINITY const mask = relationship.GroupCount > 0 ? relationship.GroupMask[0].Mask : 0;
+
+                uint32_t const groupSize = GetActiveProcessorCount(group);
+                bool firstThread = true;
+
+                for (uint32_t bit = 0; bit < 64 && bit < groupSize; ++bit)
+                {
+                    if ((mask & (KAFFINITY{1} << bit)) == 0)
+                    {
+                        continue;
+                    }
+
+                    ProcessorCore core;
+                    core.logicalIndex = bit;
+                    core.physicalCoreIndex = physicalCoreIndex;
+                    core.group = group;
+                    core.efficiencyClass = relationship.EfficiencyClass;
+                    core.primaryThread = firstThread;
+                    firstThread = false;
+
+                    topology.logicalProcessors.push_back(core);
+                }
+
+                ++physicalCoreIndex;
+            }
+
+            offset += entry->Size;
+        }
+
+        if (topology.logicalProcessors.empty())
+        {
+            return Error{ErrorCode::NotFound,
+                         "The processor core relationship query reported no logical processors.",
+                         "WindowsSystemProbe::ReadProcessorTopology"};
+        }
+
+        // A stable order is what lets the UI index chips by position without sorting them itself, and
+        // the group-first order is the one a multi-group machine reads in.
+        std::sort(topology.logicalProcessors.begin(),
+                  topology.logicalProcessors.end(),
+                  [](ProcessorCore const& left, ProcessorCore const& right) {
+                      if (left.group != right.group)
+                      {
+                          return left.group < right.group;
+                      }
+                      return left.logicalIndex < right.logicalIndex;
+                  });
+
+        topology.physicalCoreCount = physicalCoreIndex;
+
+        // Hybrid means the firmware distinguished between cores, not that any particular class was
+        // seen. Comparing the extremes rather than testing one of them against zero is what makes this
+        // independent of which number a hybrid processor happens to give its performance cores -- and
+        // the two vendors' parts do not agree on that.
+        topology.hybrid = lowestEfficiencyClass != 0xFF && highestEfficiencyClass != lowestEfficiencyClass;
+
+        topology.groupCount = (std::max)(1u, static_cast<uint32_t>(GetActiveProcessorGroupCount()));
+        topology.available = true;
+
+        return topology;
     }
 
     Result<SystemTotals> WindowsSystemProbe::ReadTotals(uint32_t processCount,

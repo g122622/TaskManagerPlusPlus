@@ -16,6 +16,7 @@
 
 #include "Core/SamplingCoordinator.h"
 #include "Platform/Windows/WindowsProcessActions.h"
+#include "UI/Controls/ProcessDetailPanel.h"
 #include "UI/Lists/ColumnResizeHandle.h"
 #include "UI/Lists/ProcessIconCache.h"
 #include "UI/Lists/ProcessListModel.h"
@@ -95,6 +96,31 @@ namespace tmpp::ui
         /// Reports how an action turned out. Called by the application once it has acted.
         void ReportActionOutcome(platform::ProcessActionResult const& result, std::wstring_view subject);
 
+        // ====================================================================
+        // Detail sidebar
+        // ====================================================================
+        //
+        // The sidebar shows and changes one process's settings. Its width and whether it is shown at
+        // all are the user's, so both are reported rather than written: the application owns the
+        // settings file and decides when to save, exactly as it does for the column widths.
+
+        /**
+         * @brief Adopts the remembered sidebar width and visibility.
+         *
+         * @param width Width in effective pixels, or a non-positive value to keep the default.
+         * @param visible Whether the sidebar is shown.
+         */
+        void SetSidebarLayout(double width, bool visible);
+
+        /**
+         * @brief Called when the user resizes or shows or hides the sidebar.
+         *
+         * Both values are reported together because they are stored together and a partial report
+         * would let the file hold a width for a pane the user has hidden, or a visibility for a width
+         * they no longer have.
+         */
+        void SetSidebarLayoutHandler(std::function<void(double, bool)> handler);
+
     private:
         void _buildLayout();
 
@@ -116,8 +142,46 @@ namespace tmpp::ui
         /// Selects a process and repaints the rows to show it.
         void _selectRow(uint32_t pid);
 
+        /**
+         * @brief Rebinds the one row showing a given process, if it is on screen.
+         *
+         * The selection highlight moves between two rows; rebinding the other rows to redraw it is work
+         * that produces no visible change, so only the rows that changed are rebound.
+         */
+        void _refreshRowForPid(uint32_t pid);
+
+        /// Builds the toolbar's right-hand end: the switch that shows and hides the sidebar.
+        void _buildSidebarToggle();
+
+        /// Resizes the sidebar, clamped, and reports the new layout.
+        void _setSidebarWidth(double width);
+
+        /// Shows or hides the sidebar and reports the new layout.
+        void _setSidebarVisible(bool visible);
+
+        /// Applies the remembered width and visibility to the column and the panel.
+        void _applySidebarLayout();
+
+        /// Writes the current sample's values into the sidebar, or clears it when the process has
+        /// exited. Called from Refresh, which is the only place the sample is known to be current.
+        void _updateSidebar();
+
+        /// Reports what the rule engine did since the last refresh, if anything.
+        void _reportRuleEvents();
+
         /// The selected process, or zero when none is.
         uint32_t m_selectedPid{0};
+
+        /**
+         * @brief Whether a row is selected at all.
+         *
+         * A separate flag because zero is a real process id: the System Idle Process is pid 0, and
+         * without this, clicking its row set the same value that means "nothing is selected" and the
+         * row appeared not to respond. The consumers that take a pid -- the details page, the settings
+         * file -- still see 0, because neither has anything to show for a process with no executable
+         * image behind it; this is only about the list's own highlight and the sidebar.
+         */
+        bool m_selectionActive{false};
 
         /**
          * @brief One column's system-wide aggregate, retained so it can be updated in place.
@@ -190,6 +254,56 @@ namespace tmpp::ui
         /// Applies the current widths to the header and to every row on screen.
         void _applyColumnWidths();
 
+        // ====================================================================
+        // Cell shading
+        // ====================================================================
+        //
+        // Each metric cell is filled from transparent up to a single deep blue, in proportion to the
+        // value it holds. It is the same device Windows' own task manager uses, and the reason it earns
+        // its place is that a column of numbers has to be read one at a time while a column of bands
+        // can be taken in at a glance: which rows are heavy, and how far apart they are, is legible
+        // before any figure is.
+
+        /**
+         * @brief The largest value each metric column currently shows.
+         *
+         * Rebuilt from the visible rows on every new sample. Relative shading rather than a fixed
+         * scale, which is what makes the busiest row of a column reach full strength: on an idle
+         * machine every band would otherwise be indistinguishable from no band at all, and the same
+         * depth would mean something different in each column.
+         */
+        std::array<double, 7> m_columnMaxima{};
+
+        /// Recomputes @c m_columnMaxima from the rows the list is showing.
+        void _updateColumnMaxima();
+
+        /**
+         * @brief The fill for one metric cell.
+         *
+         * @param column Column index in the column table.
+         * @param value The value the cell holds, or a negative number when there is nothing to shade.
+         */
+        [[nodiscard]] winrt::Microsoft::UI::Xaml::Media::Brush _heatBrush(size_t column, double value) const;
+
+        /**
+         * @brief Pre-built fills, one per shading step.
+         *
+         * Built once rather than per cell: a full rebind touches every metric cell of every row on
+         * screen, and allocating a brush for each of those would put hundreds of allocations on a path
+         * that runs whenever the list is resorted (docs/ARCHITECTURE.md, constraint P-004).
+         *
+         * The steps are quantised, which also means rows with nearly equal values get the same brush and
+         * stop flickering between two imperceptibly different shades as the values move.
+         */
+        std::vector<winrt::Microsoft::UI::Xaml::Media::SolidColorBrush> m_heatBrushes;
+
+        /// The fill for a cell with nothing to shade.
+        ///
+        /// Held rather than made on demand because it is handed out for every unshaded cell of every
+        /// row on every rebind, and constructing a brush for each of those puts dozens of allocations on
+        /// a path that runs whenever the list is resorted (docs/ARCHITECTURE.md, constraint P-004).
+        winrt::Microsoft::UI::Xaml::Media::SolidColorBrush m_transparentFill{nullptr};
+
         /// Resizes one column, applies it and reports the whole set.
         void _setColumnWidth(size_t column, double width);
 
@@ -224,5 +338,46 @@ namespace tmpp::ui
 
         ListQuery m_query;
         uint64_t m_renderedVersion{0};
+
+        // --- Detail sidebar ---------------------------------------------------
+
+        /// The sidebar. Owned here rather than by the window because it is bound to this list's
+        /// selection and has no meaning without it.
+        std::unique_ptr<ProcessDetailPanel> m_detailPanel;
+
+        /// The identity of the process the sidebar is showing, so a recycled pid is detected rather
+        /// than silently inheriting the previous process's panel state.
+        uint64_t m_selectedCreateTime{0};
+
+        /// The sidebar's column, whose width the drag handle changes.
+        winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_detailColumn{nullptr};
+
+        /// The drag handle, laid along the sidebar's left edge.
+        winrt::Microsoft::UI::Xaml::Controls::Border m_detailSplitter{nullptr};
+
+        /// The card the sidebar's content sits in, so hiding the pane can collapse the card as well
+        /// as the column: a column of zero width still draws a card border one pixel wide.
+        winrt::Microsoft::UI::Xaml::Controls::Border m_detailCard{nullptr};
+
+        /// The toolbar switch that shows and hides the sidebar.
+        winrt::Microsoft::UI::Xaml::Controls::Primitives::ToggleButton m_detailToggle{nullptr};
+
+        /// The sidebar's live width, in effective pixels.
+        double m_detailWidth{0.0};
+
+        /// The width the sidebar had when the current drag began.
+        ///
+        /// Kept because the sidebar is on the right, where the pane grows as the pointer moves left:
+        /// the drag handle reports a value that increases with the pointer's own movement, so the
+        /// change has to be measured against the width the drag started from rather than read as the
+        /// new width. The handle reads the width through the accessor below exactly once, when the
+        /// press lands, which is where this is set.
+        double m_detailWidthAtDragStart{0.0};
+
+        /// Whether the sidebar is shown.
+        bool m_detailVisible{true};
+
+        /// Called with the width and visibility after a drag or a toggle.
+        std::function<void(double, bool)> m_onSidebarLayoutChanged;
     };
 }

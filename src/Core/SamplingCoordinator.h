@@ -10,15 +10,20 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "Core/BackgroundSampler.h"
+#include "Core/ProcessRules.h"
 #include "Core/Settings.h"
 #include "Domain/ProcessModel.h"
 #include "Domain/SystemModel.h"
+#include "Platform/ProcessTuningTypes.h"
 #include "Platform/Windows/HardwareCounterProbe.h"
 #include "Platform/Windows/ProcessorSpeedProbe.h"
 #include "Platform/Windows/WindowsProcessActions.h"
 #include "Platform/Windows/WindowsProcessProbe.h"
+#include "Platform/Windows/WindowsProcessTuning.h"
 #include "Platform/Windows/WindowsSystemProbe.h"
 
 namespace tmpp::core
@@ -68,8 +73,12 @@ namespace tmpp::core
          * not start sampling.
          *
          * @param initialIntervalMs Clamped to the permitted range.
+         * @param processRulesFile Path of the persistent rule file, or empty to keep rules in
+         *        memory only. Resolved by the caller because path resolution belongs to the
+         *        application rather than to the sampler, and because a test can then run the
+         *        coordinator without touching the user's configuration.
          */
-        explicit SamplingCoordinator(uint32_t initialIntervalMs);
+        explicit SamplingCoordinator(uint32_t initialIntervalMs, std::string processRulesFile = {});
 
         ~SamplingCoordinator();
 
@@ -166,6 +175,70 @@ namespace tmpp::core
          */
         [[nodiscard]] platform::ProcessActionResult TerminateProcess(uint32_t pid, bool entireTree);
 
+        // ====================================================================
+        // Process tuning
+        // ====================================================================
+        //
+        // The sidebar's settings. Deliberately on this class rather than on the view: the view must
+        // not reach a Windows API, and the coordinator is already the one place that owns the process
+        // snapshot the identity check is made against.
+
+        /**
+         * @brief The machine's logical processors and the physical core each belongs to.
+         *
+         * Read once at construction. The affinity editor draws one chip per logical processor and
+         * needs to know which of them are threads of the same core.
+         */
+        [[nodiscard]] platform::ProcessorTopology const& ProcessorTopology() const noexcept
+        {
+            return m_processorTopology;
+        }
+
+        /**
+         * @brief Reads one process's adjustable settings.
+         *
+         * The suspend state is filled in from the current snapshot rather than from the platform
+         * module: the kernel has no query for it, and the bulk snapshot is the one place it can be
+         * answered without attempting a modification. An unknown process leaves it unknown.
+         */
+        [[nodiscard]] platform::ProcessTuningState ReadProcessTuning(uint32_t pid) const;
+
+        /**
+         * @brief Applies a set of setting changes to one process.
+         *
+         * The process's creation time is taken from the current snapshot so a pid that has been
+         * recycled since the user selected the row cannot be changed in place of the process they
+         * meant.
+         *
+         * Asks for a fresh sample afterwards, because a suspension or a priority change is not
+         * visible in the counters until the next round.
+         */
+        [[nodiscard]] platform::ProcessActionResult ApplyProcessTuning(uint32_t pid,
+                                                                       platform::ProcessTuningChange const& change);
+
+        /// The process's executable path, empty when it cannot be read.
+        [[nodiscard]] std::string ProcessExecutablePath(uint32_t pid) const;
+
+        /// The saved rules, in file order.
+        [[nodiscard]] std::vector<ProcessRule> ProcessRules() const;
+
+        /**
+         * @brief Replaces the saved rules, writing them to the rule file.
+         *
+         * Written immediately rather than on exit: a rule is created by an explicit act and is
+         * expected to be in force the next time the executable starts, which may be before this
+         * application is closed.
+         */
+        void SetProcessRules(std::vector<ProcessRule> rules);
+
+        /**
+         * @brief Takes the queued record of rules that have been applied.
+         *
+         * Drained rather than pushed: the rules are applied on the sampling thread, which must not
+         * call into the UI.
+         */
+        [[nodiscard]] std::vector<ProcessRuleEvent> TakeProcessRuleEvents();
+
         /**
          * @brief The machine's memory modules, read once at startup.
          *
@@ -191,6 +264,26 @@ namespace tmpp::core
         /// Terminates processes. Kept here rather than in the UI so the action and the snapshot it is
         /// based on come from the same place.
         platform::WindowsProcessActions m_processActions;
+
+        /// Reads and changes one process's scheduling, memory, power and affinity settings. Stateless,
+        /// so it needs no initialisation and holds no handle between uses.
+        platform::WindowsProcessTuning m_processTuning;
+
+        /// Which logical processor is which physical core. Read once: a machine's processor topology
+        /// cannot change while it runs.
+        platform::ProcessorTopology m_processorTopology;
+
+        /**
+         * @brief Saved rules and the record of which processes they have been applied to.
+         *
+         * Owned here because it is evaluated on the sampling thread, against the snapshot the
+         * sampler has just published -- that is where a newly appeared process is first observed.
+         */
+        ProcessRuleEngine m_ruleEngine;
+
+        /// Persistence for the rules. Absent when the coordinator was built without a path, which is
+        /// what a test does so that it cannot touch the user's configuration.
+        std::unique_ptr<ProcessRuleStore> m_ruleStore;
 
         /// The memory modules, read once during construction. The firmware table does not change while
         /// the machine runs, so reading it per sample would be a repeated cost for a constant answer.

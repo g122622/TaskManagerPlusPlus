@@ -92,6 +92,20 @@ namespace tmpp::platform
         uint32_t handleCount{0};
         uint32_t sessionId{0};
         int32_t basePriority{0};
+
+        /**
+         * @brief True when every thread of the process is waiting on the suspend reason.
+         *
+         * The kernel offers no query that answers "is this process suspended": the state is a property
+         * of each thread, and the only other way to look for it is to attempt a modification and see
+         * whether it is refused. Reading it out of the bulk snapshot costs one pass over the thread
+         * array that is already in hand, and it is the only honest source for the answer -- a process
+         * whose threads are nearly all suspended is still a running process.
+         *
+         * Only ever set for a process that has at least one thread, so a process the snapshot reports
+         * with no threads is not mistaken for a suspended one.
+         */
+        bool suspended{false};
     };
 
     /**

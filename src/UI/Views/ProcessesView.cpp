@@ -6,9 +6,12 @@
 #include "UI/Theming/Formatting.h"
 #include "UI/Theming/Theme.h"
 
+#include "UI/Diagnostics.h"
+
 #include <array>
 #include <string>
 
+using winrt::Microsoft::UI::Xaml::Controls::Border;
 using winrt::Microsoft::UI::Xaml::Controls::Canvas;
 using winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition;
 using winrt::Microsoft::UI::Xaml::Controls::Grid;
@@ -27,6 +30,24 @@ namespace tmpp::ui
 {
     namespace
     {
+        /**
+         * @brief Which value a metric column is shaded by.
+         *
+         * Part of the column table so that adding a column cannot leave its shading unset: a column
+         * with no metric is explicitly unshaded rather than shaded by whatever the default was.
+         */
+        enum class ShadeMetric
+        {
+            /// The column carries no measure of resource use, so it is never shaded. PIDs and names do
+            /// not have a "more" and a "less".
+            None,
+            Cpu,
+            Memory,
+            Disk,
+            Network,
+            Gpu,
+        };
+
         /**
          * @brief Column definition for the process list.
          *
@@ -48,6 +69,9 @@ namespace tmpp::ui
 
             bool rightAligned;
             SortColumn sortColumn;
+
+            /// What the cell is shaded by, if anything.
+            ShadeMetric shade;
         };
 
         /// The columns shown, in the order Windows 11 Task Manager shows them.
@@ -59,14 +83,62 @@ namespace tmpp::ui
         /// The widths are proportions of the original's layout rather than its pixel values, since this
         /// list sizes its columns in effective pixels and the original's are drawn at a different scale.
         constexpr std::array<ColumnSpec, 7> COLUMNS{{
-            {L"Name", 300.0, 120.0, false, SortColumn::Name},
-            {L"PID", 80.0, 56.0, true, SortColumn::Pid},
-            {L"CPU", 90.0, 56.0, true, SortColumn::Cpu},
-            {L"Memory", 120.0, 72.0, true, SortColumn::Memory},
-            {L"Disk", 100.0, 64.0, true, SortColumn::Disk},
-            {L"Network", 100.0, 64.0, true, SortColumn::Network},
-            {L"GPU", 80.0, 56.0, true, SortColumn::Gpu},
+            {L"Name", 300.0, 120.0, false, SortColumn::Name, ShadeMetric::None},
+            {L"PID", 80.0, 56.0, true, SortColumn::Pid, ShadeMetric::None},
+            {L"CPU", 90.0, 56.0, true, SortColumn::Cpu, ShadeMetric::Cpu},
+            {L"Memory", 120.0, 72.0, true, SortColumn::Memory, ShadeMetric::Memory},
+            {L"Disk", 100.0, 64.0, true, SortColumn::Disk, ShadeMetric::Disk},
+            {L"Network", 100.0, 64.0, true, SortColumn::Network, ShadeMetric::Network},
+            {L"GPU", 80.0, 56.0, true, SortColumn::Gpu, ShadeMetric::Gpu},
         }};
+
+        /// The deepest a cell is filled. Windows' own task manager uses this shade, and the ramp is an
+        /// alpha of it rather than a path towards another colour: a band and the text on it then never
+        /// disagree about what colour the cell is.
+        constexpr winrt::Windows::UI::Color HEAT_COLOR{0xFF, 0x08, 0x33, 0x6E};
+
+        /// How many steps the ramp is quantised into. Thirty-two steps of eight alpha units are finer
+        /// than the eye separates on adjacent rows, and few enough that the brushes can all be built
+        /// once at startup.
+        constexpr size_t HEAT_STEPS = 32;
+
+        /// A value below this is treated as nothing to shade rather than as a measurement of zero.
+        /// Rates are never negative, so a negative value is available as the "not known" marker.
+        constexpr double NO_HEAT = -1.0;
+
+        /**
+         * @brief The value a metric column is shaded by, or @c NO_HEAT.
+         *
+         * A rate that could not be derived is not a zero and must not be drawn as one: the first
+         * sample of a session has no interval behind it, and shading that as "no activity" would state
+         * something the application does not know.
+         */
+        [[nodiscard]] double _shadeValue(ShadeMetric metric, domain::ProcessView const& process)
+        {
+            switch (metric)
+            {
+                case ShadeMetric::Cpu:
+                    return process.ratesUnavailable ? NO_HEAT : process.cpuPercent;
+
+                case ShadeMetric::Memory:
+                    return static_cast<double>(process.memory.workingSetSize);
+
+                case ShadeMetric::Disk:
+                    return process.diskReadBytesPerSec + process.diskWriteBytesPerSec;
+
+                case ShadeMetric::Network:
+                    // Not collected per process yet, so there is nothing to shade. Shading it would
+                    // mean inventing a figure for a column that already reports an em dash.
+                    return NO_HEAT;
+
+                case ShadeMetric::Gpu:
+                    return process.gpuPercent;
+
+                case ShadeMetric::None:
+                default:
+                    return NO_HEAT;
+            }
+        }
 
         /// Edge length of the square an icon occupies in a row. Slightly larger than the 16 pixel bitmap
         /// so the glyph and the image are interchangeable without the name shifting.
@@ -75,6 +147,22 @@ namespace tmpp::ui
         /// Width of the grab area on a column boundary. Wide enough to hit without aiming, narrow enough
         /// that it does not cover the heading beside it.
         constexpr double COLUMN_HANDLE_WIDTH = 8.0;
+
+        /// Default width of the detail sidebar, before the user drags it.
+        ///
+        /// Wider than the performance page's sidebar because this one carries labelled controls and a
+        /// grid of core chips rather than a list of device names: below about this width the combo
+        /// boxes and their Apply buttons stop fitting on one line.
+        constexpr double DETAIL_SIDEBAR_WIDTH = 340.0;
+
+        /// The gap between the list and the sidebar. The drag handle lives inside it, hard against the
+        /// sidebar's left edge.
+        constexpr double DETAIL_SIDEBAR_GAP = 14.0;
+
+        /// Widths the sidebar can be dragged between. The floor keeps the labelled controls readable;
+        /// the ceiling leaves the list the majority of a normal window, which is the page's purpose.
+        constexpr double MIN_DETAIL_SIDEBAR_WIDTH = 260.0;
+        constexpr double MAX_DETAIL_SIDEBAR_WIDTH = 620.0;
 
         /// Widest a column may be dragged to. Generous enough that no column has a practical ceiling, and
         /// low enough that a hand-edited settings value can be recognised as nonsense rather than applied.
@@ -164,6 +252,24 @@ namespace tmpp::ui
             m_columnWidths[i] = COLUMNS[i].width;
         }
 
+        // The shading ramp, built once. Step zero is fully transparent, which is what an idle machine
+        // looks like: no band at all rather than a band of the palest shade.
+        m_transparentFill = winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent());
+
+        m_heatBrushes.reserve(HEAT_STEPS + 1);
+        for (size_t step = 0; step <= HEAT_STEPS; ++step)
+        {
+            // Rounded rather than truncated so the top of the ramp reaches the full colour instead of
+            // stopping a step short of it.
+            auto const alpha = static_cast<uint8_t>(
+                (HEAT_COLOR.A * step + HEAT_STEPS / 2) / HEAT_STEPS);
+
+            m_heatBrushes.emplace_back(winrt::Windows::UI::Color{alpha,
+                                                                 HEAT_COLOR.R,
+                                                                 HEAT_COLOR.G,
+                                                                 HEAT_COLOR.B});
+        }
+
         _buildLayout();
     }
 
@@ -172,20 +278,56 @@ namespace tmpp::ui
         m_root = Grid();
         m_root.Padding(ThicknessHelper::FromLengths(metrics::PAGE_MARGIN, 12.0, metrics::PAGE_MARGIN, 8.0));
 
+        // Two columns: the list and the detail sidebar. The sidebar takes a width the user can drag,
+        // and the list takes everything that remains -- a star column is the equivalent of
+        // calc(100% - sidebarWidth) and keeps working when the window is resized.
+        //
+        // The sidebar is on the right, which is where the original puts it and where the eye goes after
+        // picking a row: the list is read left to right and the row that was picked is the last thing
+        // looked at.
+        m_detailWidth = DETAIL_SIDEBAR_WIDTH;
+        m_detailColumn = controls::MakeResizableColumn(
+            m_detailSplitter,
+            [this] {
+                // Read once, when a press lands. The value returned here is the one the reported
+                // widths are measured against, and the sidebar being on the right means the pane must
+                // grow as the pointer moves left, which is the opposite sign from what the handle
+                // reports. Remembering the start width is what lets the callback below convert one
+                // into the other without the handle having to know which side it is on.
+                m_detailWidthAtDragStart = m_detailWidth;
+                return m_detailWidth;
+            },
+            [this](double reported) {
+                // The handle reports startWidth + pointerDelta. Measured from the right edge, the
+                // width is startWidth - pointerDelta, because dragging left widens the pane.
+                _setSidebarWidth(m_detailWidthAtDragStart - (reported - m_detailWidthAtDragStart));
+            },
+            m_detailWidth);
+
+        m_root.ColumnDefinitions().Append(controls::MakeStarColumn()); // the list
+        m_root.ColumnDefinitions().Append(m_detailColumn);             // the sidebar
+
         // The toolbar sizes to its content and the table takes the remainder. The table holds the header
         // and the list in two rows of its own, so that the column boundaries can be overlaid on both.
         m_root.RowDefinitions().Append(controls::MakeAutoRow()); // toolbar
         m_root.RowDefinitions().Append(controls::MakeStarRow()); // header and rows
 
+        _buildSidebarToggle();
+
         // --- Toolbar -----------------------------------------------------------
         //
-        // Only the summary and the action message: the search box lives in the window's title bar, so it
-        // is reachable from every page and does not move as the user navigates.
+        // The summary and the action message on the left, and the switch for the detail sidebar on the
+        // right. The search box lives in the window's title bar, so it is reachable from every page and
+        // does not move as the user navigates.
+        Grid toolbarRow;
+        toolbarRow.ColumnDefinitions().Append(controls::MakeStarColumn());
+        toolbarRow.ColumnDefinitions().Append(controls::MakeAutoColumn());
+        toolbarRow.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 8.0));
+
         StackPanel toolbar;
         toolbar.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
         toolbar.Spacing(12.0);
         toolbar.VerticalAlignment(VerticalAlignment::Center);
-        toolbar.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 8.0));
 
         m_summary = controls::MakeText(L"", 13.0, true);
         m_summary.VerticalAlignment(VerticalAlignment::Center);
@@ -203,8 +345,22 @@ namespace tmpp::ui
         m_actionMessage.Margin(ThicknessHelper::FromLengths(16.0, 0.0, 0.0, 0.0));
         toolbar.Children().Append(m_actionMessage);
 
-        Grid::SetRow(toolbar, 0);
-        m_root.Children().Append(toolbar);
+        Grid::SetColumn(toolbar, 0);
+        toolbarRow.Children().Append(toolbar);
+
+        // The switch that shows and hides the sidebar. Placed at the far right of the toolbar, which is
+        // where a control that changes the page's layout belongs: it is not about any one process, and
+        // putting it beside the process controls would suggest it applied to the selection.
+        if (m_detailToggle != nullptr)
+        {
+            m_detailToggle.VerticalAlignment(VerticalAlignment::Center);
+            Grid::SetColumn(m_detailToggle, 1);
+            toolbarRow.Children().Append(m_detailToggle);
+        }
+
+        Grid::SetRow(toolbarRow, 0);
+        Grid::SetColumnSpan(toolbarRow, 2);
+        m_root.Children().Append(toolbarRow);
 
         // --- Column headers ----------------------------------------------------
         //
@@ -426,10 +582,165 @@ namespace tmpp::ui
         table.Children().Append(m_handleLayer);
 
         Grid::SetRow(table, 1);
+        Grid::SetColumn(table, 0);
         m_root.Children().Append(table);
+
+        // --- Detail sidebar ----------------------------------------------------
+        //
+        // The sidebar is a card inside the second column, with the gap that separates it from the list
+        // as its own left margin. The drag handle lives in that gap, hard against the card's left edge.
+        //
+        // A card rather than a bare panel: the sidebar holds four groups of controls, and a surface
+        // behind them is what says they belong together rather than to the list beside them.
+        m_detailPanel = std::make_unique<ProcessDetailPanel>(m_coordinator);
+
+        m_detailCard = controls::MakeCard();
+        m_detailCard.Padding(ThicknessHelper::FromLengths(3.0, 3.0, 3.0, 3.0));
+        m_detailCard.Margin(ThicknessHelper::FromLengths(DETAIL_SIDEBAR_GAP, 0.0, 0.0, 0.0));
+        m_detailCard.VerticalAlignment(VerticalAlignment::Stretch);
+        m_detailCard.HorizontalAlignment(HorizontalAlignment::Stretch);
+        m_detailCard.Child(m_detailPanel->Root());
+
+        Grid::SetRow(m_detailCard, 1);
+        Grid::SetColumn(m_detailCard, 1);
+        m_root.Children().Append(m_detailCard);
+
+        // The handle sits inside the sidebar's own column rather than in one of its own: a column for
+        // it would add its width to the gap between the list and the sidebar, and that gap is part of
+        // the layout rather than something the handle is allowed to spend.
+        m_detailSplitter.Width(metrics::SPLITTER_WIDTH);
+        m_detailSplitter.HorizontalAlignment(HorizontalAlignment::Left);
+        m_detailSplitter.Margin(
+            ThicknessHelper::FromLengths(DETAIL_SIDEBAR_GAP - metrics::SPLITTER_WIDTH, 0.0, 0.0, 0.0));
+
+        Grid::SetRow(m_detailSplitter, 1);
+        Grid::SetColumn(m_detailSplitter, 1);
+        m_root.Children().Append(m_detailSplitter);
 
         // Placed once the overlay exists, so the bars start on their boundaries rather than at zero.
         _applyColumnWidths();
+
+        _applySidebarLayout();
+    }
+
+    void ProcessesView::_buildSidebarToggle()
+    {
+        // A gear rather than a chevron: the switch reveals a settings surface, and a chevron in a
+        // toolbar reads as "expand this list". The glyph and the tooltip are the whole affordance, so
+        // both say what the control does rather than what it is.
+        winrt::Microsoft::UI::Xaml::Controls::FontIcon glyph;
+        glyph.Glyph(L"\xE713"); // Segoe Fluent Icons: Setting
+        glyph.FontSize(14.0);
+
+        TextBlock label = controls::MakeText(L"Process settings", 13.0);
+
+        StackPanel content = controls::MakeRow(8.0);
+        content.Children().Append(glyph);
+        content.Children().Append(label);
+
+        m_detailToggle = winrt::Microsoft::UI::Xaml::Controls::Primitives::ToggleButton();
+        m_detailToggle.Content(content);
+        m_detailToggle.IsChecked(true);
+        m_detailToggle.Padding(ThicknessHelper::FromLengths(10.0, 6.0, 10.0, 6.0));
+
+        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+            m_detailToggle,
+            winrt::box_value(winrt::hstring{
+                L"Show or hide the panel that changes the selected process's settings."}));
+
+        winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(m_detailToggle,
+                                                                             L"Process settings panel");
+
+        m_detailToggle.Click([this](winrt::Windows::Foundation::IInspectable const&,
+                                    winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+            // Read from the control rather than inverted from the member: the control is what the user
+            // sees, and a state kept in two places is a state that can disagree with itself.
+            bool const wanted = m_detailToggle.IsChecked() != nullptr && m_detailToggle.IsChecked().Value();
+            _setSidebarVisible(wanted);
+        });
+    }
+
+    void ProcessesView::SetSidebarLayout(double width, bool visible)
+    {
+        if (width > 0.0 && width >= MIN_DETAIL_SIDEBAR_WIDTH && width <= MAX_DETAIL_SIDEBAR_WIDTH)
+        {
+            m_detailWidth = std::round(width);
+        }
+
+        m_detailVisible = visible;
+        _applySidebarLayout();
+    }
+
+    void ProcessesView::SetSidebarLayoutHandler(std::function<void(double, bool)> handler)
+    {
+        m_onSidebarLayoutChanged = std::move(handler);
+    }
+
+    void ProcessesView::_setSidebarWidth(double width)
+    {
+        // Clamped between a width that still fits the labelled controls and one that leaves the list
+        // the majority of the window. Rounded to whole pixels because pointer positions arrive at
+        // fractions of one, and a width carrying that fraction into the settings file is noise.
+        double const clamped = std::round(
+            (std::max)(MIN_DETAIL_SIDEBAR_WIDTH, (std::min)(width, MAX_DETAIL_SIDEBAR_WIDTH)));
+        if (std::abs(clamped - m_detailWidth) < 0.5)
+        {
+            return;
+        }
+
+        m_detailWidth = clamped;
+        _applySidebarLayout();
+
+        if (m_onSidebarLayoutChanged)
+        {
+            m_onSidebarLayoutChanged(m_detailWidth, m_detailVisible);
+        }
+    }
+
+    void ProcessesView::_setSidebarVisible(bool visible)
+    {
+        if (m_detailVisible == visible)
+        {
+            return;
+        }
+
+        m_detailVisible = visible;
+        _applySidebarLayout();
+
+        if (m_onSidebarLayoutChanged)
+        {
+            m_onSidebarLayoutChanged(m_detailWidth, m_detailVisible);
+        }
+    }
+
+    void ProcessesView::_applySidebarLayout()
+    {
+        if (m_detailColumn == nullptr)
+        {
+            return;
+        }
+
+        // A hidden sidebar collapses its column to zero and collapses the card and handle with it.
+        // Collapsing only the column is not enough: a zero-width column still lays out its children,
+        // and the card's border and the handle's own width would remain visible as a seam.
+        m_detailColumn.Width(GridLengthHelper::FromPixels(m_detailVisible ? m_detailWidth : 0.0));
+
+        Visibility const visibility = m_detailVisible ? Visibility::Visible : Visibility::Collapsed;
+        if (m_detailCard != nullptr)
+        {
+            m_detailCard.Visibility(visibility);
+        }
+        if (m_detailSplitter != nullptr)
+        {
+            m_detailSplitter.Visibility(visibility);
+        }
+        if (m_detailToggle != nullptr)
+        {
+            // Set through the control so its pressed visual matches the pane. Guarded because assigning
+            // the value it already has would re-raise nothing, but a mismatch here would leave the
+            // switch showing the opposite of the layout after a settings load.
+            m_detailToggle.IsChecked(m_detailVisible);
+        }
     }
 
     void ProcessesView::_updateSortMarks()
@@ -649,13 +960,35 @@ namespace tmpp::ui
         Grid::SetColumn(nameCell, 0);
         row.Children().Append(nameCell);
 
-        // The remaining columns are plain text.
+        // The remaining columns are text on a shaded cell.
+        //
+        // Each is a Border holding the text rather than a bare TextBlock, because a TextBlock's
+        // Background covers only the glyphs' own box: the shading has to fill the column, and only a
+        // panel that stretches to the cell can do that. The first frame's shading is applied by
+        // _bindRow, so the cell starts transparent.
         for (size_t i = 1; i < COLUMNS.size(); ++i)
         {
-            TextBlock cell = controls::MakeText(L"", 13.0);
-            cell.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
-            cell.VerticalAlignment(VerticalAlignment::Center);
-            cell.HorizontalAlignment(COLUMNS[i].rightAligned ? HorizontalAlignment::Right : HorizontalAlignment::Left);
+            Border cell = Border();
+            cell.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                winrt::Windows::UI::Colors::Transparent()));
+
+            // A one-pixel inset, so the bands of two adjacent columns are separated by the same hairline
+            // that separates two rows rather than meeting to form one continuous block. The background
+            // still fills the cell: a Border's Background covers its border box, and only its child is
+            // inset by the padding.
+            cell.Margin(ThicknessHelper::FromLengths(1.0, 1.0, 1.0, 1.0));
+
+            // Enough on the right that a right-aligned figure does not touch the edge of its band, and a
+            // little on the left so a column narrow enough to clip its text clips it on both sides.
+            cell.Padding(ThicknessHelper::FromLengths(4.0, 0.0, 8.0, 0.0));
+
+            TextBlock text = controls::MakeText(L"", 13.0);
+            text.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            text.VerticalAlignment(VerticalAlignment::Center);
+            text.HorizontalAlignment(COLUMNS[i].rightAligned ? HorizontalAlignment::Right
+                                                            : HorizontalAlignment::Left);
+            cell.Child(text);
+
             Grid::SetColumn(cell, static_cast<int32_t>(i));
             row.Children().Append(cell);
         }
@@ -687,8 +1020,9 @@ namespace tmpp::ui
 
         // The selection fill, and the click that sets it. The process id is captured by value
         // because the row is recycled for a different process when the list is resorted.
+        bool const selected = m_selectionActive && process.identity.pid == m_selectedPid;
         row.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-            process.identity.pid == m_selectedPid ? ROW_SELECTION_FILL : winrt::Windows::UI::Colors::Transparent()));
+            selected ? ROW_SELECTION_FILL : winrt::Windows::UI::Colors::Transparent()));
         uint32_t const pid = process.identity.pid;
         row.Tapped([this, pid](winrt::Windows::Foundation::IInspectable const&,
                                winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const&) {
@@ -762,10 +1096,24 @@ namespace tmpp::ui
         // A value that could not be derived shows an em dash, not a zero: a zero would
         // claim the process is idle when the truth is that the counters are not yet
         // available.
-        auto setCell = [&row](int32_t column, std::string const& text) {
-            if (auto const cell = row.Children().GetAt(column).try_as<TextBlock>())
+        //
+        // The same value drives the cell's shading, so the figure and the band it sits on can never
+        // disagree: a cell that reads "0%" is a cell with no band, and one that reads the column's
+        // largest figure is the one drawn at full strength.
+        auto setCell = [this, &row, processIndex](int32_t column, std::string const& text) {
+            auto const cell = row.Children().GetAt(column).try_as<Border>();
+            if (cell == nullptr)
             {
-                cell.Text(winrt::to_hstring(text));
+                return;
+            }
+
+            cell.Background(_heatBrush(static_cast<size_t>(column),
+                                       _shadeValue(COLUMNS[static_cast<size_t>(column)].shade,
+                                                   m_snapshot.processes[processIndex])));
+
+            if (auto const label = cell.Child().try_as<TextBlock>())
+            {
+                label.Text(winrt::to_hstring(text));
             }
         };
 
@@ -789,20 +1137,169 @@ namespace tmpp::ui
 
     void ProcessesView::_selectRow(uint32_t pid)
     {
-        if (m_selectedPid == pid)
+        // Tested against the flag rather than against the pid alone: the idle process is pid 0, which is
+        // also what "no selection" is reported as, so clicking its row used to look like nothing
+        // happened. The flag is what tells the two apart.
+        if (m_selectionActive && m_selectedPid == pid)
         {
             return;
         }
 
-        m_selectedPid = pid;
+        uint32_t const previousPid = m_selectedPid;
+        bool const hadSelection = m_selectionActive;
 
-        // Repainted in place rather than by rebuilding: the row count and the ordering have not
-        // changed, and rebuilding would discard the scroll position.
-        m_rowHost->RefreshVisibleRows();
+        m_selectedPid = pid;
+        m_selectionActive = true;
+
+        diagnostics::ScopedTimer const whole{"select row"};
+        {
+            diagnostics::ScopedTimer const repaint{"select row: repaint"};
+
+            // Only the two rows whose appearance actually changed are re-bound.
+            //
+            // Repainting every visible row to move one highlight was the first implementation, and it
+            // cost about four milliseconds and allocated a context menu for each of some thirty rows --
+            // on the thread that owes the next frame, at the moment the user is waiting to see their
+            // click acknowledged. The values in the other rows have not changed: those arrive with the
+            // next sample.
+            if (hadSelection)
+            {
+                _refreshRowForPid(previousPid);
+            }
+            _refreshRowForPid(pid);
+        }
+
+        // The sidebar is given the process rather than the row, because it needs the creation time and
+        // the image name: the first is what tells a recycled identifier from the process the user
+        // picked, and the second is what a saved rule is keyed on.
+        {
+            diagnostics::ScopedTimer const sidebar{"select row: sidebar"};
+            _updateSidebar();
+        }
 
         if (m_onSelectionChanged)
         {
             m_onSelectionChanged(pid);
+        }
+    }
+
+    void ProcessesView::_refreshRowForPid(uint32_t pid)
+    {
+        // A zero pid with no selection active means nothing was highlighted, which is not a row to
+        // repaint. Parenthesised because the alternative reading -- "pid is zero, or no selection is
+        // active" -- would skip the repaint that clears the highlight when a process exits.
+        if (m_rowHost == nullptr || (pid == 0 && !m_selectionActive))
+        {
+            return;
+        }
+
+        // The row's position is its position in the visible ordering, which is not the process's index
+        // in the snapshot: the list is filtered and sorted. Searching the ordering is linear in the
+        // visible count, which is a few hundred comparisons and far cheaper than the rebind it saves.
+        std::vector<uint32_t> const& visible = m_listModel->VisibleIndices();
+        for (size_t row = 0; row < visible.size(); ++row)
+        {
+            if (visible[row] < m_snapshot.processes.size() &&
+                m_snapshot.processes[visible[row]].identity.pid == pid)
+            {
+                // The result says whether the row had a visual. Not on screen is an ordinary outcome
+                // here, so it is not a condition to branch on.
+                (void)m_rowHost->RefreshRow(static_cast<uint32_t>(row));
+                return;
+            }
+        }
+
+        // Not on screen: the row will be bound from scratch when it scrolls into view, which reads the
+        // selection at that point.
+    }
+
+    void ProcessesView::_updateSidebar()
+    {
+        if (m_detailPanel == nullptr)
+        {
+            return;
+        }
+
+        if (!m_selectionActive)
+        {
+            m_selectedCreateTime = 0;
+            m_detailPanel->SetProcess(0, 0, {});
+            return;
+        }
+
+        uint32_t const previousPid = m_selectedPid;
+
+        for (domain::ProcessView const& process : m_snapshot.processes)
+        {
+            if (process.identity.pid != m_selectedPid)
+            {
+                continue;
+            }
+
+            if (process.identity.createTime != m_selectedCreateTime)
+            {
+                // A process the sidebar has not been introduced to: either the first time this row was
+                // selected, or an identifier that now belongs to something else. Both need the settings
+                // read again rather than a repaint.
+                m_selectedCreateTime = process.identity.createTime;
+                m_detailPanel->SetProcess(process.identity.pid, process.identity.createTime, process.imageName);
+            }
+            else
+            {
+                m_detailPanel->Refresh(process);
+            }
+
+            return;
+        }
+
+        // The process is gone. The selection is dropped rather than left pointing at a row that no
+        // longer exists, and the sidebar returns to its placeholder so it cannot show settings for a
+        // process that has exited as if they were live.
+        m_selectedPid = 0;
+        m_selectionActive = false;
+        m_selectedCreateTime = 0;
+        m_detailPanel->SetProcess(0, 0, {});
+
+        // Only the row that was highlighted needs repainting. The row-rebuild path below is skipped when
+        // the visible count happens to be unchanged -- which is exactly the case when one process exits
+        // and another appears in the same sample -- and leaving the highlight on a row that no longer
+        // has a process behind it would be a lie about what is selected.
+        _refreshRowForPid(previousPid);
+
+        if (m_onSelectionChanged)
+        {
+            m_onSelectionChanged(0);
+        }
+    }
+
+    void ProcessesView::_reportRuleEvents()
+    {
+        if (m_actionMessage == nullptr)
+        {
+            return;
+        }
+
+        std::vector<core::ProcessRuleEvent> const events = m_coordinator.TakeProcessRuleEvents();
+        if (events.empty())
+        {
+            return;
+        }
+
+        // One line naming the last thing that happened, not one per event: a rule that matches a
+        // program with many instances fires several times in one round, and the toolbar is a single
+        // line that would be filled with repetitions of the same sentence.
+        core::ProcessRuleEvent const& last = events.back();
+
+        if (last.Failed())
+        {
+            m_actionMessage.Text(winrt::hstring{L"A saved rule could not be applied to "} +
+                                 winrt::to_hstring(last.executableName) + L": " +
+                                 winrt::to_hstring(last.result.message));
+        }
+        else
+        {
+            m_actionMessage.Text(winrt::hstring{L"A saved rule was applied to "} +
+                                 winrt::to_hstring(last.executableName) + L".");
         }
     }
 
@@ -969,6 +1466,68 @@ namespace tmpp::ui
         }
     }
 
+    void ProcessesView::_updateColumnMaxima()
+    {
+        m_columnMaxima.fill(0.0);
+
+        // One pass over the visible rows rather than one pass per column. Five columns over seven
+        // hundred rows is three and a half thousand switches either way, so this is not about the
+        // arithmetic: it is that a single pass has one loop to read and one place to add a column's
+        // metric to, where five passes invite five slightly different bounds checks.
+        for (uint32_t const index : m_listModel->VisibleIndices())
+        {
+            if (index >= m_snapshot.processes.size())
+            {
+                continue;
+            }
+
+            domain::ProcessView const& process = m_snapshot.processes[index];
+
+            for (size_t column = 0; column < COLUMNS.size(); ++column)
+            {
+                ShadeMetric const metric = COLUMNS[column].shade;
+                if (metric == ShadeMetric::None)
+                {
+                    continue;
+                }
+
+                double const value = _shadeValue(metric, process);
+                if (value > m_columnMaxima[column])
+                {
+                    m_columnMaxima[column] = value;
+                }
+            }
+        }
+    }
+
+    winrt::Microsoft::UI::Xaml::Media::Brush ProcessesView::_heatBrush(size_t column, double value) const
+    {
+        // Nothing to shade: an unavailable rate, a column that measures nothing, or a machine where
+        // every row of this column is at zero.
+        if (value <= NO_HEAT || column >= m_columnMaxima.size())
+        {
+            return m_transparentFill;
+        }
+
+        double const peak = m_columnMaxima[column];
+        if (peak <= 0.0)
+        {
+            return m_transparentFill;
+        }
+
+        double const ratio = (std::min)(value / peak, 1.0);
+
+        // Rounded to the nearest step, and the ramp starts at zero, so a row with an infinitesimal
+        // reading gets no band rather than a visible one it has not earned.
+        auto const step = static_cast<size_t>(ratio * static_cast<double>(HEAT_STEPS) + 0.5);
+        if (step >= m_heatBrushes.size())
+        {
+            return m_heatBrushes.back();
+        }
+
+        return m_heatBrushes[step];
+    }
+
     void ProcessesView::Refresh()
     {
         // Poll the version first: comparing a number is effectively free, whereas
@@ -978,6 +1537,12 @@ namespace tmpp::ui
         // second for nothing.
         uint64_t const version = m_coordinator.ProcessVersion();
         bool const forced = (m_renderedVersion == 0);
+
+        // Drained before the version check, because a rule's outcome is queued by the sampling thread
+        // and does not depend on whether this frame has a new sample to draw. Waiting for one would
+        // delay the message by up to a sampling interval for no reason.
+        _reportRuleEvents();
+
         if (version == m_renderedVersion && !forced)
         {
             // The queued icons are still drained even when no new sample has arrived. They are read
@@ -993,12 +1558,32 @@ namespace tmpp::ui
 
         ListQuery const previousQuery = m_listModel->Query();
 
-        m_snapshot = m_coordinator.CurrentProcesses();
+        {
+            diagnostics::ScopedTimer const timer{"refresh: copy snapshot"};
+            m_snapshot = m_coordinator.CurrentProcesses();
+        }
         m_renderedVersion = version;
 
-        m_listModel->Update(m_snapshot, m_query);
+        {
+            diagnostics::ScopedTimer const timer{"refresh: order"};
+            m_listModel->Update(m_snapshot, m_query);
+        }
         _updateSummary();
         _updateHeaderAggregates();
+
+        // Before anything is bound: the shading of every cell is measured against these, and a rebind
+        // that ran first would draw the previous sample's bands.
+        {
+            diagnostics::ScopedTimer const timer{"refresh: column maxima"};
+            _updateColumnMaxima();
+        }
+
+        // After the snapshot is current: the sidebar is fed from it, and a stale one would show the
+        // figures of the previous round or fail to find a process that has just appeared.
+        {
+            diagnostics::ScopedTimer const timer{"refresh: sidebar"};
+            _updateSidebar();
+        }
 
         // A few queued icons are read here, between frames, rather than inside the row binder. The binder
         // asks only for what the cache already holds, so however many new processes appear in one sample,

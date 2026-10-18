@@ -477,6 +477,75 @@ namespace tmpp::platform
         bool available{false};
     };
     /**
+     * @brief One logical processor, as the topology places it.
+     *
+     * Separate from SystemProcessorInfo, which counts processors, because the affinity editor has to
+     * draw a chip per logical processor and say which physical core each one belongs to. A count
+     * cannot answer "is CPU 6 the second thread of the core CPU 4 is on?", and that is the question a
+     * user picks cores by.
+     */
+    struct ProcessorCore
+    {
+        /// Index within the processor group, i.e. the bit position in an affinity mask.
+        uint32_t logicalIndex{0};
+
+        /// Index of the physical core this logical processor is one thread of. Two entries sharing a
+        /// core index are SMT siblings.
+        uint32_t physicalCoreIndex{0};
+
+        /// Which processor group the logical processor lives in. Machines with more than 64 logical
+        /// processors have more than one, and the affinity APIs address them one group at a time.
+        uint16_t group{0};
+
+        /**
+         * @brief The core's efficiency class, as the firmware declares it.
+         *
+         * A higher value means a more performant core, which is the opposite of what the name
+         * suggests. That is not a guess: on the machine this was developed against -- an Intel
+         * i7-14700KF, whose eight performance cores support simultaneous multithreading and whose
+         * twelve efficiency cores do not -- the eight two-thread cores are reported as class 1 and the
+         * twelve single-thread cores as class 0. Reading the field by its name rather than by its
+         * behaviour labelled every processor of that machine backwards.
+         *
+         * The value is only meaningful relative to the other cores on the same machine: a processor
+         * that is not hybrid reports a single class throughout, and which number it is carries no
+         * meaning.
+         */
+        uint8_t efficiencyClass{0};
+
+        /// True for the first thread of a core, false for an SMT sibling. Gives the editor a
+        /// physical-core view without it having to group the list itself.
+        bool primaryThread{true};
+    };
+
+    /**
+     * @brief The machine's logical processors and how they are grouped.
+     *
+     * Read once at startup rather than per sample: a machine's processor topology cannot change while
+     * it runs, and the system rows are the only per-sample consumer of the counts.
+     */
+    struct ProcessorTopology
+    {
+        std::vector<ProcessorCore> logicalProcessors;
+
+        /// Distinct physical cores, counted from the relationship data rather than from the logical
+        /// count, so SMT is accounted for.
+        uint32_t physicalCoreCount{0};
+
+        /// Processor groups the machine presents. More than one means an affinity mask alone does not
+        /// name a processor without also naming its group.
+        uint32_t groupCount{0};
+
+        /// True when the firmware labels cores with more than one efficiency class, which is what
+        /// makes a processor hybrid (Intel's P-core and E-core arrangement).
+        bool hybrid{false};
+
+        /// True when at least one logical processor was enumerated. False leaves the caller to fall
+        /// back on the plain logical count.
+        bool available{false};
+    };
+
+    /**
      * @brief Which system metrics this machine can provide.
      */
     struct SystemCapabilities

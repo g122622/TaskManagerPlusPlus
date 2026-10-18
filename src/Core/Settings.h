@@ -169,6 +169,17 @@ namespace tmpp::core
         /// Width of the performance page's own sidebar. Negative means "not yet decided".
         double performanceSidebarWidth{-1.0};
 
+        /// Width of the processes page's detail sidebar, in effective pixels. Negative means "not yet
+        /// decided", so the view's own default applies.
+        double processSidebarWidth{-1.0};
+
+        /// Whether the processes page shows its detail sidebar.
+        ///
+        /// Persisted rather than fixed, because the sidebar is a substantial part of the window and a
+        /// user who does not tune processes should not have to hide it on every launch. It defaults to
+        /// shown: the panel is the feature, and a first run that hid it would hide the point of it.
+        bool processSidebarVisible{true};
+
         /// The process list's column widths, in effective pixels, in the column table's order.
         ///
         /// Empty means "never dragged", in which case each column keeps its own default. Stored as a list

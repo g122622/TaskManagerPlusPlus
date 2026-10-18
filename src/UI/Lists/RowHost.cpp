@@ -136,6 +136,23 @@ namespace tmpp::ui
         }
     }
 
+    bool RowHost::RefreshRow(uint32_t rowIndex)
+    {
+        if (m_binder == nullptr)
+        {
+            return false;
+        }
+
+        auto const found = m_liveRows.find(rowIndex);
+        if (found == m_liveRows.end())
+        {
+            return false;
+        }
+
+        m_binder(found->second, rowIndex);
+        return true;
+    }
+
     void RowHost::ScrollToRow(uint32_t rowIndex)
     {
         if (rowIndex >= m_rowCount)

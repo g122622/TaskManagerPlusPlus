@@ -53,6 +53,18 @@ namespace tmpp::platform
         [[nodiscard]] Result<SystemProcessorInfo> ReadProcessorInfo() const;
 
         /**
+         * @brief Reads which logical processor is which physical core, and in which group.
+         *
+         * Separate from ReadProcessorInfo, which counts: the affinity editor draws one chip per
+         * logical processor and has to say which core each one belongs to and whether the firmware
+         * labels some of them as efficiency cores. Neither question can be answered from a count.
+         *
+         * Read once at startup -- a machine's processor topology does not change while it runs -- so
+         * the cost of the relationship walk is not on any sampling path.
+         */
+        [[nodiscard]] Result<ProcessorTopology> ReadProcessorTopology() const;
+
+        /**
          * @brief Reads rolling system-wide totals.
          *
          * @param processCount Processes in the latest snapshot.

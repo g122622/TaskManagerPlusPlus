@@ -157,6 +157,10 @@ namespace tmpp::core
         settings.navigationWidth = _getNumber<double>(layout, "navigationWidth", settings.navigationWidth);
         settings.performanceSidebarWidth =
             _getNumber<double>(layout, "performanceSidebarWidth", settings.performanceSidebarWidth);
+        settings.processSidebarWidth =
+            _getNumber<double>(layout, "processSidebarWidth", settings.processSidebarWidth);
+        settings.processSidebarVisible =
+            _getBool(layout, "processSidebarVisible", settings.processSidebarVisible);
         settings.navigationExpanded = _getBool(layout, "navigationExpanded", settings.navigationExpanded);
 
         // The process list's column widths. A non-array entry, or a value that is not a positive finite
@@ -249,6 +253,8 @@ namespace tmpp::core
         json layout;
         layout["navigationWidth"] = settings.navigationWidth;
         layout["performanceSidebarWidth"] = settings.performanceSidebarWidth;
+        layout["processSidebarWidth"] = settings.processSidebarWidth;
+        layout["processSidebarVisible"] = settings.processSidebarVisible;
         layout["navigationExpanded"] = settings.navigationExpanded;
 
         // Written as an array, and only when the user has dragged something. An empty array is a

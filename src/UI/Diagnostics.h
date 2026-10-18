@@ -10,6 +10,7 @@
 // sink installed the calls do nothing.
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -33,4 +34,54 @@ namespace tmpp::ui::diagnostics
 
     /// True when a sink is installed, so a caller can skip building a costly message.
     [[nodiscard]] bool Enabled() noexcept;
+
+    /**
+     * @brief Records that the UI loop has run, and reports it when the loop ran late.
+     *
+     * This is the measurement that matters for a stutter, and the reason the per-stage timers above can
+     * all look healthy while the window still hitches. The loop is scheduled every 100 ms; if it arrives
+     * half a second late then the thread was busy or blocked somewhere, and the place it was busy is not
+     * necessarily inside any stage that was timed -- a layout pass, a lock held by the sampler, and a
+     * compositor stall all happen after the stage that provoked them has already returned.
+     *
+     * Measuring the gap between invocations catches all of those without having to name any of them.
+     *
+     * @param scheduledMs The interval the loop is scheduled on.
+     */
+    void NoteUiTick(double scheduledMs = 100.0);
+
+    /**
+     * @brief Times a scope and reports it when it turned out to be slow.
+     *
+     * A window that stutters is the hardest kind of fault to localise from the outside: every stage
+     * returns the right answer and nothing is logged, so the only visible symptom is that the frame did
+     * not arrive. Timing the stages and reporting only the ones that overran keeps the record short
+     * enough to read while still naming the culprit.
+     *
+     * The threshold is deliberately well above zero rather than just above a frame: a stage that takes a
+     * tenth of a millisecond is not interesting, and reporting every one of them would bury the one that
+     * is.
+     *
+     * Costs two clock reads, so it is cheap enough to leave in a release build -- and with no sink
+     * installed it reports nothing at all.
+     */
+    class ScopedTimer
+    {
+    public:
+        /**
+         * @param what Names the stage in the report.
+         * @param thresholdMs Shortest duration worth reporting.
+         */
+        explicit ScopedTimer(std::string_view what, double thresholdMs = 4.0) noexcept;
+
+        ~ScopedTimer();
+
+        ScopedTimer(ScopedTimer const&) = delete;
+        ScopedTimer& operator=(ScopedTimer const&) = delete;
+
+    private:
+        std::string_view m_what;
+        std::chrono::steady_clock::time_point m_start;
+        double m_thresholdMs{4.0};
+    };
 }

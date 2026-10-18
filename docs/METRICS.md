@@ -239,3 +239,19 @@ UI 层据此**隐藏不可用的列与操作**，而不是显示 0 或伪造数�
 
 > **原则**：能力缺失不是错误。受支持的系统仍可能因内核配置、权限、
 > 硬件、驱动或可选厂商库而缺失某些指标。
+
+## 10. 进程精细设置
+
+第 6 节与第 7 节列出的「效率模式 / 优先级 / 亲和性 / 挂起」在应用中的落地方式——包括
+它们背后的具体 API、规则文件格式、热力底色的归一化方式，以及 `EfficiencyClass`
+方向与字段名相反这一实测结论——见 [`PROCESS_TUNING.md`](PROCESS_TUNING.md)。
+
+其中与本章直接相关的三条补充：
+
+- **CPU 优先级 / 内存优先级 / I/O 优先级 / 效率模式各走一个 API**，互不代偿。
+  系统可以接受其中一个而拒绝另一个，因此 UI 侧必须能逐项报告结果。
+- **`ProcessIoPriority` 是 `PROCESSINFOCLASS` 的 33 号**，没有 kernel32 包装，只能走
+  `NtSetInformationProcess`；它与公开的 `PROCESS_INFORMATION_CLASS` 不是同一套编号。
+- **进程挂起状态复用第 1 节的批量快照**：`SYSTEM_PROCESS_INFORMATION` 后内联的
+  `SYSTEM_THREAD_INFORMATION` 数组里，全部线程处于 `StateWait` + `Suspended` 才算挂起。
+  为它单独再枚举一次全部进程会违反 P-001。

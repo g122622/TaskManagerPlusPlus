@@ -14,53 +14,11 @@
 #include <utility>
 #include <vector>
 
+#include "Platform/ProcessActionTypes.h"
 #include "Platform/Result.h"
 
 namespace tmpp::platform
 {
-    /**
-     * @brief Why a process action failed, in terms the user can act on.
-     */
-    enum class ProcessActionOutcome
-    {
-        Succeeded = 0,
-
-        /// The process is not running. It may have exited between the list being drawn and the action
-        /// being taken, which is normal rather than a fault.
-        NotFound,
-
-        /// The operating system refused access. Usually a system process, or one owned by another
-        /// user, and the answer is that administrator rights would be needed.
-        AccessDenied,
-
-        /// The process is protected. Some system processes refuse termination even to an
-        /// administrator, and saying so is clearer than reporting a generic failure.
-        Protected,
-
-        /// Anything else. The message carries the operating system's own text.
-        Failed,
-    };
-
-    /**
-     * @brief The result of a process action.
-     */
-    struct ProcessActionResult
-    {
-        ProcessActionOutcome outcome{ProcessActionOutcome::Succeeded};
-
-        /// How many processes the action was applied to.
-        uint32_t affected{0};
-
-        /// How many could not be, and why the first of them failed.
-        uint32_t failed{0};
-        std::string message;
-
-        [[nodiscard]] bool Succeeded() const noexcept
-        {
-            return outcome == ProcessActionOutcome::Succeeded;
-        }
-    };
-
     /**
      * @brief Terminates processes on Windows.
      */

@@ -88,6 +88,21 @@ namespace tmpp::ui
          */
         void RefreshVisibleRows();
 
+        /**
+         * @brief Re-binds one row, if it currently has a visual.
+         *
+         * The counterpart to RefreshVisibleRows for a change that affects a known few rows rather than
+         * all of them -- a selection highlight moving from one row to the next, for instance. Rebinding
+         * every visible row to move one highlight costs a few milliseconds and allocates a context menu
+         * per row, on the thread that owes the next frame; doing it for the two rows that changed costs
+         * nothing measurable.
+         *
+         * @param rowIndex Row in display order. Out of range, or scrolled out of view, does nothing: an
+         *        off-screen row has no visual to update and will be bound when it scrolls back in.
+         * @return true when a row was rebound.
+         */
+        [[nodiscard]] bool RefreshRow(uint32_t rowIndex);
+
         /// Scrolls the given row into view, if it is not already visible.
         void ScrollToRow(uint32_t rowIndex);
 

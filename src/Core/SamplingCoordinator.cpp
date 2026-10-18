@@ -58,7 +58,7 @@ namespace tmpp::core
         }
     }
 
-    SamplingCoordinator::SamplingCoordinator(uint32_t initialIntervalMs)
+    SamplingCoordinator::SamplingCoordinator(uint32_t initialIntervalMs, std::string processRulesFile)
         : m_processModel(_processorInfo().logicalProcessorCount),
           m_systemModel(_processorInfo().logicalProcessorCount,
                         domain::sampling::ClampInterval(initialIntervalMs),
@@ -77,6 +77,40 @@ namespace tmpp::core
         if (auto const slots = platform::SmbiosMemoryProbe{}.Read(); slots.Success())
         {
             m_memorySlots = slots.Value();
+        }
+
+        // Read once for the same reason: which logical processor is a thread of which core cannot
+        // change while the machine runs, and the relationship walk is not cheap enough to repeat.
+        {
+            platform::WindowsSystemProbe probe;
+            if (auto const topology = probe.ReadProcessorTopology(); topology.Success())
+            {
+                m_processorTopology = topology.Value();
+                spdlog::info("Processor topology: {} logical processors on {} physical cores in {} group(s){}",
+                             m_processorTopology.logicalProcessors.size(),
+                             m_processorTopology.physicalCoreCount,
+                             m_processorTopology.groupCount,
+                             m_processorTopology.hybrid ? ", hybrid" : "");
+            }
+            else
+            {
+                // Not fatal: the affinity editor falls back on the plain logical count and loses only
+                // the physical-core grouping, which is a presentation detail rather than a
+                // correctness one.
+                spdlog::warn("Could not read the processor core topology ({}); CPU cores will be "
+                             "listed without their physical grouping",
+                             topology.GetError().Message());
+            }
+        }
+
+        // Rules are an accelerator for a repeated workflow, so an unreadable file costs the user
+        // their rules and nothing else. A path is only supplied by the application; a test leaves it
+        // empty, and no file is then touched.
+        if (!processRulesFile.empty())
+        {
+            m_ruleStore = std::make_unique<ProcessRuleStore>(processRulesFile);
+            m_ruleEngine.SetRules(m_ruleStore->Load());
+            spdlog::info("Loaded {} process rule(s) from {}", m_ruleEngine.Rules().size(), processRulesFile);
         }
 
         m_speedProbe = std::make_unique<platform::ProcessorSpeedProbe>(_processorInfo().info.baseClockMhz);
@@ -176,6 +210,102 @@ namespace tmpp::core
         }
 
         return result;
+    }
+
+    // ========================================================================
+    // Process tuning
+    // ========================================================================
+
+    platform::ProcessTuningState SamplingCoordinator::ReadProcessTuning(uint32_t pid) const
+    {
+        // The platform read happens outside the lock. It opens a process handle, which can block on a
+        // process that is being torn down, and holding the sampling mutex across it would stall the
+        // sampler for as long as that took.
+        platform::ProcessTuningState state;
+        if (auto const read = m_processTuning.Read(pid); read.Success())
+        {
+            state = read.Value();
+        }
+
+        // The suspend state comes from the snapshot rather than from the platform module, which
+        // reports it as unknown: the kernel offers no query for it, and the bulk snapshot -- where
+        // every thread's wait reason is already in hand -- is the only place it can be answered
+        // without attempting a modification and observing whether it is refused.
+        {
+            std::lock_guard const lock(m_mutex);
+            for (domain::ProcessView const& process : m_processModel.Latest().processes)
+            {
+                if (process.identity.pid == pid)
+                {
+                    state.suspendState = process.suspended ? platform::ProcessSuspendState::Suspended
+                                                          : platform::ProcessSuspendState::Running;
+                    break;
+                }
+            }
+        }
+
+        return state;
+    }
+
+    platform::ProcessActionResult SamplingCoordinator::ApplyProcessTuning(uint32_t pid,
+                                                                         platform::ProcessTuningChange const& change)
+    {
+        // The creation time is taken from the snapshot rather than supplied by the caller, for the
+        // same reason TerminateProcess takes its tree from one: a list drawn a second ago may name a
+        // process that has since exited and had its identifier handed to something else.
+        uint64_t createTime = 0;
+        {
+            std::lock_guard const lock(m_mutex);
+            for (domain::ProcessView const& process : m_processModel.Latest().processes)
+            {
+                if (process.identity.pid == pid)
+                {
+                    createTime = process.identity.createTime;
+                    break;
+                }
+            }
+        }
+
+        platform::ProcessActionResult const result = m_processTuning.Apply(pid, createTime, change);
+
+        // A priority or a suspension is not reflected in the counters until the next round, so the
+        // list would otherwise appear to have ignored the request.
+        if (result.applied > 0)
+        {
+            RequestRefresh();
+        }
+
+        return result;
+    }
+
+    std::string SamplingCoordinator::ProcessExecutablePath(uint32_t pid) const
+    {
+        return m_processTuning.ExecutablePath(pid);
+    }
+
+    std::vector<ProcessRule> SamplingCoordinator::ProcessRules() const
+    {
+        return m_ruleEngine.Rules();
+    }
+
+    void SamplingCoordinator::SetProcessRules(std::vector<ProcessRule> rules)
+    {
+        if (m_ruleStore != nullptr)
+        {
+            if (auto const saved = m_ruleStore->Save(rules); !saved.Success())
+            {
+                spdlog::warn("Process rules could not be written to {}: {}",
+                             m_ruleStore->FilePath(),
+                             saved.GetError().Message());
+            }
+        }
+
+        m_ruleEngine.SetRules(std::move(rules));
+    }
+
+    std::vector<ProcessRuleEvent> SamplingCoordinator::TakeProcessRuleEvents()
+    {
+        return m_ruleEngine.TakeEvents();
     }
 
     void SamplingCoordinator::_sample(WakeReason reason)
@@ -292,6 +422,11 @@ namespace tmpp::core
         uint32_t handleTotal = 0;
         uint32_t processTotal = 0;
 
+        // Kept rather than discarded, because the rule engine is evaluated against it below. The
+        // model returns the snapshot it just published, so this is a pointer's worth of work rather
+        // than a second copy of the process list.
+        domain::ProcessSnapshotView published;
+
         if (processes.Success())
         {
             // The thread and handle counts come from the snapshot already in hand, so
@@ -305,9 +440,9 @@ namespace tmpp::core
             processTotal = static_cast<uint32_t>(processes.Value().processes.size());
 
             std::lock_guard const lock(m_mutex);
-            m_processModel.Update(processes.Value(),
-                                  haveCpuDelta ? processCpuDelta : domain::SystemCpuDelta{},
-                                  processGpu);
+            published = m_processModel.Update(processes.Value(),
+                                              haveCpuDelta ? processCpuDelta : domain::SystemCpuDelta{},
+                                              processGpu);
         }
 
         // --- Live clock speed. Independent of everything above: a missing counter must
@@ -439,6 +574,25 @@ namespace tmpp::core
                              status.memoryReadSucceeded,
                              status.perProcessorReadSucceeded);
             }
+        }
+
+        // --- Saved rules, last -------------------------------------------------
+        //
+        // Last because a rule that adjusts a process should not be able to disturb the round it was
+        // observed in: everything above reads a snapshot that is already taken, and the change shows
+        // up in the next one. Evaluated on this thread rather than the UI's because this is where a
+        // newly appeared process is first seen, and because opening a handle per new process on the
+        // UI thread would put an unbounded cost on a frame.
+        //
+        // Skipped entirely when no rule is enabled, which is the state of a machine whose user has
+        // never used the feature: the check is a size comparison and costs nothing per sample.
+        if (!published.processes.empty() && m_ruleEngine.HasActiveRules())
+        {
+            m_ruleEngine.Evaluate(published, [this](uint32_t pid,
+                                                    uint64_t createTime,
+                                                    platform::ProcessTuningChange const& change) {
+                return m_processTuning.Apply(pid, createTime, change);
+            });
         }
 
         return status;

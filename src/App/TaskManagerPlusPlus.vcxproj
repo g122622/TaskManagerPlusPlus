@@ -208,6 +208,7 @@
     <ClInclude Include="MainWindow.h" />
     <ClInclude Include="StartupLog.h" />
     <ClInclude Include="WinRT.h" />
+    <ClInclude Include="..\UI\Controls\ProcessDetailPanel.h" />
   </ItemGroup>
 
   <!-- The UI is composed in C++. No Page or ApplicationDefinition items exist,
@@ -240,6 +241,7 @@
     <ClCompile Include="..\UI\Lists\ProcessIconCache.cpp" />
     <ClCompile Include="..\UI\Lists\RowHost.cpp" />
     <ClCompile Include="..\UI\Charts\Sparkline.cpp" />
+    <ClCompile Include="..\UI\Controls\ProcessDetailPanel.cpp" />
   </ItemGroup>
 
   <ItemGroup>

@@ -129,6 +129,8 @@
     <ClCompile Include="test_process_tree_order.cpp" />
     <ClCompile Include="test_process_actions.cpp" />
     <ClCompile Include="test_process_action_outcome.cpp" />
+    <ClCompile Include="test_process_rules.cpp" />
+    <ClCompile Include="test_process_tuning_timing.cpp" />
     <ClCompile Include="test_probe_stability.cpp" />
     <ClCompile Include="test_sidebar_retention.cpp" />
     <ClCompile Include="test_published_view.cpp" />

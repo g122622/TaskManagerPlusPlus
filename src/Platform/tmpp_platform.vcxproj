@@ -95,13 +95,17 @@
   <ItemGroup>
     <ClInclude Include="Clock.h" />
     <ClInclude Include="FileSystem.h" />
+    <ClInclude Include="ProcessActionTypes.h" />
+    <ClInclude Include="ProcessTuningTypes.h" />
     <ClInclude Include="ProcessTypes.h" />
     <ClInclude Include="Result.h" />
     <ClInclude Include="StoragePaths.h" />
     <ClInclude Include="SystemTypes.h" />
     <ClInclude Include="Windows\NtdllApi.h" />
     <ClInclude Include="Windows\ProcessIconReader.h" />
+    <ClInclude Include="Windows\WindowsProcessActions.h" />
     <ClInclude Include="Windows\WindowsProcessProbe.h" />
+    <ClInclude Include="Windows\WindowsProcessTuning.h" />
     <ClInclude Include="Windows\WindowsString.h" />
     <ClInclude Include="Windows\WindowsSystemProbe.h" />
   </ItemGroup>
@@ -116,6 +120,7 @@
     <ClCompile Include="Windows\WindowsClock.cpp" />
     <ClCompile Include="Windows\WindowsFileSystem.cpp" />
     <ClCompile Include="Windows\WindowsProcessProbe.cpp" />
+    <ClCompile Include="Windows\WindowsProcessTuning.cpp" />
     <ClCompile Include="Windows\WindowsStoragePaths.cpp" />
     <ClCompile Include="Windows\WindowsString.cpp" />
     <ClCompile Include="Windows\WindowsSystemProbe.cpp" />

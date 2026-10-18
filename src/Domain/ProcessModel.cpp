@@ -62,6 +62,7 @@ namespace tmpp::domain
             view.handleCount = info.handleCount;
             view.sessionId = info.sessionId;
             view.basePriority = info.basePriority;
+            view.suspended = info.suspended;
 
             // The GPU figure comes from the performance counters rather than from the process snapshot, so
             // it is looked up by process id. A process that is not in the map is using no GPU, which is a

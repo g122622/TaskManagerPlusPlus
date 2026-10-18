@@ -6,11 +6,12 @@
   structure: the sources are listed in the application project itself.
 
   Layout:
-    Charts/   everything that draws a series
-    Lists/    list presentation logic, including row virtualisation
-    Theming/  appearance constants, control construction, value formatting
-    Views/    the pages
-    *.h       shared infrastructure (WinRT projections, diagnostics)
+    Charts/    everything that draws a series
+    Controls/  composite controls that own a behaviour rather than a page
+    Lists/     list presentation logic, including row virtualisation
+    Theming/   appearance constants, control construction, value formatting
+    Views/     the pages
+    *.h        shared infrastructure (WinRT projections, diagnostics)
 -->
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
@@ -20,6 +21,7 @@
     <ClInclude Include="Charts\CoreGrid.h" />
     <ClInclude Include="Charts\HistoryChart.h" />
     <ClInclude Include="Charts\Sparkline.h" />
+    <ClInclude Include="Controls\ProcessDetailPanel.h" />
     <ClInclude Include="Lists\ProcessListModel.h" />
     <ClInclude Include="Lists\RowHost.h" />
     <ClInclude Include="Theming\Controls.h" />
@@ -35,6 +37,7 @@
     <ClCompile Include="Charts\CoreGrid.cpp" />
     <ClCompile Include="Charts\HistoryChart.cpp" />
     <ClCompile Include="Charts\Sparkline.cpp" />
+    <ClCompile Include="Controls\ProcessDetailPanel.cpp" />
     <ClCompile Include="Lists\ProcessListModel.cpp" />
     <ClCompile Include="Lists\RowHost.cpp" />
     <ClCompile Include="Theming\Controls.cpp" />

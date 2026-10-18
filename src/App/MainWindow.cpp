@@ -54,6 +54,14 @@ namespace tmpp
         constexpr char const* APPLICATION_NAME = "TaskManagerPlusPlus";
         constexpr char const* SETTINGS_FILE_NAME = "settings.json";
 
+        /// The file holding the per-executable tuning rules.
+        ///
+        /// A file of its own rather than a section of settings.json: rules are edited one at a time by
+        /// an explicit act, outlive every other setting, and are the only part of the configuration a
+        /// user is likely to write by hand and copy between machines. Keeping them apart also means a
+        /// rule file that becomes unreadable cannot cost the user their window layout or chart colours.
+        constexpr char const* PROCESS_RULES_FILE_NAME = "process-rules.json";
+
         /// Height of the custom title bar strip.
         ///
         /// The window buttons occupy a fixed region at the top right. Reserving its
@@ -94,12 +102,14 @@ namespace tmpp
         Title(L"TaskManagerPlusPlus");
 
         // --- Settings and paths ------------------------------------------------
+        std::string processRulesFile;
         auto const paths = core::PathService::Create(APPLICATION_NAME, SETTINGS_FILE_NAME);
         if (paths.Success())
         {
             core::SettingsStore store{paths.Value().SettingsFile()};
             m_loadedSettings = store.Load();
             m_settingsStore = std::make_unique<core::SettingsStore>(paths.Value().SettingsFile());
+            processRulesFile = paths.Value().SettingsPath(PROCESS_RULES_FILE_NAME);
             if (store.DamagedFilePreserved())
             {
                 diag::LogStartup("MainWindow: settings file was damaged and preserved as .bak");
@@ -119,7 +129,10 @@ namespace tmpp
         diag::LogStartup("MainWindow: settings loaded");
 
         // --- Sampling ----------------------------------------------------------
-        m_coordinator = std::make_unique<core::SamplingCoordinator>(settings.intervalMs);
+        // The rules file is resolved here rather than inside the coordinator because path resolution
+        // belongs to the application, and because the coordinator is then usable without one -- which
+        // is what a test does so it cannot touch the user's configuration.
+        m_coordinator = std::make_unique<core::SamplingCoordinator>(settings.intervalMs, processRulesFile);
         diag::LogStartup("MainWindow: coordinator constructed");
 
         // The shell is built before the pages, because selecting a navigation item
@@ -206,6 +219,16 @@ namespace tmpp
         // to save, which is why the view reports rather than writing.
         m_processesView->SetColumnWidthHandler([this](std::vector<double> widths) {
             m_currentSettings.processColumnWidths = std::move(widths);
+        });
+
+        // The detail sidebar's width and whether it is shown, remembered across sessions. Both are
+        // reported together after a drag or a toggle, and held in the session's copy of the settings so
+        // the file is written once on close rather than on every pixel of a drag.
+        m_processesView->SetSidebarLayout(m_currentSettings.processSidebarWidth,
+                                          m_currentSettings.processSidebarVisible);
+        m_processesView->SetSidebarLayoutHandler([this](double width, bool visible) {
+            m_currentSettings.processSidebarWidth = width;
+            m_currentSettings.processSidebarVisible = visible;
         });
         // The performance view owns its sidebar width for dragging, but the application owns the
         // settings file, so the width is reported back here to be remembered.
@@ -1100,6 +1123,12 @@ namespace tmpp
         m_refreshTimer.Interval(UI_REFRESH_INTERVAL);
         m_refreshTimer.IsRepeating(true);
         m_refreshTimer.Tick([this](auto const&, auto const&) {
+            // Measures the gap since the previous tick, which is how a stall anywhere in this loop or in
+            // the layout it provokes shows up as a number rather than as "the window felt slow".
+            ui::diagnostics::NoteUiTick(static_cast<double>(UI_REFRESH_INTERVAL.count()));
+
+            ui::diagnostics::ScopedTimer const tickTimer{"ui loop: whole tick"};
+
             // Each page's Refresh is a no-op when nothing new was published, so this can
             // run frequently without cost.
             if (m_activeProcessesView != nullptr)

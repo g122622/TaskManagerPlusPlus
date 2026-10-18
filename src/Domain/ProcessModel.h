@@ -87,6 +87,11 @@ namespace tmpp::domain
         uint32_t sessionId{0};
         int32_t basePriority{0};
 
+        /// True when every thread of the process is parked on the suspend reason, as the platform
+        /// snapshot reports it. The tuning sidebar uses it to label its suspend control, and it is the
+        /// only state the process list can report that is neither a counter nor a rate.
+        bool suspended{false};
+
         /// Index of the parent within the same snapshot, or NO_PARENT_INDEX when
         /// the parent is absent. Precomputed during sampling: the UI never builds
         /// the tree.

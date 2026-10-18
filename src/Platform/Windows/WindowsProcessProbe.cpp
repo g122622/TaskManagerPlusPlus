@@ -137,6 +137,58 @@ namespace tmpp::platform
             auto const slash = full.find_last_of("\\/");
             return (slash == std::string::npos) ? full : full.substr(slash + 1);
         }
+
+        /**
+         * @brief The thread state a suspended thread is parked in.
+         *
+         * winternl.h declares the thread record but not the enumerations its two state fields are
+         * drawn from, so the values are named here. They are kernel ABI rather than SDK surface and
+         * have not changed since Windows 2000; the alternatives are a driver-supplied header or a
+         * magic number at the comparison, and neither is better than saying what the numbers mean.
+         */
+        constexpr ULONG THREAD_STATE_WAIT = 5;
+
+        /// The wait reason the suspend operation parks a thread on. Every other wait reason -- a
+        /// timer, a page fault, a synchronisation object -- leaves the process runnable.
+        constexpr ULONG WAIT_REASON_SUSPENDED = 5;
+
+        /**
+         * @brief Whether every thread of a process is parked on the suspend reason.
+         *
+         * The thread records follow the process record inline, which is why this takes the record
+         * rather than a handle to it: the array's address is the byte after the fixed part of the
+         * process structure, and the count of them is a field in that structure.
+         *
+         * A process with no threads at all is reported as running. Zero threads is a state the kernel
+         * passes through while a process is being torn down, and reporting that as suspended would
+         * put a temporary artifact in front of the user as if it were a decision they made.
+         *
+         * The walk stops at the first thread that is not suspended, because one running thread is
+         * enough to make the process a running process and the answer is then already known.
+         */
+        [[nodiscard]] bool _isSuspended(SystemProcessInfo const& process) noexcept
+        {
+            if (process.numberOfThreads == 0)
+            {
+                return false;
+            }
+
+            auto const* threads = reinterpret_cast<SYSTEM_THREAD_INFORMATION const*>(
+                reinterpret_cast<char const*>(&process) + sizeof(SystemProcessInfo));
+
+            for (ULONG i = 0; i < process.numberOfThreads; ++i)
+            {
+                // The state is the only state a suspended thread can be in; the reason is what
+                // distinguishes a suspension from every other kind of wait, and matching on the state
+                // alone would report every idle process as suspended.
+                if (threads[i].ThreadState != THREAD_STATE_WAIT || threads[i].WaitReason != WAIT_REASON_SUSPENDED)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
     }
 
     WindowsProcessProbe::WindowsProcessProbe()
@@ -215,6 +267,7 @@ namespace tmpp::platform
             info.handleCount = entry->handleCount;
             info.sessionId = entry->sessionId;
             info.basePriority = entry->basePriority;
+            info.suspended = _isSuspended(*entry);
 
             snapshot.processes.push_back(std::move(info));
 
