@@ -99,6 +99,7 @@ namespace tmpp::core
          * @brief Changes the sampling interval, applying it immediately.
          */
         void SetInterval(uint32_t intervalMs);
+        void ConfigureSampling(uint32_t intervalMs, uint32_t historySeconds);
 
         /**
          * @brief Applies the minimised-window policy and updates the interval.

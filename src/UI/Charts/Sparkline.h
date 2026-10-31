@@ -50,11 +50,12 @@ namespace tmpp::ui
         /// Clears the plot, leaving it visibly empty.
         void Clear();
 
-        /// Changes the colour, used when a section becomes selected.
-        void SetColors(winrt::Windows::UI::Color color, bool muted);
+        /// Applies the saved chart colour.
+        void SetColor(winrt::Windows::UI::Color color);
 
         /// Changes the stroke width, driven by the user's setting.
         void SetThickness(double thickness);
+        void SetSecondaryStyle(winrt::Windows::UI::Color color, double width);
 
         void SetOpaqueFill(bool opaque);
         void SetFillOpacity(double opacity);
@@ -63,7 +64,6 @@ namespace tmpp::ui
         void _redraw();
         bool m_opaqueFill{false};
         double m_fillOpacity{0.18};
-        bool m_muted{false};
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Canvas m_canvas{nullptr};
@@ -88,6 +88,7 @@ namespace tmpp::ui
 
         /// Stroke width, adjustable by the user.
         double m_thickness{1.5};
+        double m_secondaryThickness{0.0};
 
         /// Set when a redraw was requested before the canvas had a size, so it can be
         /// retried once layout provides one. Without this, a series set before the

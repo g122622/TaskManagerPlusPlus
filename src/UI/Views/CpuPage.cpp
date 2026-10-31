@@ -300,6 +300,16 @@ namespace tmpp::ui
         if (m_totalChart != nullptr) m_totalChart->SetOpaqueFill(opaque);
     }
 
+    void CpuPage::SetKernelLineStyle(winrt::Windows::UI::Color color, double width)
+    {
+        if (m_coreGrid != nullptr) m_coreGrid->SetKernelLineStyle(color, width);
+        if (m_totalChart != nullptr)
+        {
+            m_totalChart->SetSecondaryLineColor(color);
+            m_totalChart->SetSecondaryLineWidth(width);
+        }
+    }
+
     void CpuPage::SetShowKernelTimes(bool show)
     {
         if (m_showKernelTimes != show) m_renderedVersion = 0;

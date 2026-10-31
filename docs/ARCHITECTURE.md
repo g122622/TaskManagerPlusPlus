@@ -117,12 +117,12 @@ src/
 │   ├── Lists/                 # ProcessListModel / RowHost（行虚拟化）
 │   ├── Theming/               # Theme / Controls（尺寸辅助与图表边框工厂）/ Formatting
 │   ├── Views/                 # CpuPage / MemoryPage / DiskPage / NetworkPage / GpuPage
-│   │                          # SettingsPage / PerformanceView / ProcessesView
+│   │                          # SettingsPage / AboutPage / PerformanceView / ProcessesView
 │   ├── Diagnostics.*          # 界面诊断通道
 │   └── WinRTUI.h              # 投影头集中包含
 └── App/                       # WinUI 3 可执行工程
     ├── App.*                  # Application 对象
-    ├── MainWindow.*           # 主窗口、导航、两条标题栏、设置持久化
+    ├── MainWindow.*           # 主窗口、导航、统一标题栏、设置持久化
     └── StartupLog.*           # 启动诊断
 ```
 
@@ -143,10 +143,9 @@ XAML 编译步骤无法挂载到 C++ 构建中。
 
 由此产生两点架构约束：
 
-1. **视图层是 C++ 类，不是 XAML 文件。** 各页面（进程 / 性能 / 详细信息）实现为
-   继承自 `winrt::Microsoft::UI::Xaml::Controls::UserControl` 的 C++ 类。
-2. **多语言不能用 `x:Uid` 自动绑定。** 必须通过代码中的 `ResourceLoader`
-   显式取串（见 `docs/` 中的多语言说明）。
+1. **视图层是 C++ 类，不是 XAML 文件。** 各页面（进程 / 性能 / 设置）实现为
+   组合 WinUI 控件的普通 C++ 类。
+2. **多语言不能用 `x:Uid` 自动绑定。** 通过 `Core/Localization` 加载独立 JSON 语言资源，UI 在呈现边界取串（见 `LOCALIZATION.md`）。
 
 ## 9. 容易踩的坑
 
@@ -158,3 +157,20 @@ XAML 编译步骤无法挂载到 C++ 构建中。
   否则抛出 `0x8000FFFF`。
 - **不要使用预编译头。** WinUI 投影头会导致 PCH 膨胀至 1 GB 以上并触发 `C1076`。
 - **C++/WinRT 运行时类不能是 `final`。** 生成的激活工厂会派生自实现类型。
+
+
+## 主题与窗口材质
+
+窗口使用官方 `Window.SystemBackdrop` / `MicaBackdrop`，常规设置中可开关，并由 WinUI 处理系统不支持或关闭透明效果时的回退。关闭云母时使用原生页面背景画刷。
+
+C++ 创建的卡片、表格和网格通过隐藏资源宿主上的 `{ThemeResource}` 表达式解析原生画刷，再把颜色绑定到各调用方独立的画刷。窗口实际主题变化时宿主同步更新。禁止修改 WinUI 共享资源画刷的 `Opacity`，否则图表网格透明度会污染文本、搜索提示和开关等控件。弹窗显式采用所属页面的实际主题。
+
+CPU 主曲线和内核曲线分别保存颜色、粗细；核心网格重建和侧栏更新均使用各自的设置。侧栏图表的颜色与填充透明度不随选中状态改变。
+
+## 窗口输入与可调整历史
+
+统一标题栏与导航空白区域使用官方 `InputNonClientPointerSource` 声明原生拖动区域。Caption 与 Passthrough 矩形互不重叠：先从拖动区域中扣除搜索框、操作按钮、导航项与分隔条，再交给窗口管理器处理首次按下、拖动、双击和贴靠。系统按钮的空间来自 `AppWindowTitleBar.RightInset`，按实际 DPI 换算。
+
+进程列使用稳定逻辑 ID 保存宽度、可见性和顺序；拖放后同时更新表头、虚拟化行及分隔条的位置。内存列色阶排除排名第一的 Memory Compression，以最大普通进程作为上限，压缩进程自身钳制到同一最深色。
+
+采样设置经 `SamplingCoordinator.ConfigureSampling` 即时传入 Domain。`SystemModel.ConfigureHistory` 按新的采样间隔重采样已有的所有有界序列，保留最新端点、速率基线、硬件信息和累计流量；延长保留时间不会虚构尚未采集的历史。新 JSON 字段 `sampling.historySeconds` 优先于旧版 `historyWindow` 预设，旧文件仍可读取。

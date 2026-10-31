@@ -149,17 +149,20 @@ namespace tmpp::core
 
     void SamplingCoordinator::SetInterval(uint32_t intervalMs)
     {
-        m_sampler.SetInterval(intervalMs);
+        ConfigureSampling(intervalMs, m_settings.HistorySeconds());
+    }
 
-        // The history capacity is derived from the interval, so the buffers are
-        // rebuilt to keep the retained window the same length in wall-clock terms.
-        // TODO: this discards the history that was already collected, so the charts
-        //       briefly restart. Preserving it would need the ring buffer to be
-        //       resampled rather than replaced.
-        std::lock_guard const lock(m_mutex);
-        m_systemModel = domain::SystemModel(m_logicalProcessorCount,
-                                            domain::sampling::ClampInterval(intervalMs),
-                                            m_settings.HistorySeconds());
+    void SamplingCoordinator::ConfigureSampling(uint32_t intervalMs, uint32_t historySeconds)
+    {
+        intervalMs = domain::sampling::ClampInterval(intervalMs);
+        historySeconds = domain::sampling::ClampHistorySeconds(historySeconds);
+        {
+            std::lock_guard const lock(m_mutex);
+            m_systemModel.ConfigureHistory(intervalMs, historySeconds);
+            m_settings.intervalMs = intervalMs;
+            m_settings.historySeconds = historySeconds;
+        }
+        m_sampler.SetInterval(intervalMs);
     }
 
     void SamplingCoordinator::SetMinimized(bool minimized)

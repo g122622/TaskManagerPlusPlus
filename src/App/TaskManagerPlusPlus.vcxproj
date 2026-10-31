@@ -218,11 +218,13 @@
   <ItemGroup>
     <ClCompile Include="App.cpp" />
     <ClCompile Include="MainWindow.cpp" />
+    <ClCompile Include="..\UI\Views\AboutPage.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="..\..\tests\ui\ThemeVerification.cpp" Condition="'$(Configuration)'=='Debug'" />
+    <ClCompile Include="..\..\tests\ui\WindowVerification.cpp" Condition="'$(Configuration)'=='Debug'" />
     <ClCompile Include="..\UI\Theming\Controls.cpp" />
     <ClCompile Include="..\UI\Charts\CoreGrid.cpp" />
     <ClCompile Include="..\UI\Views\CpuPage.cpp" />
-    <ClCompile Include="..\UI\Views\DetailsPage.cpp" />
     <ClCompile Include="..\UI\Views\DiskPage.cpp" />
     <ClCompile Include="..\UI\Views\GpuPage.cpp" />
     <ClCompile Include="..\UI\Diagnostics.cpp" />

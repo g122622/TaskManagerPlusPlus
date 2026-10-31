@@ -1,6 +1,7 @@
 #include "SystemModel.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "Platform/Clock.h"
 
@@ -9,6 +10,7 @@ namespace tmpp::domain
 SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, uint32_t historySeconds)
     : m_logicalProcessorCount(logicalProcessorCount == 0 ? 1 : logicalProcessorCount)
     , m_historyCapacity(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_historyIntervalMs(sampling::ClampInterval(intervalMs))
     , m_cpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
     , m_cpuKernelHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
     , m_memoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
@@ -30,6 +32,44 @@ SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, ui
         m_perProcessorHistory.emplace_back(sampling::HistoryCapacity(intervalMs, historySeconds));
         m_perProcessorKernelHistory.emplace_back(sampling::HistoryCapacity(intervalMs, historySeconds));
     }
+    }
+
+    void SystemModel::ConfigureHistory(uint32_t intervalMs, uint32_t historySeconds)
+    {
+        uint32_t const interval = sampling::ClampInterval(intervalMs);
+        size_t const capacity = sampling::HistoryCapacity(interval, historySeconds);
+        if (interval == m_historyIntervalMs && capacity == m_historyCapacity) return;
+        auto resample = [this, interval, capacity](RingBuffer<double>& ring) {
+            RingBuffer<double> updated(capacity);
+            if (!ring.Empty())
+            {
+                uint64_t const duration = (ring.Size() - 1) * static_cast<uint64_t>(m_historyIntervalMs);
+                size_t const count = (std::min)(capacity, static_cast<size_t>(duration / interval + 1));
+                for (size_t i = 0; i < count; ++i)
+                {
+                    double const age = static_cast<double>((count - 1 - i) * interval) / m_historyIntervalMs;
+                    double const position = (std::max)(0.0, static_cast<double>(ring.Size() - 1) - age);
+                    size_t const lower = static_cast<size_t>(position);
+                    size_t const upper = (std::min)(lower + 1, ring.Size() - 1);
+                    updated.Push(std::lerp(ring.At(lower), ring.At(upper), position - lower));
+                }
+            }
+            ring = std::move(updated);
+        };
+        for (auto* ring : {&m_cpuHistory, &m_cpuKernelHistory, &m_memoryHistory, &m_diskReadHistory,
+                 &m_diskWriteHistory, &m_networkReceiveHistory, &m_networkSendHistory, &m_gpuHistory,
+                 &m_gpuMemoryHistory}) resample(*ring);
+        for (auto* devices : {&m_diskHistoryByDevice, &m_networkHistoryByAdapter})
+            for (auto& [name, rings] : *devices)
+            {
+                resample(rings.first);
+                resample(rings.second);
+            }
+        for (auto* cores : {&m_perProcessorHistory, &m_perProcessorKernelHistory})
+            for (auto& ring : *cores) resample(ring);
+        m_historyCapacity = capacity;
+        m_historyIntervalMs = interval;
+        m_latest.version = ++m_version;
     }
 
     void SystemModel::Update(platform::SystemCpuTimes const& cpu,

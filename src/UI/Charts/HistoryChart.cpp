@@ -1,6 +1,7 @@
 #include "UI/WinRTUI.h"
 
 #include "UI/Charts/HistoryChart.h"
+#include "UI/Charts/ChartScale.h"
 
 #include "UI/Diagnostics.h"
 #include "UI/Theming/Controls.h"
@@ -24,9 +25,6 @@ namespace tmpp::ui
 {
     namespace
     {
-        /// Vertical padding so a value at the maximum does not touch the border.
-        constexpr double PLOT_PADDING = 6.0;
-
         /// How translucent the area under the line is.
         constexpr double FILL_OPACITY = 0.18;
 
@@ -163,7 +161,7 @@ namespace tmpp::ui
         // under them: a guide hidden behind the shading it annotates is no guide. Both are collapsed until
         // a caller asks for them, so a chart that does not use one is unchanged.
         m_referenceLine = winrt::Microsoft::UI::Xaml::Shapes::Line();
-        m_referenceLine.Stroke(SolidColorBrush(winrt::Windows::UI::Colors::White()));
+        m_referenceLine.Stroke(controls::ThemedBrush(theme::SUBTLE_TEXT));
         m_referenceLine.Opacity(REFERENCE_LINE_OPACITY);
         m_referenceLine.StrokeThickness(REFERENCE_LINE_THICKNESS);
 
@@ -177,7 +175,7 @@ namespace tmpp::ui
         m_canvas.Children().Append(m_referenceLine);
 
         m_referenceLabel = controls::MakeText(L"", 11.0);
-        m_referenceLabel.Foreground(SolidColorBrush(winrt::Windows::UI::Colors::White()));
+        m_referenceLabel.Foreground(controls::ThemedBrush(theme::SUBTLE_TEXT));
         m_referenceLabel.Opacity(REFERENCE_LABEL_OPACITY);
         m_referenceLabel.TextAlignment(winrt::Microsoft::UI::Xaml::TextAlignment::Right);
 
@@ -250,6 +248,15 @@ namespace tmpp::ui
     void HistoryChart::SetSecondaryLineColor(winrt::Windows::UI::Color color)
     {
         m_secondaryLine.Stroke(SolidColorBrush(color));
+    }
+
+    void HistoryChart::SetSecondaryLineWidth(double width)
+    {
+        double const next = std::clamp(width, 0.5, 8.0);
+        if (next == m_secondaryLineWidth) return;
+        m_secondaryLineWidth = next;
+        m_secondaryLine.StrokeThickness(m_secondaryLineWidth);
+        _redraw();
     }
 
     void HistoryChart::SetFillOpacity(double opacity)
@@ -346,7 +353,7 @@ namespace tmpp::ui
         // width it was constructed with while the solid one followed the setting.
         if (m_secondaryLine != nullptr)
         {
-            m_secondaryLine.StrokeThickness(m_lineWidth);
+            m_secondaryLine.StrokeThickness(m_secondaryLineWidth > 0.0 ? m_secondaryLineWidth : m_lineWidth);
         }
     }
 
@@ -409,14 +416,7 @@ namespace tmpp::ui
 
     double HistoryChart::YForRatio(double ratio, double height, double lineWidth)
     {
-        // Half the stroke is reserved at the bottom because a stroke is centred on its path: a value of
-        // zero drawn exactly on the bottom edge would have its lower half clipped away and would read as
-        // thinner than the rest of the line. Reserving half a stroke keeps the whole line visible with its
-        // centre still on zero.
-        double const bottomInset = lineWidth / 2.0;
-        double const drawableHeight = height - PLOT_PADDING - bottomInset;
-
-        return PLOT_PADDING + (drawableHeight * (1.0 - ratio));
+        return ChartYForRatio(ratio, height, lineWidth);
     }
 
     void HistoryChart::_redraw()
@@ -427,6 +427,9 @@ namespace tmpp::ui
 
         double const width = m_canvas.ActualWidth();
         double const height = m_canvas.ActualHeight();
+        winrt::Microsoft::UI::Xaml::Media::RectangleGeometry clip;
+        clip.Rect({0.0f, 0.0f, static_cast<float>((std::max)(0.0, width)), static_cast<float>((std::max)(0.0, height))});
+        m_canvas.Clip(clip);
 
         // A single point cannot describe a line. Leaving the plot empty is honest;
         // drawing a flat line would claim a reading that does not exist.
@@ -437,12 +440,12 @@ namespace tmpp::ui
             return;
         }
 
-        if (height - PLOT_PADDING - (m_lineWidth / 2.0) <= 0.0)
+        if (height - (m_lineWidth / 2.0) <= 0.0)
         {
             return;
         }
 
-        // The plot area: zero on the bottom edge of the canvas, the maximum one padding below the top.
+        // The plot area: zero on the bottom edge of the canvas, full scale on its top edge.
         //
         // The bottom used to carry the same padding as the top, which put a value of zero six pixels above
         // the frame's lower edge -- so a curve sitting at zero still had visible height, and every reading
@@ -517,7 +520,8 @@ namespace tmpp::ui
                 double const ratio = clamped / m_maximum;
 
                 auto const x = static_cast<float>(secondaryGap + (static_cast<double>(i) * step));
-                auto const y = static_cast<float>(yFor(ratio));
+                double const halfStroke = m_secondaryLine.StrokeThickness() / 2.0;
+                auto const y = static_cast<float>(std::clamp(yFor(ratio), halfStroke, height - halfStroke));
                 secondaryPoints.Append(winrt::Windows::Foundation::Point{x, y});
             }
         }

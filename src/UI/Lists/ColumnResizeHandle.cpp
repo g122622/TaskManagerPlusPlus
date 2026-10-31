@@ -19,18 +19,7 @@ namespace tmpp::ui
         /// narrow enough that it does not sit over the heading beside it.
         constexpr double HIT_WIDTH = 9.0;
 
-        /// Faint enough to read as a separator rather than as content, and bright enough to be found
-        /// without hunting. A boundary the user cannot see is the same as no boundary.
-        ///
-        /// A quarter opacity rather than the half it began at: seven boundaries across the table at half
-        /// strength read as a ladder of bright rules competing with the columns, when all they have to do is
-        /// mark where one ends and the next begins.
-        constexpr Color LINE_IDLE{0x24, 0xFF, 0xFF, 0xFF};
 
-        /// The colour while the pointer is over it, which is what confirms the bar is the target. This one
-        /// is kept strong: it is a response to the pointer rather than part of the resting table, and it is
-        /// only ever shown on one bar at a time.
-        constexpr Color LINE_HOVER{0xA0, 0xFF, 0xFF, 0xFF};
     }
 
     ColumnResizeHandle::ColumnResizeHandle()
@@ -40,7 +29,7 @@ namespace tmpp::ui
         // The element is the line: a right-hand border thickness draws exactly one edge, which marks the
         // boundary without drawing a box around anything.
         m_root.Width(HIT_WIDTH);
-        m_root.BorderBrush(SolidColorBrush(LINE_IDLE));
+        m_root.BorderBrush(controls::ThemedBrush(theme::DIVIDER));
         winrt::Microsoft::UI::Xaml::Controls::Border line;
         line.Width(LINE_WIDTH);
         line.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
@@ -99,7 +88,7 @@ namespace tmpp::ui
 
     void ColumnResizeHandle::_onPointerEntered()
     {
-        m_root.BorderBrush(SolidColorBrush(LINE_HOVER));
+        m_root.BorderBrush(controls::ThemedBrush(theme::SUBTLE_TEXT));
     }
 
     void ColumnResizeHandle::_onPointerExited()
@@ -108,7 +97,7 @@ namespace tmpp::ui
         // the line going dim mid-drag would read as the gesture having been dropped.
         if (!m_dragging)
         {
-            m_root.BorderBrush(SolidColorBrush(LINE_IDLE));
+            m_root.BorderBrush(controls::ThemedBrush(theme::DIVIDER));
         }
     }
 
@@ -162,7 +151,7 @@ namespace tmpp::ui
 
         m_dragging = false;
         m_root.ReleasePointerCaptures();
-        m_root.BorderBrush(SolidColorBrush(LINE_IDLE));
+        m_root.BorderBrush(controls::ThemedBrush(theme::DIVIDER));
 
         // Reported once, at the end, rather than during the drag: persisting on every pointer move would
         // be a settings write per pixel.

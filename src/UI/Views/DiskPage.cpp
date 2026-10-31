@@ -331,7 +331,7 @@ namespace tmpp::ui
                                          ? system.disks[deviceIndex].activePercent
                                          : system.diskActivePercent;
 
-        m_activeCaption.Text(ui::Localize("Active time   " + FormatPercent(activePercent) + "   \xE2\x80\xA2   over " +
+        m_activeCaption.Text(ui::Localize("Active time   " + FormatPercent(activePercent) + "   |   over " +
             std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The device's own history, looked up by instance name.

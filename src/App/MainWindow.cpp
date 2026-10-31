@@ -2,6 +2,10 @@
 
 #include "MainWindow.h"
 #include "StartupLog.h"
+#if defined(_DEBUG)
+#include "../../tests/ui/ThemeVerification.h"
+#endif
+#include <winrt/Microsoft.UI.Interop.h>
 
 #include "Core/Logging.h"
 #include "Core/PathService.h"
@@ -19,6 +23,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string>
 
 using winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition;
@@ -76,6 +81,7 @@ namespace tmpp
         /// Index used for the Settings page. Outside the range a navigation item can produce, so it
         /// cannot collide with a page the user selected from the main list.
         constexpr int32_t SETTINGS_PAGE_INDEX = 100;
+        constexpr int32_t ABOUT_PAGE_INDEX = 101;
     }
 
     MainWindow::MainWindow()
@@ -92,7 +98,18 @@ namespace tmpp
         // --- Settings and paths ------------------------------------------------
         std::string processRulesFile;
         auto const paths = core::PathService::Create(APPLICATION_NAME, SETTINGS_FILE_NAME);
-        if (paths.Success())
+        bool verification = false;
+#if defined(_DEBUG)
+        verification = ui::test::WindowVerificationEnabled();
+        if (verification)
+        {
+            m_loadedSettings.theme = core::ThemeMode::Light;
+            m_loadedSettings.language = core::LanguageMode::English;
+            m_loadedSettings.processSidebarVisible = false;
+            m_loadedSettings.micaBackdrop = false;
+        }
+#endif
+        if (paths.Success() && !verification)
         {
             core::SettingsStore store{paths.Value().SettingsFile()};
             m_loadedSettings = store.Load();
@@ -124,11 +141,14 @@ namespace tmpp
         // belongs to the application, and because the coordinator is then usable without one -- which
         // is what a test does so it cannot touch the user's configuration.
         m_coordinator = std::make_unique<core::SamplingCoordinator>(settings.intervalMs, processRulesFile);
+        m_coordinator->ConfigureSampling(settings.intervalMs, settings.HistorySeconds());
         diag::LogStartup("MainWindow: coordinator constructed");
 
         // The shell is built before the pages, because selecting a navigation item
         // during construction needs the content host to already exist. Selecting a page
         // while the views are still null is handled by _selectPage.
+        ui::controls::SetTheme(settings.theme == core::ThemeMode::Light ? winrt::Microsoft::UI::Xaml::ElementTheme::Light :
+            settings.theme == core::ThemeMode::Dark ? winrt::Microsoft::UI::Xaml::ElementTheme::Dark : winrt::Microsoft::UI::Xaml::ElementTheme::Default);
         _buildContent();
         diag::LogStartup("MainWindow: content built");
 
@@ -137,10 +157,12 @@ namespace tmpp
 
         // Sampling starts only after the UI exists, so the first callback cannot
         // publish into a half-built window.
-        m_coordinator->Start();
-        diag::LogStartup("MainWindow: sampling started");
-
-        _startRefreshTimer();
+        if (!verification)
+        {
+            m_coordinator->Start();
+            diag::LogStartup("MainWindow: sampling started");
+            _startRefreshTimer();
+        }
 
         // Remember the window's size and position, and everything else the session changed, for the
         // next launch. Recorded on close rather than continuously, so a crash cannot leave a
@@ -186,15 +208,6 @@ namespace tmpp
     {
         m_processesView = std::make_unique<ui::ProcessesView>(*m_coordinator);
 
-        // The Details page follows the process list's selection rather than holding its own, so the two
-        // cannot disagree about which process is shown.
-        m_processesView->SetSelectionHandler([this](uint32_t pid) {
-            if (m_detailsPage != nullptr)
-            {
-                m_detailsPage->SetPid(pid);
-            }
-        });
-
         // Ending a process goes through the coordinator, which owns both the action and the snapshot
         // the tree is derived from.
         m_processesView->SetTerminateHandler(
@@ -204,6 +217,10 @@ namespace tmpp
         // against its own column's bounds and falls back to the default for anything it rejects, so a
         // hand-edited file cannot leave a column unreadable.
         m_processesView->SetColumnWidths(m_currentSettings.processColumnWidths);
+        m_processesView->SetColumnOrder(m_currentSettings.processColumnOrder);
+        m_processesView->SetColumnOrderHandler([this](std::vector<uint32_t> order) {
+            m_currentSettings.processColumnOrder = std::move(order);
+        });
         m_processesView->SetColumnVisibility(m_currentSettings.processColumnVisible);
         m_processesView->SetColumnVisibilityHandler(
             [this](std::vector<bool> visible) { m_currentSettings.processColumnVisible = std::move(visible); });
@@ -254,6 +271,7 @@ namespace tmpp
 
     void MainWindow::_selectPage(int32_t index)
     {
+        if (index != 0 && index != 1 && index != SETTINGS_PAGE_INDEX && index != ABOUT_PAGE_INDEX) index = 0;
         // Selecting a navigation item during shell construction arrives before the
         // pages exist, so it is ignored; _createPages selects the default page once the
         // views are ready.
@@ -270,6 +288,9 @@ namespace tmpp
                 case SETTINGS_PAGE_INDEX:
                     m_pageTitle.Text(ui::Localize(L"Settings"));
                     break;
+                case ABOUT_PAGE_INDEX:
+                    m_pageTitle.Text(ui::Localize(L"About"));
+                    break;
                 case 0:
                     m_pageTitle.Text(ui::Localize(L"Processes"));
                     m_currentPage = core::StartupPage::Processes;
@@ -279,8 +300,8 @@ namespace tmpp
                     m_currentPage = core::StartupPage::Performance;
                     break;
                 default:
-                    m_pageTitle.Text(ui::Localize(L"Details"));
-                    m_currentPage = core::StartupPage::Details;
+                    m_pageTitle.Text(ui::Localize(L"Processes"));
+                    m_currentPage = core::StartupPage::Processes;
                     break;
             }
         }
@@ -292,7 +313,8 @@ namespace tmpp
         // screen and give no sign that anything had happened.
         if (m_searchBox != nullptr)
         {
-            m_searchBox.Visibility(index == 0 ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+            m_searchBox.Visibility(index == 0 && m_unifiedTitleBar.ActualWidth() >= 500.0 && !m_miniMode
+                                              ? winrt::Microsoft::UI::Xaml::Visibility::Visible
                                               : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         }
 
@@ -312,6 +334,10 @@ namespace tmpp
                 m_contentHost.Children().Append(m_settingsPage->Root());
                 break;
             }
+            case ABOUT_PAGE_INDEX:
+                if (m_aboutPage == nullptr) m_aboutPage = std::make_unique<ui::AboutPage>();
+                m_contentHost.Children().Append(m_aboutPage->Root());
+                break;
             case 0:
                 m_contentHost.Children().Append(m_processesView->Root());
                 m_activeProcessesView = m_processesView.get();
@@ -321,20 +347,7 @@ namespace tmpp
                 m_activePerformanceView = m_performanceView.get();
                 break;
             default:
-            {
-                // The Details page arrives in M2. The placeholder states that plainly rather than
-                // showing an empty grid.
-                StackPanel placeholder = ui::controls::MakeStack(8.0);
-                ui::controls::ApplyPageMargin(placeholder);
-                placeholder.Children().Append(ui::controls::MakeHeading(L"Details"));
-                placeholder.Children().Append(ui::controls::MakeText(
-                    L"The detailed process table with per-column customisation arrives in milestone M2. "
-                    L"See docs/ROADMAP.md.",
-                    13.0,
-                    true));
-                m_contentHost.Children().Append(placeholder);
                 break;
-            }
         }
         ui::LocalizeTree(m_contentHost);
     }
@@ -380,14 +393,13 @@ namespace tmpp
         // The rail's resize handle belongs to the pane and goes with it.
         if (m_navigationSplitter != nullptr)
         {
-            m_navigationSplitter.Visibility(mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
-                                                 : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            _updateNavigationSplitter();
         }
 
         // The title bar keeps its height: the window buttons and the drag region live in it, and a
         // compact window still has to be movable and closable. Only the page header and the status bar
         // go, since neither describes anything the compact list shows.
-        m_unifiedTitleBar.RightHeader().Visibility(
+        m_captionActions.Visibility(
             mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed : winrt::Microsoft::UI::Xaml::Visibility::Visible);
 
         if (m_bottomStack != nullptr)
@@ -406,7 +418,10 @@ namespace tmpp
     {
         // The settings page edits its own copy, so the application's is brought into line here.
         bool const languageChanged = m_currentSettings.language != updated.language;
+        bool const samplingChanged = m_currentSettings.intervalMs != updated.intervalMs ||
+            m_currentSettings.HistorySeconds() != updated.HistorySeconds();
         m_currentSettings = updated;
+        if (samplingChanged) m_coordinator->ConfigureSampling(updated.intervalMs, updated.HistorySeconds());
         core::localization::SetLanguage(updated.language);
 
         // The topmost state is applied immediately: it is the one setting whose effect is expected
@@ -440,22 +455,16 @@ namespace tmpp
             }
         }
 
+        ui::controls::SetTheme(m_rootGrid.ActualTheme());
+        _applyWindowBackdrop();
+        _updateTitleBarTheme();
+
         // The chart styles are pushed to the view so a colour change is visible without a restart.
         if (m_performanceView != nullptr)
         {
             m_performanceView->ApplySettings(updated);
         }
 
-        if (m_detailsPage != nullptr)
-        {
-            // The details page plots a process's CPU share, so it takes the CPU style rather than one
-            // of its own: a colour of its own would read as a different metric.
-            core::ChartStyle const& cpu = updated.ChartStyleFor(0);
-            m_detailsPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, cpu.red, cpu.green, cpu.blue});
-            m_detailsPage->SetLineWidth(cpu.ClampedLineWidth());
-            m_detailsPage->SetOpaqueFill(updated.opaqueChartFill);
-            m_detailsPage->SetFillOpacity(updated.chartFillOpacity);
-        }
         if (m_rootGrid != nullptr) m_rootGrid.Language(ui::Localize(core::localization::Locale()));
         if (languageChanged && m_rootGrid != nullptr) {
             m_rootGrid.Language(ui::Localize(core::localization::Locale()));
@@ -476,7 +485,8 @@ namespace tmpp
         double const width = m_navigation.IsPaneOpen() ? m_navigation.OpenPaneLength() : 0.0;
         m_navigationSplitter.Margin(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(
             width - (ui::metrics::SPLITTER_WIDTH / 2.0), 0.0, 0.0, 0.0));
-        m_navigationSplitter.Visibility(m_navigation.IsPaneOpen() ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+        m_navigationSplitter.Visibility(!m_miniMode && m_navigation.IsPaneVisible() && m_navigation.IsPaneOpen()
+                                                                 ? winrt::Microsoft::UI::Xaml::Visibility::Visible
                                                                  : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
     }
 
@@ -594,7 +604,6 @@ namespace tmpp
         // Segoe Fluent Icons glyphs.
         addItem(L"Processes", L"\xE9D9");
         addItem(L"Performance", L"\xE9D2");
-        addItem(L"Details", L"\xE8FD");
 
         // Settings goes in the footer, which is where the original puts it: a separate list, so the
         // selection handler can tell it apart from the pages above.
@@ -605,6 +614,12 @@ namespace tmpp
             settingsIcon.Glyph(L"\xE713");
             settingsItem.Icon(settingsIcon);
             m_navigation.FooterMenuItems().Append(settingsItem);
+            NavigationViewItem aboutItem;
+            aboutItem.Content(winrt::box_value(ui::Localize(L"About")));
+            FontIcon aboutIcon;
+            aboutIcon.Glyph(L"\xE946");
+            aboutItem.Icon(aboutIcon);
+            m_navigation.FooterMenuItems().Append(aboutItem);
         }
 
         // Explicit parameter types rather than a generic lambda: with 'auto', the
@@ -632,7 +647,7 @@ namespace tmpp
                 uint32_t index = 0;
                 if (view.FooterMenuItems().IndexOf(selected, index))
                 {
-                    _selectPage(SETTINGS_PAGE_INDEX);
+                    _selectPage(index == 1 ? ABOUT_PAGE_INDEX : SETTINGS_PAGE_INDEX);
                     return;
                 }
 
@@ -648,9 +663,7 @@ namespace tmpp
                                                   ? m_currentSettings.lastUsedPage
                                                   : m_currentSettings.startupPage;
 
-        int32_t const startupIndex = (startupPage == core::StartupPage::Performance) ? 1
-                                       : (startupPage == core::StartupPage::Details) ? 2
-                                                                                     : 0;
+        int32_t const startupIndex = startupPage == core::StartupPage::Performance ? 1 : 0;
         m_startupPageIndex = startupIndex;
 
         m_navigation.SelectedItem(m_navigation.MenuItems().GetAt(static_cast<uint32_t>(startupIndex)));
@@ -671,6 +684,8 @@ namespace tmpp
         statusBar.Background(ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
 
         m_statusText = ui::controls::MakeText(L"", 12.0, true);
+        m_statusText.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        m_statusText.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
         m_statusText.VerticalAlignment(VerticalAlignment::Center);
         statusBar.Children().Append(m_statusText);
 
@@ -688,15 +703,16 @@ namespace tmpp
         m_permissionBar.IsClosable(true);
 
         // --- Unified title bar -------------------------------------------------
-        // TitleBar manages the caption insets, drag regions and interactive content for us.
-        m_unifiedTitleBar = winrt::Microsoft::UI::Xaml::Controls::TitleBar();
+        // Native caption insets and non-client regions leave the actions next to the system buttons.
+        m_unifiedTitleBar = Grid();
         m_unifiedTitleBar.Height(APP_TITLE_BAR_HEIGHT);
-        m_unifiedTitleBar.Resources().Insert(
-            winrt::box_value(ui::Localize(L"TitleBarMinDragRegionWidth")), winrt::box_value(8.0));
-        m_unifiedTitleBar.Resources().Insert(
-            winrt::box_value(ui::Localize(L"TitleBarDeactivatedOpacity")), winrt::box_value(0.8));
+        m_unifiedTitleBar.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
+        m_unifiedTitleBar.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
+        m_unifiedTitleBar.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
+        m_captionButtonInset = ui::controls::MakeFixedColumn(138.0);
+        m_unifiedTitleBar.ColumnDefinitions().Append(m_captionButtonInset);
         auto identity = ui::controls::MakeRow(12.0);
-        identity.Margin(ThicknessHelper::FromLengths(2.0, 0.0, 16.0, 0.0));
+        identity.Margin(ThicknessHelper::FromLengths(ui::metrics::CONTENT_LEFT_INSET, 0.0, 16.0, 0.0));
         FontIcon appIcon;
         appIcon.Glyph(L"\xE9D9");
         appIcon.FontSize(18.0);
@@ -712,19 +728,23 @@ namespace tmpp
         m_pageTitle = ui::controls::MakeHeading(L"Processes", 13.0);
         m_pageTitle.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
         identity.Children().Append(m_pageTitle);
-        m_unifiedTitleBar.LeftHeader(identity);
+        m_unifiedTitleBar.Children().Append(identity);
 
         m_searchBox = winrt::Microsoft::UI::Xaml::Controls::TextBox();
         m_searchBox.PlaceholderText(ui::Localize(L"Search processes (name or PID)"));
         m_searchBox.Height(32.0);
-        m_searchBox.Width(320.0);
+        m_searchBox.MinWidth(0.0);
+        m_searchBox.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 16.0, 0.0));
         m_searchBox.VerticalAlignment(VerticalAlignment::Center);
         m_searchBox.TextChanged([this](auto const&, auto const&) {
             if (m_onSearch) m_onSearch(winrt::to_string(m_searchBox.Text()));
         });
-        m_unifiedTitleBar.Content(m_searchBox);
+        m_searchBox.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
+        Grid::SetColumn(m_searchBox, 1);
+        m_unifiedTitleBar.Children().Append(m_searchBox);
 
         StackPanel actions = ui::controls::MakeRow(4.0);
+        m_captionActions = actions;
         actions.VerticalAlignment(VerticalAlignment::Center);
         winrt::Microsoft::UI::Xaml::Controls::Button runTask;
         runTask.Background(
@@ -767,15 +787,19 @@ namespace tmpp
         menu.Items().Append(settings);
         overflow.Flyout(menu);
         actions.Children().Append(overflow);
-        m_unifiedTitleBar.RightHeader(actions);
+        Grid::SetColumn(actions, 2);
+        m_unifiedTitleBar.Children().Append(actions);
         m_unifiedTitleBar.SizeChanged(
-            [this, runLabel](auto const&, winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args) {
+            [this, runLabel, identity, divider](auto const&, winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args) {
                 double const width = args.NewSize().Width;
                 runLabel.Visibility(width < 760.0 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
                                                   : winrt::Microsoft::UI::Xaml::Visibility::Visible);
                 m_brandName.Visibility(width < 640.0 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
                                                      : winrt::Microsoft::UI::Xaml::Visibility::Visible);
-                m_searchBox.Width(std::clamp(width - (width < 760.0 ? 490.0 : 650.0), 120.0, 360.0));
+                identity.Visibility(width < 340.0 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+                divider.Visibility(width < 640.0 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+                m_pageTitle.Visibility(width < 400.0 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+                m_searchBox.Visibility(width >= 500.0 && m_activeProcessesView != nullptr ? winrt::Microsoft::UI::Xaml::Visibility::Visible : winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             });
 
         // --- Assembly -----------------------------------------------------------
@@ -816,6 +840,7 @@ namespace tmpp
         m_rootGrid = Grid();
         m_rootGrid.Background(ui::controls::ThemedBrush(ui::theme::PAGE_BACKGROUND));
         m_rootGrid.Children().Append(m_navigation);
+        ui::controls::ConfigureThemeResources(m_rootGrid);
 
         // --- Navigation rail resize handle -------------------------------------
         //
@@ -953,52 +978,21 @@ namespace tmpp
         Content(m_rootGrid);
         m_rootGrid.ActualThemeChanged([this](auto const&, auto const&) { _updateTitleBarTheme(); });
 
-        // Extend into the title bar and nominate the strip as the drag region. The
-        // navigation view is not used as the title bar because its own layout would
-        // then be consulted for the button cut-out, which is what put the CPU readout
-        // under the window buttons.
+        // Keep system caption buttons and use native hit testing for the title strip and rail.
         ExtendsContentIntoTitleBar(true);
-        SetTitleBar(m_unifiedTitleBar);
+        // Declare caption and interactive rectangles through the official non-client input API.
+        m_rootGrid.LayoutUpdated([this](auto const&, auto const&) { _updateNativeDragRegions(); });
 
         // Align caption buttons to the same 48px row as the app's controls.
         AppWindow().TitleBar().PreferredHeightOption(winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
 
-        // The window handle is resolved once here rather than at each drag. This is the same lookup the
-        // single-instance check uses: the process has one top-level window and it is titled with the
-        // application name.
-        m_windowHandle = ::FindWindowW(nullptr, L"TaskManagerPlusPlus");
+        m_windowHandle = winrt::Microsoft::UI::GetWindowFromWindowId(AppWindow().Id());
 
-        // Dragging is attached to the root rather than to the navigation view, and gated on where the
-        // press landed. A handler on the navigation view would also receive every press that bubbled up
-        // from the pages inside it, which would make a click on a chart start a window drag.
-        //
-        // Two regions are draggable:
-        //
-        //   * the rail, at any time. Its strip of icons is the window's only chrome when the pane is
-        //     collapsed, so it is what the window is moved by;
-        //   * the whole window once mini mode is on, where the sidebar is the entire interface.
-        //
-        // A press that a control consumes -- every button consumes its own -- never reaches this
-        // handler, so dragging a row and clicking a row stay distinct gestures.
+        // Mini mode also permits dragging the graph body. The full shell uses native caption regions.
         ui::controls::MakeWindowDragRegion(
             m_rootGrid,
             m_windowHandle,
-            [this](winrt::Windows::Foundation::Point const& position) {
-                if (m_miniMode)
-                {
-                    return true;
-                }
-
-                // The rail's width, including the narrow strip shown while the pane is closed. Read
-                // from the control rather than assumed, since both widths are configurable.
-                double const railWidth = m_navigation.IsPaneOpen()
-                                             ? m_navigation.OpenPaneLength()
-                                             : m_navigation.CompactPaneLength();
-                return position.X <= railWidth;
-            },
-            // Handled presses are included as well, so the rail and the sidebar are draggable over their
-            // buttons rather than only in the gaps between them. The drag only begins once the pointer
-            // has moved, so a press that does not travel still reaches the button underneath.
+            [this](winrt::Windows::Foundation::Point const&) { return m_miniMode; },
             /*includeHandled=*/true);
 
         // The remembered theme and the chart styles, applied once the root exists. Doing this only
@@ -1009,8 +1003,127 @@ namespace tmpp
         _updateStatusBar();
     }
 
+    void MainWindow::_updateNativeDragRegions()
+    {
+        using namespace winrt::Microsoft::UI::Xaml;
+        using winrt::Windows::Graphics::RectInt32;
+        if (m_rootGrid.XamlRoot() == nullptr || m_rootGrid.ActualWidth() <= 0.0) return;
+        try
+        {
+            double const scale = m_rootGrid.XamlRoot().RasterizationScale();
+            int32_t const width = static_cast<int32_t>(std::round(m_rootGrid.ActualWidth() * scale));
+            int32_t const height = static_cast<int32_t>(std::round(m_rootGrid.ActualHeight() * scale));
+            int32_t const inset = AppWindow().TitleBar().RightInset();
+            double const logicalInset = static_cast<double>(inset) / scale;
+            if (std::abs(m_captionButtonInset.Width().Value - logicalInset) > 0.01)
+                m_captionButtonInset.Width(GridLengthHelper::FromPixels(logicalInset));
+            int32_t const captionHeight = static_cast<int32_t>(std::round(APP_TITLE_BAR_HEIGHT * scale));
+            std::vector<RectInt32> captions{{0, 0, (std::max)(0, width - inset), captionHeight}};
+            if (!m_miniMode && m_navigation.IsPaneVisible())
+            {
+                double const rail = m_navigation.IsPaneOpen() ? m_navigation.OpenPaneLength() : m_navigation.CompactPaneLength();
+                captions.push_back({0, captionHeight, static_cast<int32_t>(std::round(rail * scale)),
+                    (std::max)(0, height - captionHeight)});
+            }
+            std::vector<RectInt32> interactive;
+            auto add = [this, scale, width, height, &interactive](FrameworkElement const& element) {
+                if (element == nullptr || element.Visibility() != Visibility::Visible || element.ActualWidth() <= 0.0 || element.ActualHeight() <= 0.0) return;
+                auto const bounds = element.TransformToVisual(m_rootGrid).TransformBounds({0.0f, 0.0f,
+                    static_cast<float>(element.ActualWidth()), static_cast<float>(element.ActualHeight())});
+                int32_t const x = (std::max)(0, static_cast<int32_t>(std::floor(bounds.X * scale)));
+                int32_t const y = (std::max)(0, static_cast<int32_t>(std::floor(bounds.Y * scale)));
+                int32_t const right = (std::min)(width, static_cast<int32_t>(std::ceil((bounds.X + bounds.Width) * scale)));
+                int32_t const bottom = (std::min)(height, static_cast<int32_t>(std::ceil((bounds.Y + bounds.Height) * scale)));
+                if (right > x && bottom > y) interactive.push_back({x, y, right - x, bottom - y});
+            };
+            add(m_searchBox);
+            if (m_captionActions.Visibility() == Visibility::Visible)
+                for (auto const& child : m_captionActions.Children()) add(child.as<FrameworkElement>());
+            if (!m_miniMode && m_navigation.IsPaneVisible())
+            {
+                for (auto const& item : m_navigation.MenuItems()) add(item.as<FrameworkElement>());
+                for (auto const& item : m_navigation.FooterMenuItems()) add(item.as<FrameworkElement>());
+                add(m_navigationSplitter);
+                std::vector<DependencyObject> pending{m_navigation};
+                while (!pending.empty())
+                {
+                    auto current = pending.back();
+                    pending.pop_back();
+                    if (auto const element = current.try_as<FrameworkElement>(); element != nullptr && element.Name() == L"TogglePaneButton") add(element);
+                    if (auto const scrollbar = current.try_as<winrt::Microsoft::UI::Xaml::Controls::Primitives::ScrollBar>()) add(scrollbar);
+                    int const count = Media::VisualTreeHelper::GetChildrenCount(current);
+                    // Navigation content contains the process table; the caption rail only needs its own template.
+                    if (current == m_contentHost) continue;
+                    for (int i = 0; i < count; ++i) pending.push_back(Media::VisualTreeHelper::GetChild(current, i));
+                }
+            }
+            // Non-client regions cannot overlap: a later passthrough rectangle replaces intersecting
+            // caption rectangles. Split the caption around controls before registering either kind.
+            for (auto const& control : interactive)
+            {
+                std::vector<RectInt32> remaining;
+                for (auto const& rect : captions)
+                {
+                    int32_t const left = (std::max)(rect.X, control.X);
+                    int32_t const top = (std::max)(rect.Y, control.Y);
+                    int32_t const right = (std::min)(rect.X + rect.Width, control.X + control.Width);
+                    int32_t const bottom = (std::min)(rect.Y + rect.Height, control.Y + control.Height);
+                    if (right <= left || bottom <= top) { remaining.push_back(rect); continue; }
+                    if (top > rect.Y) remaining.push_back({rect.X, rect.Y, rect.Width, top - rect.Y});
+                    if (bottom < rect.Y + rect.Height) remaining.push_back({rect.X, bottom, rect.Width, rect.Y + rect.Height - bottom});
+                    if (left > rect.X) remaining.push_back({rect.X, top, left - rect.X, bottom - top});
+                    if (right < rect.X + rect.Width) remaining.push_back({right, top, rect.X + rect.Width - right, bottom - top});
+                }
+                captions = std::move(remaining);
+            }
+            auto same = [](auto const& a, auto const& b) {
+                return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](auto const& x, auto const& y) {
+                    return x.X == y.X && x.Y == y.Y && x.Width == y.Width && x.Height == y.Height;
+                });
+            };
+            if (m_nonClientPointerSource == nullptr)
+                m_nonClientPointerSource = winrt::Microsoft::UI::Input::InputNonClientPointerSource::GetForWindowId(AppWindow().Id());
+            if (!same(interactive, m_passthroughRects))
+            {
+                m_nonClientPointerSource.SetRegionRects(winrt::Microsoft::UI::Input::NonClientRegionKind::Passthrough, interactive);
+                m_passthroughRects = std::move(interactive);
+            }
+            if (!same(captions, m_captionRects))
+            {
+                m_nonClientPointerSource.SetRegionRects(winrt::Microsoft::UI::Input::NonClientRegionKind::Caption, captions);
+                m_captionRects = std::move(captions);
+            }
+        }
+        catch (winrt::hresult_error const&)
+        {
+            // Layout can be transiently disconnected while the window or navigation pane closes.
+        }
+    }
+
+    void MainWindow::_applyWindowBackdrop()
+    {
+        using namespace winrt::Microsoft::UI::Xaml::Media;
+        auto transparent = SolidColorBrush(winrt::Windows::UI::Colors::Transparent());
+        if (m_currentSettings.micaBackdrop)
+        {
+            if (SystemBackdrop() == nullptr) SystemBackdrop(MicaBackdrop());
+            m_rootGrid.Background(transparent);
+        }
+        else
+        {
+            SystemBackdrop(nullptr);
+            m_rootGrid.Background(ui::controls::ThemedBrush(ui::theme::PAGE_BACKGROUND));
+        }
+        // Keep the native navigation/content templates, while allowing the window material to show.
+        m_navigation.Resources().Insert(winrt::box_value(L"NavigationViewContentBackground"),
+            m_currentSettings.micaBackdrop ? transparent : ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
+        for (auto key : {L"NavigationViewDefaultPaneBackground", L"NavigationViewExpandedPaneBackground", L"NavigationViewTopPaneBackground"})
+            m_navigation.Resources().Insert(winrt::box_value(key), transparent);
+    }
+
     void MainWindow::_updateTitleBarTheme()
     {
+        ui::controls::SetTheme(m_rootGrid.ActualTheme());
         bool const dark = m_rootGrid.ActualTheme() == winrt::Microsoft::UI::Xaml::ElementTheme::Dark;
         auto primary = winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(dark
                 ? winrt::Windows::UI::Color{0xFF, 0xF3, 0xF3, 0xF3}
@@ -1018,7 +1131,13 @@ namespace tmpp
         auto secondary = winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(dark
                 ? winrt::Windows::UI::Color{0xFF, 0xCB, 0xCB, 0xCB}
                 : winrt::Windows::UI::Color{0xFF, 0x55, 0x55, 0x55});
-        m_unifiedTitleBar.Foreground(primary);
+        auto caption = AppWindow().TitleBar();
+        caption.ButtonForegroundColor(primary.Color());
+        caption.ButtonInactiveForegroundColor(secondary.Color());
+        caption.ButtonBackgroundColor(winrt::Windows::UI::Colors::Transparent());
+        caption.ButtonInactiveBackgroundColor(winrt::Windows::UI::Colors::Transparent());
+        caption.ButtonHoverForegroundColor(primary.Color());
+        caption.ButtonHoverBackgroundColor(dark ? winrt::Windows::UI::Color{0x20, 0xFF, 0xFF, 0xFF} : winrt::Windows::UI::Color{0x10, 0x00, 0x00, 0x00});
         m_brandName.Foreground(primary);
         m_pageTitle.Foreground(primary);
         m_searchBox.Foreground(primary);
@@ -1033,6 +1152,7 @@ namespace tmpp
         using namespace winrt::Microsoft::UI::Xaml::Controls;
         ContentDialog dialog;
         dialog.XamlRoot(m_rootGrid.XamlRoot());
+        dialog.RequestedTheme(m_rootGrid.ActualTheme());
         dialog.Title(winrt::box_value(ui::Localize(L"Run new task")));
         dialog.PrimaryButtonText(ui::Localize(L"Run"));
         dialog.CloseButtonText(ui::Localize(L"Cancel"));
@@ -1080,10 +1200,6 @@ namespace tmpp
             {
                 m_activePerformanceView->Refresh();
             }
-            if (m_activeDetailsPage != nullptr)
-            {
-                m_activeDetailsPage->Refresh();
-            }
             _updateStatusBar();
         });
         m_refreshTimer.Start();
@@ -1109,7 +1225,15 @@ namespace tmpp
             text += L" consecutive sampling failures";
         }
 
-        m_statusText.Text(ui::Localize(text));
+        auto const elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - m_startedAt).count();
+        auto const statusText = ui::Localize(text) + L"  |  " +
+            ui::Localize("Uptime " + ui::FormatDuration(static_cast<uint64_t>(elapsed)));
+        if (m_statusText.Text() != statusText)
+        {
+            m_statusText.Text(statusText);
+            winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(m_statusText, winrt::box_value(statusText));
+        }
 
         // The notice appears only when process I/O counts are actually unavailable.
         auto const capabilities = m_coordinator->ProcessCapabilities();

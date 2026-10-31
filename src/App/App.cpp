@@ -3,6 +3,9 @@
 #include "App.h"
 #include "MainWindow.h"
 #include "StartupLog.h"
+#if defined(_DEBUG)
+#include "../../tests/ui/ThemeVerification.h"
+#endif
 
 namespace tmpp
 {
@@ -35,6 +38,18 @@ namespace tmpp
             diag::LogStartup("OnLaunched: XamlControlsResources merged");
         }
 
+#if defined(_DEBUG)
+        if (ui::test::WindowVerificationEnabled())
+        {
+            m_window = ui::test::StartWindowVerification();
+            return;
+        }
+        if (ui::test::ThemeVerificationEnabled())
+        {
+            m_window = ui::test::StartThemeVerification();
+            return;
+        }
+#endif
         m_window = winrt::make<MainWindow>();
         diag::LogStartup("OnLaunched: MainWindow created");
 

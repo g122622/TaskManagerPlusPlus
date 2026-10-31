@@ -106,6 +106,7 @@ namespace tmpp::ui
             row.Children().Append(icon);
 
             winrt::Microsoft::UI::Xaml::Controls::StackPanel label = controls::MakeStack(1.0);
+            label.Margin(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(0.0, 0.0, 16.0, 0.0));
             label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
             label.Children().Append(controls::MakeText(title, 14.0));
             label.Children().Append(controls::MakeText(description, 12.0, true));
@@ -113,6 +114,7 @@ namespace tmpp::ui
             row.Children().Append(label);
 
             outControl = TControl();
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(outControl, ui::Localize(title));
             outControl.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
             outControl.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
             winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(outControl, 2);
@@ -156,6 +158,7 @@ namespace tmpp::ui
 
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_alwaysOnTop{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_opaqueFill{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_micaBackdrop{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_kernelTimes{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_fillOpacityRow{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Slider m_fillOpacity{nullptr};
@@ -168,5 +171,7 @@ namespace tmpp::ui
 
         /// How the performance page orders its disk rows.
         winrt::Microsoft::UI::Xaml::Controls::ComboBox m_diskOrder{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::NumberBox m_samplingInterval{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::NumberBox m_historySeconds{nullptr};
     };
 }

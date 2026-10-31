@@ -448,3 +448,9 @@ MSBuild <proj> /p:Configuration=Debug /p:Platform=x64 /v:diagnostic /nologo |
 
 > 如需继续优化，**务必先实测再下结论**：本节的 PCH 一项就是"看起来该有效、实际更慢"
 > 的例子。
+
+## 原生主题回归检查
+
+Debug 构建包含独立的 WinUI 集成检查：`build\x64\Debug\tmpp.exe --verify-theme`。该模式跳过正常主窗口和单实例激活，不读写用户设置，也不启动采样器；检查窗口在后台完成浅色→深色→浅色切换、关闭态把手颜色、独立画刷透明度、CPU 主/内核曲线样式及官方云母开关。结果写入 EXE 同目录的 `ui-theme-verification.json`，失败时进程退出码为 1。该入口和测试实现不包含在 Release / RelWithDebInfo 构建中。
+
+Debug 另有 `tmpp.exe --verify-window`：启动隔离的真实主窗口，跳过用户配置、规则与后台采样，检查原生 Caption/Passthrough 区域、标题操作间距、搜索框伸展、列重排与分隔线、优先级圆点、压缩内存色阶、关于入口、采样设置即时生效、颜色选择器完整输入及中英文切换。结果写入 `ui-window-verification.json`，并在同目录生成供审查的界面 PNG；进程退出码为 0 表示通过。

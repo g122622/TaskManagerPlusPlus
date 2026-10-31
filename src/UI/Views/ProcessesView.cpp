@@ -1,6 +1,8 @@
 #include "UI/WinRTUI.h"
 
 #include "UI/Views/ProcessesView.h"
+#include "UI/Lists/PriorityIndicator.h"
+#include "UI/Lists/MemoryHeatScale.h"
 
 #include "UI/Theming/Controls.h"
 #include "UI/Theming/Formatting.h"
@@ -75,7 +77,7 @@ namespace tmpp::ui
     };
 
     /// Stable column order for persisted widths and visibility. New columns are appended.
-    constexpr std::array<ColumnSpec, 21> COLUMNS{{
+    constexpr std::array<ColumnSpec, columns::Count> COLUMNS{{
         {L"Name", 300.0, 120.0, false, SortColumn::Name, ShadeMetric::None},
         {L"PID", 80.0, 56.0, true, SortColumn::Pid, ShadeMetric::None},
         {L"CPU", 90.0, 56.0, true, SortColumn::Cpu, ShadeMetric::Cpu},
@@ -259,6 +261,7 @@ namespace tmpp::ui
         // through SetColumnWidths.
         for (size_t i = 0; i < m_columnWidths.size() && i < COLUMNS.size(); ++i)
         {
+            m_columnPositions[i] = static_cast<uint32_t>(i);
             m_columnWidths[i] = COLUMNS[i].width;
             m_columnVisible[i] = i < 9;
         }
@@ -287,7 +290,10 @@ namespace tmpp::ui
     void ProcessesView::_buildLayout()
     {
         m_root = Grid();
-        m_root.Padding(ThicknessHelper::FromLengths(metrics::PAGE_MARGIN, 12.0, metrics::PAGE_MARGIN, 8.0));
+        m_root.Padding(ThicknessHelper::FromLengths(12.0, 12.0, metrics::PAGE_MARGIN, 8.0));
+        m_root.ActualThemeChanged([this](auto const&, auto const&) { _updateHeatColors(); });
+        m_root.SizeChanged([this](auto const&, auto const&) { _applySidebarLayout(); });
+        _updateHeatColors();
 
         // Two columns: the list and the detail sidebar. The sidebar takes a width the user can drag,
         // and the list takes everything that remains -- a star column is the equivalent of
@@ -402,31 +408,6 @@ namespace tmpp::ui
             header.ColumnDefinitions().Append(definition);
         }
 
-        // One aggregate block per column, right-aligned over the column it summarises. Name and PID have
-        // no aggregate: there is no machine-wide name or process id to report.
-        for (size_t i = 0; i < COLUMNS.size(); ++i)
-        {
-            ColumnSpec const& column = COLUMNS[i];
-            if (column.sortColumn == SortColumn::Name || column.sortColumn == SortColumn::Pid)
-            {
-                continue;
-            }
-
-            TextBlock aggregate = controls::MakeText(L"", AGGREGATE_FONT_SIZE);
-            aggregate.HorizontalAlignment(HorizontalAlignment::Right);
-            aggregate.VerticalAlignment(VerticalAlignment::Center);
-            aggregate.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
-            aggregate.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 12.0, 0.0));
-
-            Grid::SetColumn(aggregate, static_cast<int32_t>(i));
-            Grid::SetRow(aggregate, 0);
-            header.Children().Append(aggregate);
-
-            // Kept in column order so _updateHeaderAggregates can write them by column rather than by
-            // the order they happened to be created in.
-            m_aggregates.push_back({column.sortColumn, aggregate});
-        }
-
         for (size_t i = 0; i < COLUMNS.size(); ++i)
         {
             ColumnSpec const& column = COLUMNS[i];
@@ -461,7 +442,54 @@ namespace tmpp::ui
             }
 
             winrt::Microsoft::UI::Xaml::Controls::Button button;
-            button.Content(headerContent);
+            Grid headerCell;
+            headerCell.RowDefinitions().Append(controls::MakeFixedRow(AGGREGATE_ROW_HEIGHT));
+            headerCell.RowDefinitions().Append(controls::MakeFixedRow(LABEL_ROW_HEIGHT));
+            if (column.sortColumn != SortColumn::Name && column.sortColumn != SortColumn::Pid)
+            {
+                auto aggregate = controls::MakeText(L"", AGGREGATE_FONT_SIZE);
+                aggregate.HorizontalAlignment(HorizontalAlignment::Right);
+                aggregate.VerticalAlignment(VerticalAlignment::Center);
+                aggregate.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 8.0, 0.0));
+                headerCell.Children().Append(aggregate);
+                m_aggregates.push_back({column.sortColumn, aggregate});
+            }
+            headerContent.Margin(ThicknessHelper::FromLengths(8.0, 0.0, 8.0, 0.0));
+            Grid::SetRow(headerContent, 1);
+            headerCell.Children().Append(headerContent);
+            button.Content(headerCell);
+            button.Tag(winrt::box_value(static_cast<uint32_t>(i)));
+            button.CanDrag(true);
+            button.AllowDrop(true);
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(button,
+                L"ProcessColumnHeader" + std::to_wstring(i));
+            button.DragStarting([this, i](auto const&, auto const& args) {
+                m_draggedColumn = static_cast<uint32_t>(i);
+                args.Data().SetText(winrt::to_hstring(static_cast<uint32_t>(i)));
+                args.Data().RequestedOperation(winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+            });
+            button.DragOver([this](auto const&, auto const& args) {
+                if (m_draggedColumn)
+                {
+                    args.AcceptedOperation(winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+                    args.Handled(true);
+                }
+            });
+            button.Drop([this, i](winrt::Windows::Foundation::IInspectable const& sender,
+                                 winrt::Microsoft::UI::Xaml::DragEventArgs const& args) {
+                if (!m_draggedColumn) return;
+                auto const target = sender.as<winrt::Microsoft::UI::Xaml::Controls::Button>();
+                bool const after = args.GetPosition(target).X >= target.ActualWidth() / 2.0;
+                auto order = m_columnOrder;
+                if (columns::Move(order, *m_draggedColumn, static_cast<uint32_t>(i), after))
+                {
+                    SetColumnOrder(order);
+                    if (m_onColumnOrderChanged) m_onColumnOrderChanged(m_columnOrder);
+                }
+                args.Handled(true);
+                m_draggedColumn.reset();
+            });
+            button.DropCompleted([this](auto const&, auto const&) { m_draggedColumn.reset(); });
             if (column.sortColumn == SortColumn::Network || column.sortColumn == SortColumn::NetworkReceive ||
                 column.sortColumn == SortColumn::NetworkSend)
                 winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(button,
@@ -470,14 +498,13 @@ namespace tmpp::ui
                 winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(button,
                     winrt::box_value(
                         ui::Localize(L"GPU memory is measured on the adapter shown on the Performance page.")));
-            button.Padding(ThicknessHelper::FromLengths(8.0, 0.0, 8.0, 0.0));
+            button.Padding(ThicknessHelper::FromUniformLength(0.0));
             button.Background(
                 winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
             button.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
             button.VerticalAlignment(VerticalAlignment::Stretch);
-            button.HorizontalAlignment(column.rightAligned ? HorizontalAlignment::Right : HorizontalAlignment::Left);
-            button.HorizontalContentAlignment(column.rightAligned ? HorizontalAlignment::Right
-                                                                 : HorizontalAlignment::Left);
+            button.HorizontalAlignment(HorizontalAlignment::Stretch);
+            button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
 
             // Retained so the mark can follow the sort as it changes, without rebuilding the header.
             m_sortMarks.push_back({column.sortColumn, chevron});
@@ -506,7 +533,7 @@ namespace tmpp::ui
             });
 
             Grid::SetColumn(button, static_cast<int32_t>(i));
-            Grid::SetRow(button, 1);
+            Grid::SetRowSpan(button, 2);
             header.Children().Append(button);
         }
 
@@ -763,9 +790,14 @@ namespace tmpp::ui
         // A hidden sidebar collapses its column to zero and collapses the card and handle with it.
         // Collapsing only the column is not enough: a zero-width column still lays out its children,
         // and the card's border and the handle's own width would remain visible as a seam.
-        m_detailColumn.Width(GridLengthHelper::FromPixels(m_detailVisible ? m_detailWidth : 0.0));
+        double const available = m_root.ActualWidth() - m_root.Padding().Left - m_root.Padding().Right;
+        constexpr double minimumTableWidth = 220.0;
+        bool const fits = m_root.ActualWidth() <= 0.0 || available >= MIN_DETAIL_SIDEBAR_WIDTH + minimumTableWidth;
+        bool const shown = m_detailVisible && fits;
+        double const width = m_root.ActualWidth() <= 0.0 ? m_detailWidth : (std::min)(m_detailWidth, available - minimumTableWidth);
+        m_detailColumn.Width(GridLengthHelper::FromPixels(shown ? width : 0.0));
 
-        Visibility const visibility = m_detailVisible ? Visibility::Visible : Visibility::Collapsed;
+        Visibility const visibility = shown ? Visibility::Visible : Visibility::Collapsed;
         if (m_detailCard != nullptr)
         {
             m_detailCard.Visibility(visibility);
@@ -779,7 +811,12 @@ namespace tmpp::ui
             // Set through the control so its pressed visual matches the pane. Guarded because assigning
             // the value it already has would re-raise nothing, but a mismatch here would leave the
             // switch showing the opposite of the layout after a settings load.
-            m_detailToggle.IsChecked(m_detailVisible);
+            m_detailToggle.IsChecked(shown);
+            m_detailToggle.IsEnabled(fits);
+            winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(m_detailToggle,
+                winrt::box_value(ui::Localize(fits
+                    ? L"Show or hide the panel that changes the selected process's settings."
+                    : L"Widen the window to show process settings")));
         }
     }
 
@@ -851,89 +888,51 @@ namespace tmpp::ui
 
     void ProcessesView::_applyColumnWidths()
     {
-        // The row host is built in _buildLayout, and a width can be applied before it exists: the
-        // constructor seeds the widths and then builds, and a settings file is applied afterwards. The
-        // guard keeps that ordering from being a null dereference.
-        if (m_rowHost == nullptr)
-        {
-            return;
-        }
-
-        // The header's definitions are the ones a drag changes directly. They are only enumerated by the
-        // vector's size, which is what was actually created, so no entry can be a null definition.
-        for (size_t i = 0; i < m_headerColumns.size() && i < m_columnWidths.size(); ++i)
-        {
-            m_headerColumns[i].Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
-        }
-
-        // The rows are separate grids and do not share the header's definitions, so each row on screen is
-        // updated in place. Rebuilding them would discard the recycled visuals and reset the scroll
-        // position on every pointer move.
-        //
-        // The row width the host uses for its canvas is updated too, or the rows would be laid out at the
-        // old total and the rightmost column would be clipped as soon as anything was widened.
+        if (m_rowHost == nullptr) return;
         double total = 2.0 * ROW_INSET;
-        for (size_t i = 0; i < m_columnWidths.size(); ++i) {
-            if (m_columnVisible[i]) total += m_columnWidths[i];
+        for (size_t slot = 0; slot < m_columnOrder.size(); ++slot)
+        {
+            auto const column = m_columnOrder[slot];
+            double const width = m_columnVisible[column] ? m_columnWidths[column] : 0.0;
+            total += width;
+            m_headerColumns[slot].Width(GridLengthHelper::FromPixels(width));
+        }
+        for (auto const& child : m_tableHeader.Children())
+        {
+            auto const element = child.as<winrt::Microsoft::UI::Xaml::FrameworkElement>();
+            auto const column = winrt::unbox_value<uint32_t>(element.Tag());
+            Grid::SetColumn(element, static_cast<int32_t>(m_columnPositions[column]));
+            element.Visibility(m_columnVisible[column] ? Visibility::Visible : Visibility::Collapsed);
         }
         m_table.MinWidth(total);
-        for (auto const& child : m_tableHeader.Children()) {
-            auto const column =
-                static_cast<size_t>(Grid::GetColumn(child.as<winrt::Microsoft::UI::Xaml::FrameworkElement>()));
-            child.Visibility(m_columnVisible[column] ? Visibility::Visible : Visibility::Collapsed);
-        }
         m_rowHost->SetRowWidth(total);
-
-        for (auto const& [index, element] : m_rowHost->LiveRows())
-        {
-            (void)index;
-            if (auto const row = element.try_as<Grid>())
-            {
-                for (size_t i = 0; i < m_columnWidths.size() && i < row.ColumnDefinitions().Size(); ++i)
-                {
-                    row.ColumnDefinitions()
-                        .GetAt(static_cast<uint32_t>(i))
-                        .Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
-                }
-            }
-        }
-
-        // Each bar is placed at the sum of the widths to its left, which is exactly where its column ends.
-        // Positioned from the widths rather than from a measured layout so the bars track a drag without
-        // waiting for a layout pass.
         m_rowHost->RefreshVisibleRows();
         double x = ROW_INSET;
-        for (size_t i = 0; i < m_columnHandles.size() && i < m_columnWidths.size(); ++i)
+        for (size_t slot = 0; slot < m_columnOrder.size(); ++slot)
         {
-            if (m_columnVisible[i]) x += m_columnWidths[i];
-
-            if (m_columnHandles[i] != nullptr)
-            {
-                // The bar is centred on the boundary rather than starting at it, so its line sits on the
-                // boundary instead of a few pixels to one side.
-                bool const hasNext =
-                    std::any_of(m_columnVisible.begin() + i + 1, m_columnVisible.end(), [](bool v) { return v; });
-                m_columnHandles[i]->Element().Visibility(
-                    m_columnVisible[i] && hasNext ? Visibility::Visible : Visibility::Collapsed);
-                Canvas::SetLeft(m_columnHandles[i]->Element(), x - (COLUMN_HANDLE_WIDTH / 2.0));
-                Canvas::SetTop(m_columnHandles[i]->Element(), 0.0);
-
-                // The height is set explicitly, from the layer's own height.
-                //
-                // A Canvas does not size its children: it gives each one its desired size and positions it,
-                // so an element with no height collapses to nothing and its line is never drawn. Leaving the
-                // height unset amounts to the same thing, because an unset Height means "size to content"
-                // and this element's only content is a border. Either way the bars were invisible.
-                //
-                // The layer's height is zero before the first layout pass, in which case the bar keeps its
-                // current height and _applyColumnWidths runs again once the table has been measured.
-                double const layerHeight = m_handleLayer.ActualHeight();
-                if (layerHeight > 0.0)
-                {
-                    m_columnHandles[i]->Element().Height(layerHeight);
-                }
-            }
+            auto const column = m_columnOrder[slot];
+            if (m_columnVisible[column]) x += m_columnWidths[column];
+            bool const hasNext = std::any_of(m_columnOrder.begin() + slot + 1, m_columnOrder.end(),
+                [this](uint32_t other) { return m_columnVisible[other]; });
+            auto const handle = m_columnHandles[column]->Element();
+            handle.Visibility(m_columnVisible[column] && hasNext ? Visibility::Visible : Visibility::Collapsed);
+            Canvas::SetLeft(handle, x - COLUMN_HANDLE_WIDTH / 2.0);
+            Canvas::SetTop(handle, 0.0);
+            if (m_handleLayer.ActualHeight() > 0.0) handle.Height(m_handleLayer.ActualHeight());
         }
+    }
+
+    void ProcessesView::SetColumnOrder(std::vector<uint32_t> const& order)
+    {
+        m_columnOrder = columns::NormalizeOrder(order);
+        for (size_t slot = 0; slot < m_columnOrder.size(); ++slot)
+            m_columnPositions[m_columnOrder[slot]] = static_cast<uint32_t>(slot);
+        _applyColumnWidths();
+    }
+
+    void ProcessesView::SetColumnOrderHandler(std::function<void(std::vector<uint32_t>)> handler)
+    {
+        m_onColumnOrderChanged = std::move(handler);
     }
 
     void ProcessesView::SetFilter(std::string filter)
@@ -975,6 +974,7 @@ namespace tmpp::ui
         using namespace winrt::Microsoft::UI::Xaml::Controls;
         ContentDialog dialog;
         dialog.XamlRoot(m_root.XamlRoot());
+        dialog.RequestedTheme(m_root.ActualTheme());
         dialog.Title(winrt::box_value(ui::Localize(L"Select columns")));
         dialog.PrimaryButtonText(ui::Localize(L"Apply"));
         dialog.SecondaryButtonText(ui::Localize(L"Reset to defaults"));
@@ -1050,7 +1050,8 @@ namespace tmpp::ui
         for (size_t i = 0; i < COLUMNS.size(); ++i)
         {
             ColumnDefinition definition;
-            definition.Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
+            auto const column = m_columnOrder[i];
+            definition.Width(GridLengthHelper::FromPixels(m_columnVisible[column] ? m_columnWidths[column] : 0.0));
             row.ColumnDefinitions().Append(definition);
         }
 
@@ -1059,13 +1060,14 @@ namespace tmpp::ui
         // The icon is a fixed-size slot holding either an image or the placeholder glyph, so the name
         // starts at the same x on every row whether or not that row's icon has resolved yet. A slot sized
         // to its content would make the names stagger while the icons arrived.
-        StackPanel nameCell;
-        nameCell.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
-        nameCell.Spacing(8.0);
+        Grid nameCell;
+        nameCell.ColumnDefinitions().Append(controls::MakeAutoColumn());
+        nameCell.ColumnDefinitions().Append(controls::MakeStarColumn());
         nameCell.VerticalAlignment(VerticalAlignment::Center);
 
         Grid iconSlot;
         iconSlot.Width(ICON_SLOT_SIZE);
+        iconSlot.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 8.0, 0.0));
         iconSlot.Height(ICON_SLOT_SIZE);
         iconSlot.VerticalAlignment(VerticalAlignment::Center);
 
@@ -1085,9 +1087,13 @@ namespace tmpp::ui
         iconSlot.Children().Append(placeholder);
 
         nameCell.Children().Append(iconSlot);
-        nameCell.Children().Append(controls::MakeText(L"", 13.0));
+        auto nameLabel = controls::MakeText(L"", 13.0);
+        nameLabel.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        nameLabel.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+        Grid::SetColumn(nameLabel, 1);
+        nameCell.Children().Append(nameLabel);
 
-        Grid::SetColumn(nameCell, 0);
+        Grid::SetColumn(nameCell, static_cast<int32_t>(m_columnPositions[0]));
         row.Children().Append(nameCell);
 
         // The remaining columns are text on a shaded cell.
@@ -1118,9 +1124,25 @@ namespace tmpp::ui
             text.VerticalAlignment(VerticalAlignment::Center);
             text.HorizontalAlignment(COLUMNS[i].rightAligned ? HorizontalAlignment::Right
                                                             : HorizontalAlignment::Left);
-            cell.Child(text);
+            if (COLUMNS[i].sortColumn == SortColumn::Priority)
+            {
+                auto content = controls::MakeRow(6.0);
+                winrt::Microsoft::UI::Xaml::Shapes::Ellipse dot;
+                dot.Width(6.0);
+                dot.Height(6.0);
+                dot.VerticalAlignment(VerticalAlignment::Center);
+                content.Children().Append(dot);
+                content.Children().Append(text);
+                cell.Child(content);
+            }
+            else cell.Child(text);
+            cell.SizeChanged([](auto const& sender, winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args) {
+                winrt::Microsoft::UI::Xaml::Media::RectangleGeometry clip;
+                clip.Rect({0.0f, 0.0f, args.NewSize().Width, args.NewSize().Height});
+                sender.template as<Border>().Clip(clip);
+            });
 
-            Grid::SetColumn(cell, static_cast<int32_t>(i));
+            Grid::SetColumn(cell, static_cast<int32_t>(m_columnPositions[i]));
             row.Children().Append(cell);
         }
 
@@ -1148,13 +1170,17 @@ namespace tmpp::ui
         }
 
         domain::ProcessView const& process = m_snapshot.processes[processIndex];
-        for (size_t i = 0; i < COLUMNS.size(); ++i) {
-            row.ColumnDefinitions()
-                .GetAt(static_cast<uint32_t>(i))
-                .Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
-            row.Children()
-                .GetAt(static_cast<uint32_t>(i))
-                .Visibility(m_columnVisible[i] ? Visibility::Visible : Visibility::Collapsed);
+        for (size_t slot = 0; slot < COLUMNS.size(); ++slot)
+        {
+            auto const column = m_columnOrder[slot];
+            row.ColumnDefinitions().GetAt(static_cast<uint32_t>(slot)).Width(
+                GridLengthHelper::FromPixels(m_columnVisible[column] ? m_columnWidths[column] : 0.0));
+        }
+        for (size_t column = 0; column < COLUMNS.size(); ++column)
+        {
+            auto const cell = row.Children().GetAt(static_cast<uint32_t>(column)).as<winrt::Microsoft::UI::Xaml::FrameworkElement>();
+            Grid::SetColumn(cell, static_cast<int32_t>(m_columnPositions[column]));
+            cell.Visibility(m_columnVisible[column] ? Visibility::Visible : Visibility::Collapsed);
         }
 
         // The selection fill, and the click that sets it. The process id is captured by value
@@ -1192,7 +1218,7 @@ namespace tmpp::ui
 
         // Column 0: icon and name. The idle process has no image name from the
         // platform, which is its report rather than a failure; naming it is ours.
-        if (auto const nameCell = row.Children().GetAt(0).try_as<StackPanel>())
+        if (auto const nameCell = row.Children().GetAt(0).try_as<Grid>())
         {
             if (auto const slot = nameCell.Children().GetAt(0).try_as<Grid>())
             {
@@ -1250,6 +1276,13 @@ namespace tmpp::ui
             if (auto const label = cell.Child().try_as<TextBlock>())
             {
                 label.Text(ui::Localize(text));
+            }
+            else if (auto const content = cell.Child().try_as<StackPanel>())
+            {
+                auto const color = PriorityIndicatorColor(m_snapshot.processes[processIndex].basePriority);
+                content.Children().GetAt(0).as<winrt::Microsoft::UI::Xaml::Shapes::Ellipse>().Fill(
+                    winrt::Microsoft::UI::Xaml::Media::SolidColorBrush({0xFF, color.red, color.green, color.blue}));
+                content.Children().GetAt(1).as<TextBlock>().Text(ui::Localize(text));
             }
         };
 
@@ -1489,6 +1522,7 @@ namespace tmpp::ui
         // work, and a task manager is a list of names a user can misread; the original asks too.
         winrt::Microsoft::UI::Xaml::Controls::ContentDialog dialog;
         dialog.XamlRoot(m_root.XamlRoot());
+        dialog.RequestedTheme(m_root.ActualTheme());
         dialog.Title(winrt::box_value(ui::Localize(entireTree ? L"End process tree?" : L"End task?")));
 
         winrt::hstring const body = entireTree
@@ -1623,9 +1657,21 @@ namespace tmpp::ui
         }
     }
 
+    void ProcessesView::_updateHeatColors()
+    {
+        bool const light = m_root.ActualTheme() == winrt::Microsoft::UI::Xaml::ElementTheme::Light;
+        for (size_t i = 0; i < m_heatBrushes.size(); ++i)
+        {
+            auto color = light ? winrt::Windows::UI::Color{0xFF, 0xC8, 0xE4, 0xFC} : HEAT_COLOR;
+            color.A = static_cast<uint8_t>((0xFF * i + HEAT_STEPS / 2) / HEAT_STEPS);
+            m_heatBrushes[i].Color(color);
+        }
+    }
+
     void ProcessesView::_updateColumnMaxima()
     {
         m_columnMaxima.fill(0.0);
+        MemoryHeatScale memoryScale;
 
         // One pass over the visible rows rather than one pass per column. Five columns over seven
         // hundred rows is three and a half thousand switches either way, so this is not about the
@@ -1639,6 +1685,7 @@ namespace tmpp::ui
             }
 
             domain::ProcessView const& process = m_snapshot.processes[index];
+            memoryScale.Add(process.memory.workingSetSize, process.imageName);
 
             for (size_t column = 0; column < COLUMNS.size(); ++column)
             {
@@ -1655,6 +1702,7 @@ namespace tmpp::ui
                 }
             }
         }
+        m_columnMaxima[3] = static_cast<double>(memoryScale.Peak());
     }
 
     winrt::Microsoft::UI::Xaml::Media::Brush ProcessesView::_heatBrush(size_t column, double value) const

@@ -175,7 +175,7 @@ namespace tmpp::ui
                 m_sidebarCard.Margin(ThicknessHelper::FromLengths(0.0, 0.0, SIDEBAR_GAP, 0.0));
             }
 
-            m_root.Padding(ThicknessHelper::FromLengths(metrics::CONTENT_LEFT_INSET, 8.0,
+            m_root.Padding(ThicknessHelper::FromLengths(metrics::PERFORMANCE_LEFT_INSET, 8.0,
                                                         metrics::PAGE_MARGIN, 8.0));
         }
     }
@@ -194,8 +194,13 @@ namespace tmpp::ui
 
             if (m_rows[i].sparkline != nullptr)
             {
-                m_rows[i].sparkline->SetColors(color, /*muted=*/i != m_selectedRow);
+                m_rows[i].sparkline->SetColor(color);
                 m_rows[i].sparkline->SetThickness(style.ClampedLineWidth());
+                if (m_sections[i].kind == SectionKind::Cpu)
+                {
+                    auto const& kernel = settings.cpuKernelChart;
+                    m_rows[i].sparkline->SetSecondaryStyle({0xFF, kernel.red, kernel.green, kernel.blue}, kernel.ClampedLineWidth());
+                }
                 m_rows[i].sparkline->SetFillOpacity(settings.chartFillOpacity);
                 m_rows[i].sparkline->SetOpaqueFill(settings.opaqueChartFill);
             }
@@ -209,6 +214,8 @@ namespace tmpp::ui
             m_cpuPage->SetFillOpacity(settings.chartFillOpacity);
             m_cpuPage->SetOpaqueFill(settings.opaqueChartFill);
             m_cpuPage->SetShowKernelTimes(settings.showCpuKernelTimes);
+            auto const& kernel = settings.cpuKernelChart;
+            m_cpuPage->SetKernelLineStyle({0xFF, kernel.red, kernel.green, kernel.blue}, kernel.ClampedLineWidth());
         }
 
         if (m_memoryPage != nullptr)
@@ -291,10 +298,8 @@ namespace tmpp::ui
     void PerformanceView::_buildLayout()
     {
         m_root = Grid();
-        // A smaller left inset than a normal page: the navigation rail already separates the content
-        // from the window edge, so the full page margin leaves a conspicuous gap before the sidebar
-        // card.
-        m_root.Padding(ThicknessHelper::FromLengths(metrics::CONTENT_LEFT_INSET, 8.0, metrics::PAGE_MARGIN, 8.0));
+        // Align the sidebar card with the title bar and settings page.
+        m_root.Padding(ThicknessHelper::FromLengths(metrics::PERFORMANCE_LEFT_INSET, 8.0, metrics::PAGE_MARGIN, 8.0));
 
         // Two columns separated by a draggable handle: the sidebar at a width the user can change,
         // and the detail area taking everything that remains. A star column is the equivalent of
@@ -639,9 +644,7 @@ namespace tmpp::ui
         {
             bool const selected = (i == m_selectedRow);
 
-            // The selected row is filled with a translucent accent. Its sparkline goes to full
-            // opacity and the others are muted, so the current section's trend is the one that
-            // stands out.
+            // The row background identifies the active metric. Chart colours come from the saved style.
             m_rows[i].button.Background(
                 SolidColorBrush(selected ? SELECTION_FILL : winrt::Windows::UI::Colors::Transparent()));
             m_rows[i].button.CornerRadius(
@@ -649,7 +652,7 @@ namespace tmpp::ui
 
             if (m_rows[i].sparkline != nullptr)
             {
-                m_rows[i].sparkline->SetColors(_sectionColor(m_rows[i].kind), /*muted=*/!selected);
+                m_rows[i].sparkline->SetColor(_sectionColor(m_rows[i].kind));
             }
         }
     }

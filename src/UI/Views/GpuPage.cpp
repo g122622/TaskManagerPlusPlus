@@ -284,7 +284,7 @@ namespace tmpp::ui
 
         m_caption.Text(ui::Localize("Utilisation  " +
             (system.gpu.available ? FormatPercent(system.gpu.utilizationPercent) : std::string{UnavailableValue()}) +
-            "  \xE2\x80\xA2  over " + std::to_string(m_coordinator.HistorySeconds()) + " s"));
+            "  |  over " + std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The window rides with the data, so the chart anchors its samples to the right edge rather
         // than stretching a handful of them across the full width.

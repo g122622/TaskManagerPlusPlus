@@ -437,7 +437,7 @@ namespace tmpp::ui
         m_installedCaption.Text(ui::Localize(FormatBytes(system.memory.totalPhysical)));
 
         m_caption.Text(ui::Localize("In use " + FormatBytes(system.memoryUsedBytes) + " (" +
-            FormatPercent(system.memoryUsedPercent) + ")  \xE2\x80\xA2  over " +
+            FormatPercent(system.memoryUsedPercent) + ")  |  over " +
             std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The window rides with the data, so the chart anchors its samples to the right edge

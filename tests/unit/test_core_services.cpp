@@ -583,6 +583,7 @@ namespace tmpp::core
         Settings chosen;
         chosen.processColumnVisible = {true, false, true, false, true};
         chosen.processColumnWidths = {400.0, 90.0, 100.0};
+        chosen.processColumnOrder = {7, 0, 2, 1, 3};
         chosen.opaqueChartFill = true;
         chosen.chartFillOpacity = 0.47;
         chosen.showCpuKernelTimes = true;
@@ -590,6 +591,7 @@ namespace tmpp::core
         auto const loaded = store.Load();
         EXPECT_EQ(loaded.processColumnVisible, chosen.processColumnVisible);
         EXPECT_EQ(loaded.processColumnWidths, chosen.processColumnWidths);
+        EXPECT_EQ(loaded.processColumnOrder, chosen.processColumnOrder);
         EXPECT_TRUE(loaded.opaqueChartFill);
         EXPECT_DOUBLE_EQ(loaded.chartFillOpacity, 0.47);
         EXPECT_TRUE(loaded.showCpuKernelTimes);
@@ -605,4 +607,54 @@ namespace tmpp::core
         EXPECT_FALSE(loaded.opaqueChartFill);
         EXPECT_TRUE(loaded.processColumnVisible.empty());
     }
+    TEST(SettingsStoreTest, KernelCurveStyleAndMicaHaveIndependentPersistedValues)
+    {
+        TempDirectory const temp;
+        SettingsStore store(temp.File("settings.json"));
+        Settings selected;
+        selected.micaBackdrop = false;
+        selected.cpuChart = {20, 120, 220, 1.5};
+        selected.MutableChartStyleFor(5) = {230, 90, 40, 3.0};
+        ASSERT_TRUE(store.Save(selected).Success());
+        auto const loaded = store.Load();
+        EXPECT_FALSE(loaded.micaBackdrop);
+        EXPECT_EQ(loaded.cpuChart.red, 20);
+        EXPECT_DOUBLE_EQ(loaded.cpuChart.lineWidth, 1.5);
+        EXPECT_EQ(loaded.ChartStyleFor(5).red, 230);
+        EXPECT_EQ(loaded.ChartStyleFor(5).green, 90);
+        EXPECT_EQ(loaded.ChartStyleFor(5).blue, 40);
+        EXPECT_DOUBLE_EQ(loaded.ChartStyleFor(5).ClampedLineWidth(), 3.0);
+    }
+
+    TEST(SettingsStoreTest, CustomSamplingSettingsRoundTripAndLegacyPresetsStillLoad)
+    {
+        TempDirectory const temp;
+        auto const file = temp.File("settings.json");
+        Settings selected;
+        selected.intervalMs = 750;
+        selected.historySeconds = 135;
+        ASSERT_TRUE(SettingsStore(file).Save(selected).Success());
+        auto loaded = SettingsStore(file).Load();
+        EXPECT_EQ(loaded.intervalMs, 750u);
+        EXPECT_EQ(loaded.HistorySeconds(), 135u);
+        _writeRaw(file, R"({"sampling":{"historyWindow":1}})");
+        EXPECT_EQ(SettingsStore(file).Load().HistorySeconds(), 300u);
+        _writeRaw(file, R"({"sampling":{"historySeconds":-1}})");
+        EXPECT_EQ(SettingsStore(file).Load().HistorySeconds(), 60u);
+        _writeRaw(file, R"({"sampling":{"historySeconds":1000000000000}})");
+        EXPECT_EQ(SettingsStore(file).Load().HistorySeconds(), 1800u);
+    }
+
+    TEST(SettingsStoreTest, RemovedDetailsPageFallsBackAndOldAppearanceGetsSafeDefaults)
+    {
+        TempDirectory const temp;
+        auto const file = temp.File("settings.json");
+        _writeRaw(file, R"({"startup":{"page":2,"lastUsedPage":2},"appearance":{"cpuKernel":{"lineWidth":99}}})");
+        auto const loaded = SettingsStore(file).Load();
+        EXPECT_EQ(loaded.startupPage, StartupPage::Processes);
+        EXPECT_EQ(loaded.lastUsedPage, StartupPage::Processes);
+        EXPECT_TRUE(loaded.micaBackdrop);
+        EXPECT_DOUBLE_EQ(loaded.cpuKernelChart.ClampedLineWidth(), 8.0);
+    }
+
 }

@@ -29,6 +29,8 @@ namespace tmpp::ui
          * missing resource from taking the window down.
          */
         [[nodiscard]] Media::Brush ThemedBrush(wchar_t const* key);
+        void SetTheme(ElementTheme theme);
+        void ConfigureThemeResources(Grid const& root);
 
         /**
          * @brief Creates a text block.
@@ -77,7 +79,7 @@ namespace tmpp::ui
         [[nodiscard]] Button MakeButton(std::wstring_view caption, TCallback&& onClick)
         {
             Button button;
-            button.Content(winrt::box_value(winrt::hstring{caption}));
+            button.Content(winrt::box_value(ui::Localize(caption)));
             button.Click([callback = std::forward<TCallback>(onClick)](winrt::Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
                 callback();
             });

@@ -4,6 +4,8 @@
 #include "UI/Theming/Controls.h"
 
 #include <inspectable.h>
+#include <winrt/Microsoft.UI.Xaml.Markup.h>
+#include <map>
 
 // The generated ABI declarations. The consuming projection is already in the shared header, but the
 // abi<> specialisations live in the per-namespace headers that the projection includes for its own use.
@@ -13,22 +15,69 @@
 
 namespace tmpp::ui::controls
 {
+    namespace
+    {
+        Grid themeResourceHost{nullptr};
+        ElementTheme resourceTheme{ElementTheme::Default};
+        std::map<std::wstring, Border> brushSources;
+
+        Grid ResourceHost()
+        {
+            if (themeResourceHost == nullptr)
+            {
+                themeResourceHost = Grid();
+                themeResourceHost.Visibility(Visibility::Collapsed);
+                themeResourceHost.RequestedTheme(resourceTheme);
+            }
+            return themeResourceHost;
+        }
+    }
+
+    void SetTheme(ElementTheme theme)
+    {
+        resourceTheme = theme;
+        if (themeResourceHost != nullptr) themeResourceHost.RequestedTheme(theme);
+    }
+
+    void ConfigureThemeResources(Grid const& root)
+    {
+        // Preserve the native light/high-contrast resources, and make the dark off-state knob white.
+        ResourceDictionary dark;
+        ResourceDictionary light;
+        for (auto key : {L"ToggleSwitchKnobFillOff", L"ToggleSwitchKnobFillOffPointerOver", L"ToggleSwitchKnobFillOffPressed"})
+        {
+            dark.Insert(winrt::box_value(key), Media::SolidColorBrush(winrt::Windows::UI::Colors::White()));
+            light.Insert(winrt::box_value(key), ThemedBrush(theme::SUBTLE_TEXT));
+        }
+        root.Resources().ThemeDictionaries().Insert(winrt::box_value(L"Dark"), dark);
+        root.Resources().ThemeDictionaries().Insert(winrt::box_value(L"Light"), light);
+        root.Children().Append(ResourceHost());
+    }
+
     Media::Brush ThemedBrush(wchar_t const* key)
     {
-        // Application::Current().Resources() resolves theme dictionaries, so a
-        // "ThemeResource"-style lookup is done by hand here. A missing key yields a
-        // transparent brush rather than an exception, so one absent resource cannot
-        // take the window down.
-        auto const resources = Application::Current().Resources();
-        auto const found = resources.TryLookup(winrt::box_value(ui::Localize(key)));
-        if (found != nullptr)
+        try
         {
-            if (auto const brush = found.try_as<Media::Brush>())
+            auto found = brushSources.find(key);
+            if (found == brushSources.end())
             {
-                return brush;
+                std::wstring const xaml = L"<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Background='{ThemeResource " +
+                    std::wstring{key} + L"}'/>";
+                auto source = Markup::XamlReader::Load(xaml).as<Border>();
+                ResourceHost().Children().Append(source);
+                found = brushSources.emplace(key, source).first;
             }
+            Media::SolidColorBrush brush;
+            Data::Binding color;
+            color.Source(found->second);
+            color.Path(PropertyPath(L"Background.Color"));
+            Data::BindingOperations::SetBinding(brush, Media::SolidColorBrush::ColorProperty(), color);
+            return brush;
         }
-        return Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent());
+        catch (winrt::hresult_error const&)
+        {
+            return Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent());
+        }
     }
 
     TextBlock MakeText(std::wstring_view text, double fontSize, bool subtle)

@@ -21,9 +21,6 @@ namespace tmpp::ui
         /// How translucent the area under the line is.
         constexpr double FILL_OPACITY = 0.22;
 
-        /// Opacity applied to the line and fill when the row is not selected.
-        constexpr double MUTED_OPACITY = 0.55;
-
         /// Stroke width. Thinner than the full chart, since the plot is much smaller.
         constexpr double STROKE_WIDTH = 1.5;
 
@@ -92,15 +89,11 @@ namespace tmpp::ui
         m_fill.Points().Clear();
     }
 
-    void Sparkline::SetColors(winrt::Windows::UI::Color color, bool muted)
+    void Sparkline::SetColor(winrt::Windows::UI::Color color)
     {
         m_color = color;
-        m_muted = muted;
-
-        double const lineAlpha = muted ? MUTED_OPACITY : 1.0;
-        m_line.Stroke(SolidColorBrush(_withAlpha(m_color, lineAlpha)));
-        m_fill.Fill(SolidColorBrush(
-            _withAlpha(m_color, m_opaqueFill ? 1.0 : (muted ? m_fillOpacity * MUTED_OPACITY : m_fillOpacity))));
+        m_line.Stroke(SolidColorBrush(m_color));
+        m_fill.Fill(SolidColorBrush(_withAlpha(m_color, m_opaqueFill ? 1.0 : m_fillOpacity)));
     }
 
     void Sparkline::SetFillOpacity(double opacity)
@@ -112,14 +105,21 @@ namespace tmpp::ui
     void Sparkline::SetOpaqueFill(bool opaque)
     {
         m_opaqueFill = opaque;
-        SetColors(m_color, m_muted);
+        SetColor(m_color);
     }
 
     void Sparkline::SetThickness(double thickness)
     {
         m_thickness = std::clamp(thickness, 0.5, 8.0);
         m_line.StrokeThickness(m_thickness);
-        m_secondaryLine.StrokeThickness(m_thickness);
+        m_secondaryLine.StrokeThickness(m_secondaryThickness > 0.0 ? m_secondaryThickness : m_thickness);
+    }
+
+    void Sparkline::SetSecondaryStyle(winrt::Windows::UI::Color color, double width)
+    {
+        m_secondaryThickness = std::clamp(width, 0.5, 8.0);
+        m_secondaryLine.Stroke(SolidColorBrush(color));
+        m_secondaryLine.StrokeThickness(m_secondaryThickness);
     }
 
     void Sparkline::_redraw()
@@ -163,8 +163,10 @@ namespace tmpp::ui
             linePoints.Append(winrt::Windows::Foundation::Point{x, y});
             fillPoints.Append(winrt::Windows::Foundation::Point{x, y});
             if (m_secondaryValues.size() == m_values.size()) {
-                auto const kernelY =
-                    static_cast<float>(m_height * (1.0 - std::clamp(m_secondaryValues[i] / m_maximum, 0.0, 1.0)));
+                double const halfStroke = m_secondaryLine.StrokeThickness() / 2.0;
+                auto const kernelY = static_cast<float>(std::clamp(
+                    m_height * (1.0 - std::clamp(m_secondaryValues[i] / m_maximum, 0.0, 1.0)),
+                    halfStroke, m_height - halfStroke));
                 m_secondaryLine.Points().Append({x, kernelY});
             }
         }

@@ -7,8 +7,6 @@
 #include <cmath>
 #include <nlohmann/json.hpp>
 
-#include <algorithm>
-
 namespace tmpp::core
 {
     namespace
@@ -125,10 +123,20 @@ namespace tmpp::core
         settings.minimizedIntervalMs = domain::sampling::ClampInterval(
             _getNumber<uint32_t>(sampling, "minimizedIntervalMs", settings.minimizedIntervalMs));
         settings.historyWindow = _getEnum(sampling, "historyWindow", settings.historyWindow, 2);
+        if (sampling.contains("historySeconds"))
+        {
+            double const seconds = _getNumber<double>(sampling, "historySeconds", settings.HistorySeconds());
+            if (std::isfinite(seconds)) settings.historySeconds = static_cast<uint32_t>(std::clamp(seconds,
+                static_cast<double>(domain::sampling::MIN_HISTORY_SECONDS),
+                static_cast<double>(domain::sampling::MAX_HISTORY_SECONDS)));
+        }
 
         json const& startup = _subObject(root, "startup");
         settings.startupPage = _getEnum(startup, "page", settings.startupPage, 3);
         settings.lastUsedPage = _getEnum(startup, "lastUsedPage", settings.lastUsedPage, 3);
+        if (settings.startupPage == StartupPage::Details) settings.startupPage = StartupPage::Processes;
+        if (settings.lastUsedPage != StartupPage::Processes && settings.lastUsedPage != StartupPage::Performance)
+            settings.lastUsedPage = StartupPage::Processes;
 
         // The disk order lives with the startup settings because it is a display preference rather than
         // a property of any one page.
@@ -138,6 +146,7 @@ namespace tmpp::core
         // integer, so the file stays readable and hand-editable.
         json const& appearance = _subObject(root, "appearance");
         settings.opaqueChartFill = _getBool(appearance, "opaqueChartFill", false);
+        settings.micaBackdrop = _getBool(appearance, "micaBackdrop", true);
         settings.showCpuKernelTimes = _getBool(appearance, "showCpuKernelTimes", false);
         double const fillOpacity = _getNumber<double>(appearance, "chartFillOpacity", 0.18);
         settings.chartFillOpacity = std::isfinite(fillOpacity) ? std::clamp(fillOpacity, 0.0, 1.0) : 0.18;
@@ -153,6 +162,7 @@ namespace tmpp::core
         };
 
         readStyle("cpu", settings.cpuChart);
+        readStyle("cpuKernel", settings.cpuKernelChart);
         readStyle("memory", settings.memoryChart);
         readStyle("disk", settings.diskChart);
         readStyle("network", settings.networkChart);
@@ -188,6 +198,11 @@ namespace tmpp::core
             }
         }
 
+        settings.processColumnOrder.clear();
+        if (auto const order = layout.find("processColumnOrder"); order != layout.end() && order->is_array())
+            for (auto const& value : *order)
+                if (value.is_number_integer() && value.get<int64_t>() >= 0 && value.get<int64_t>() < 1024)
+                    settings.processColumnOrder.push_back(value.get<uint32_t>());
         settings.processColumnVisible.clear();
         if (auto const found = layout.find("processColumnVisible"); found != layout.end() && found->is_array()) {
             for (auto const& entry : *found)
@@ -233,6 +248,7 @@ namespace tmpp::core
         sampling["reduceWhenMinimized"] = settings.reduceWhenMinimized;
         sampling["minimizedIntervalMs"] = settings.minimizedIntervalMs;
         sampling["historyWindow"] = static_cast<int>(settings.historyWindow);
+        sampling["historySeconds"] = settings.HistorySeconds();
         root["sampling"] = std::move(sampling);
 
         json startup;
@@ -252,6 +268,8 @@ namespace tmpp::core
         };
 
         appearance["cpu"] = writeStyle(settings.cpuChart);
+        appearance["cpuKernel"] = writeStyle(settings.cpuKernelChart);
+        appearance["micaBackdrop"] = settings.micaBackdrop;
         appearance["memory"] = writeStyle(settings.memoryChart);
         appearance["disk"] = writeStyle(settings.diskChart);
         appearance["network"] = writeStyle(settings.networkChart);
@@ -273,6 +291,7 @@ namespace tmpp::core
         // then says what the state is rather than leaving it to be inferred from a missing key.
         layout["processColumnWidths"] = settings.processColumnWidths;
         layout["processColumnVisible"] = settings.processColumnVisible;
+        layout["processColumnOrder"] = settings.processColumnOrder;
         root["layout"] = std::move(layout);
 
         json window;

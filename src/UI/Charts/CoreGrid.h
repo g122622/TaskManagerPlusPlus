@@ -64,6 +64,7 @@ namespace tmpp::ui
 
         /// Applies a stroke width to every cell, driven by the user's setting.
         void SetLineWidth(double width);
+        void SetKernelLineStyle(winrt::Windows::UI::Color color, double width);
         /// Number of charts currently built. Exposed for diagnostics and tests.
         [[nodiscard]] size_t CellCount() const noexcept { return m_cells.size(); }
 
@@ -141,6 +142,8 @@ namespace tmpp::ui
          * cells at the configured width and others at the default.
          */
         double m_lineWidth{1.0};
+        double m_kernelLineWidth{1.0};
+        winrt::Windows::UI::Color m_kernelColor{0xFF, 0xF2, 0x8B, 0x82};
         winrt::Windows::UI::Color m_color{winrt::Windows::UI::Colors::DodgerBlue()};
     };
 }

@@ -256,6 +256,7 @@ namespace tmpp::ui
             host.Children().Append(control);
 
             apply.MinWidth(64.0);
+            apply.Margin(ThicknessHelper::FromLengths(8.0, 0.0, 0.0, 0.0));
             winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
                 apply, winrt::box_value(ui::Localize(tooltip)));
             Grid::SetRow(apply, row);
@@ -628,7 +629,7 @@ namespace tmpp::ui
             chip.BorderThickness(ThicknessHelper::FromUniformLength(1.0));
             chip.BorderBrush(controls::ThemedBrush(theme::CARD_BORDER));
             chip.Padding(ThicknessHelper::FromLengths(8.0, 4.0, 8.0, 4.0));
-            chip.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(CHIP_FILL));
+            chip.Background(controls::ThemedBrush(theme::CARD_BACKGROUND));
 
             TextBlock chipLabel = controls::MakeText(spec.label, SMALL_FONT_SIZE);
             chipLabel.TextWrapping(TextWrapping::NoWrap);
@@ -980,8 +981,10 @@ namespace tmpp::ui
         {
             bool const selected = (_maskBit(chip.logicalIndex) & mask) != 0;
 
-            chip.element.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-                selected ? CHIP_SELECTED_FILL : CHIP_FILL));
+            if (selected)
+                chip.element.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(CHIP_SELECTED_FILL));
+            else
+                chip.element.Background(controls::ThemedBrush(theme::CARD_BACKGROUND));
             chip.label.Foreground(selected
                                       ? winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
                                             winrt::Windows::UI::Colors::White())
@@ -1005,13 +1008,13 @@ namespace tmpp::ui
                                     L" physical cores";
         if (topology.hybrid)
         {
-            topologyText += L" \u00B7 performance and efficiency cores";
+            topologyText += L" | performance and efficiency cores";
         }
         else if (m_chipIsSmtSibling.size() > 0 && std::any_of(m_chipIsSmtSibling.begin(), m_chipIsSmtSibling.end(), [](bool v) { return v; }))
         {
-            topologyText += L" \u00B7 simultaneous multithreading active";
+            topologyText += L" | simultaneous multithreading active";
         }
-        topologyText += L" \u00B7 this process may use " +
+        topologyText += L" | this process may use " +
                         std::to_wstring(static_cast<uint32_t>(std::popcount(m_state.affinityMask))) +
                         L" of them";
         m_topologyText.Text(ui::Localize(topologyText));
@@ -1020,13 +1023,13 @@ namespace tmpp::ui
     void ProcessDetailPanel::_refreshFigures()
     {
         std::wstring figures = L"PID " + std::to_wstring(m_pid);
-        figures += L"  \u00B7  CPU ";
+        figures += L"  |  CPU ";
         figures += m_ratesUnavailable ? L"\u2014" : _toWide(FormatProcessCpuPercent(m_cpuPercent));
-        figures += L"  \u00B7  Memory " + _toWide(FormatBytes(m_workingSet));
+        figures += L"  |  Memory " + _toWide(FormatBytes(m_workingSet));
 
         if (m_suspended)
         {
-            figures += L"  \u00B7  Suspended";
+            figures += L"  |  Suspended";
         }
 
         m_figures.Text(ui::Localize(figures));
@@ -1046,8 +1049,8 @@ namespace tmpp::ui
 
         m_undoButton.IsEnabled(true);
         m_undoButton.Content(winrt::box_value(
-            winrt::hstring{L"Undo last change (" + std::to_wstring(depth) + L" step" +
-                           (depth == 1 ? L"" : L"s") + L" available)"}));
+            ui::Localize(L"Undo last change (" + std::to_wstring(depth) + L" step" +
+                           (depth == 1 ? L"" : L"s") + L" available)")));
     }
 
     void ProcessDetailPanel::_refreshRule()
@@ -1241,6 +1244,7 @@ namespace tmpp::ui
 
         winrt::Microsoft::UI::Xaml::Controls::ContentDialog dialog;
         dialog.XamlRoot(m_root.XamlRoot());
+        dialog.RequestedTheme(m_root.ActualTheme());
         dialog.Title(winrt::box_value(ui::Localize(L"Suspend this process?")));
         dialog.Content(
             winrt::box_value(winrt::hstring{ui::Localize(L"Every thread of ") + ui::Localize(_toWide(m_imageName)) +

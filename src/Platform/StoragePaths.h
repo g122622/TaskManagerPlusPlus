@@ -7,6 +7,7 @@
 
 namespace tmpp::platform
 {
+    [[nodiscard]] std::string ApplicationVersion();
     /**
      * @brief The directories this application reads and writes.
      *

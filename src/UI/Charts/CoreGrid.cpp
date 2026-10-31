@@ -217,6 +217,20 @@ namespace tmpp::ui
         }
     }
 
+    void CoreGrid::SetKernelLineStyle(winrt::Windows::UI::Color color, double width)
+    {
+        m_kernelColor = color;
+        m_kernelLineWidth = std::clamp(width, 0.5, 8.0);
+        for (auto& cell : m_cells)
+        {
+            if (cell->chart != nullptr)
+            {
+                cell->chart->SetSecondaryLineColor(m_kernelColor);
+                cell->chart->SetSecondaryLineWidth(m_kernelLineWidth);
+            }
+        }
+    }
+
     void CoreGrid::SetFillOpacity(double opacity)
     {
         m_fillOpacity = std::clamp(opacity, 0.0, 1.0);
@@ -347,6 +361,8 @@ namespace tmpp::ui
                 // all once the grid had rearranged itself.
                 cell->chart->SetLineColor(m_color);
                 cell->chart->SetLineWidth(m_lineWidth);
+                cell->chart->SetSecondaryLineColor(m_kernelColor);
+                cell->chart->SetSecondaryLineWidth(m_kernelLineWidth);
                 cell->chart->SetFillOpacity(m_fillOpacity);
                 cell->chart->SetOpaqueFill(m_opaqueFill);
 
@@ -392,7 +408,7 @@ namespace tmpp::ui
             ChartSeries kernel;
             kernel.windowSamples = windowSamples;
             if (showKernel && i < kernelSeries.size()) kernel.values = kernelSeries[i];
-            m_cells[i]->chart->SetSecondaryLineColor({0xFF, 0xF2, 0x8B, 0x82});
+
             m_cells[i]->chart->SetSecondarySeries(kernel);
         }
     }

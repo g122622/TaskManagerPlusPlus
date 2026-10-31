@@ -56,6 +56,7 @@ namespace tmpp::ui
         void SetOpaqueFill(bool opaque);
         void SetFillOpacity(double opacity);
         void SetShowKernelTimes(bool show);
+        void SetKernelLineStyle(winrt::Windows::UI::Color color, double width);
         void SetKernelTimesHandler(std::function<void(bool)> handler) { m_onKernelTimesChanged = std::move(handler); }
 
     private:

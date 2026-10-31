@@ -9,12 +9,12 @@ Windows 11 Task Manager, while improving on it where it matters most: chart
 colour customisation, metric collection performance, and code maintainability.
 
 > **Project status: milestone M1 complete, M2 starting.**
-> The application runs with process, performance and details pages. CPU and memory
+> The application provides process and performance pages, with process controls in a collapsible sidebar. CPU and memory
 > are read natively; disk, network and GPU come from the Windows performance
 > counters and DXGI; memory modules come from the firmware's SMBIOS table. Every
 > metric on the performance page is plotted with configurable colours and stroke
 > widths, each disk and adapter has its own chart, and double-clicking the sidebar
-> collapses the window to the list alone. 324 unit tests pass, and all three
+> collapses the window to the list alone. Automated tests cover the metrics, settings and native theme transitions, and all three
 > configurations build; the release is packaged as a self-contained folder that
 > needs nothing installed on the target machine.
 
@@ -23,12 +23,13 @@ colour customisation, metric collection performance, and code maintainability.
 - **Faithful to Windows 11** — layout, spacing, colour, icons and interaction
   mirror the built-in Task Manager, so there is nothing new to learn.
 - **Native metric collection** — every counter comes from native Windows APIs on
-  a high-performance path. No WMI on the hot path, and no administrator rights
-  required.
+  a high-performance path, with no WMI on the hot path. Per-process network
+  traffic uses ETW and requires elevation on Windows.
 - **Non-blocking UI** — sampling runs on background threads and publishes
   immutable versioned snapshots, so the UI never waits on a probe.
 - **Customisable charts** — per-metric colours chosen with the system colour
-  picker, a configurable stroke width, and light, dark or system theme.
+  picker in a flyout, independent CPU kernel colours and widths, configurable
+  fill opacity, and light, dark or system theme with optional native Mica.
 - **Per-device charts** — every disk and network adapter gets its own row and its
   own history, with reads or received traffic solid and writes or sent traffic
   dashed on one shared axis.
@@ -37,10 +38,16 @@ colour customisation, metric collection performance, and code maintainability.
 - **Compact mode** — double-click the sidebar to collapse the window to the list.
 - **Remembers where you were** — window position and size, both sidebar widths,
   the navigation rail's state, and which page to open on.
+- **Process table controls** — select visible columns, drag headers to reorder,
+  and recognise priority levels by coloured dots. Column layout is remembered.
+- **Sampling controls** — set a 500–5000 ms interval and retain 60–1800 seconds
+  of chart history. Changes apply immediately while retaining collected history.
+- **Languages and About** — switch between English and Simplified Chinese in
+  Settings; translations live in JSON resources. About sits below Settings and
+  links to the version, source and license. The status bar shows session uptime.
 
-Planned but not yet implemented: per-process network counters (needs elevation),
-NVML temperature and power figures for NVIDIA adapters, and a Chinese/English
-language switch. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Planned but not yet implemented: NVML temperature and power figures for NVIDIA
+adapters. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Requirements
 

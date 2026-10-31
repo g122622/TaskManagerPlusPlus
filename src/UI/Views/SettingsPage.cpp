@@ -7,6 +7,7 @@
 #include "UI/Theming/Theme.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 using winrt::Microsoft::UI::Xaml::Controls::Border;
@@ -92,21 +93,19 @@ namespace tmpp::ui
                     L"Which page is shown when the application starts",
                     m_startupPage);
 
-            // The order matches the StartupPage enum, so the selected index is the enum value and no
-            // lookup table is needed to map between them.
+            // LastUsed keeps its persisted value (3) after removing the old Details option (2).
             m_startupPage.MinWidth(180.0);
             m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Processes")));
             m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Performance")));
-            m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Details")));
             m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Last used page")));
-            m_startupPage.SelectedIndex(static_cast<int32_t>(m_settings.startupPage));
+            m_startupPage.SelectedIndex(m_settings.startupPage == core::StartupPage::LastUsed ? 2 : m_settings.startupPage == core::StartupPage::Performance ? 1 : 0);
             m_startupPage.SelectionChanged(
                 [this](winrt::Windows::Foundation::IInspectable const&,
                        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&) {
                     int32_t const index = m_startupPage.SelectedIndex();
                     if (index >= 0)
                     {
-                        m_settings.startupPage = static_cast<core::StartupPage>(index);
+                        m_settings.startupPage = index == 2 ? core::StartupPage::LastUsed : index == 1 ? core::StartupPage::Performance : core::StartupPage::Processes;
                         _notifyChange();
                     }
                 });
@@ -148,6 +147,17 @@ namespace tmpp::ui
                     m_settings.language = static_cast<core::LanguageMode>(index);
                     _notifyChange();
                 }
+            });
+
+            _addRow(section, L"\xE790", L"Mica backdrop", L"Use the Windows Mica material for the window background", m_micaBackdrop);
+            m_micaBackdrop.MinWidth(0.0);
+            m_micaBackdrop.Width(40.0);
+            m_micaBackdrop.OnContent(winrt::box_value(L""));
+            m_micaBackdrop.OffContent(winrt::box_value(L""));
+            m_micaBackdrop.IsOn(m_settings.micaBackdrop);
+            m_micaBackdrop.Toggled([this](auto const&, auto const&) {
+                m_settings.micaBackdrop = m_micaBackdrop.IsOn();
+                _notifyChange();
             });
 
             // Theme. The setting existed in the file but was never applied, so choosing one did
@@ -193,18 +203,51 @@ namespace tmpp::ui
         }
 
         {
-            StackPanel section = _addSection(body, L"Charts");
-            _addRow(
-                section, L"\xE9D9", L"Show kernel times", L"Overlay kernel CPU time on the CPU charts", m_kernelTimes);
-            m_kernelTimes.MinWidth(0.0);
-            m_kernelTimes.Width(40.0);
-            m_kernelTimes.OnContent(winrt::box_value(L""));
-            m_kernelTimes.OffContent(winrt::box_value(L""));
-            m_kernelTimes.IsOn(m_settings.showCpuKernelTimes);
-            m_kernelTimes.Toggled([this](auto const&, auto const&) {
-                m_settings.showCpuKernelTimes = m_kernelTimes.IsOn();
+            StackPanel section = _addSection(body, L"Sampling");
+            _addRow(section, L"\xE823", L"Sampling interval (ms)",
+                L"Time between samples, from 500 to 5000 milliseconds", m_samplingInterval);
+            m_samplingInterval.Width(180.0);
+            m_samplingInterval.Minimum(domain::sampling::MIN_INTERVAL_MS);
+            m_samplingInterval.Maximum(domain::sampling::MAX_INTERVAL_MS);
+            m_samplingInterval.SmallChange(100.0);
+            m_samplingInterval.LargeChange(500.0);
+            m_samplingInterval.SpinButtonPlacementMode(winrt::Microsoft::UI::Xaml::Controls::NumberBoxSpinButtonPlacementMode::Inline);
+            m_samplingInterval.Value(m_settings.intervalMs);
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(m_samplingInterval, L"SamplingInterval");
+            m_samplingInterval.ValueChanged([this](auto const&, auto const& args) {
+                double const value = args.NewValue();
+                if (!std::isfinite(value)) return;
+                auto const interval = static_cast<uint32_t>(std::round(std::clamp(value,
+                    static_cast<double>(domain::sampling::MIN_INTERVAL_MS), static_cast<double>(domain::sampling::MAX_INTERVAL_MS))));
+                if (value != interval) { m_samplingInterval.Value(interval); return; }
+                if (interval == m_settings.intervalMs) return;
+                m_settings.intervalMs = interval;
                 _notifyChange();
             });
+            _addRow(section, L"\xE81C", L"History duration (s)",
+                L"Keep 60 to 1800 seconds of performance chart history", m_historySeconds);
+            m_historySeconds.Width(180.0);
+            m_historySeconds.Minimum(domain::sampling::MIN_HISTORY_SECONDS);
+            m_historySeconds.Maximum(domain::sampling::MAX_HISTORY_SECONDS);
+            m_historySeconds.SmallChange(30.0);
+            m_historySeconds.LargeChange(60.0);
+            m_historySeconds.SpinButtonPlacementMode(winrt::Microsoft::UI::Xaml::Controls::NumberBoxSpinButtonPlacementMode::Inline);
+            m_historySeconds.Value(m_settings.HistorySeconds());
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(m_historySeconds, L"HistoryDuration");
+            m_historySeconds.ValueChanged([this](auto const&, auto const& args) {
+                double const value = args.NewValue();
+                if (!std::isfinite(value)) return;
+                auto const seconds = static_cast<uint32_t>(std::round(std::clamp(value,
+                    static_cast<double>(domain::sampling::MIN_HISTORY_SECONDS), static_cast<double>(domain::sampling::MAX_HISTORY_SECONDS))));
+                if (value != seconds) { m_historySeconds.Value(seconds); return; }
+                if (seconds == m_settings.HistorySeconds()) return;
+                m_settings.historySeconds = seconds;
+                _notifyChange();
+            });
+        }
+
+        {
+            StackPanel section = _addSection(body, L"Charts");
             _addRow(section,
                 L"\xE790",
                 L"Opaque chart fill",
@@ -263,7 +306,23 @@ namespace tmpp::ui
         for (MetricSpec const& metric : METRICS)
         {
             StackPanel section = _addSection(body, metric.title);
+            if (metric.sectionIndex == 0)
+            {
+                _addRow(
+                    section, L"\xE9D9", L"Show kernel times", L"Overlay kernel CPU time on the CPU charts", m_kernelTimes);
+                m_kernelTimes.MinWidth(0.0);
+                m_kernelTimes.Width(40.0);
+                m_kernelTimes.OnContent(winrt::box_value(L""));
+                m_kernelTimes.OffContent(winrt::box_value(L""));
+                m_kernelTimes.IsOn(m_settings.showCpuKernelTimes);
+                m_kernelTimes.Toggled([this](auto const&, auto const&) {
+                    m_settings.showCpuKernelTimes = m_kernelTimes.IsOn();
+                    _notifyChange();
+                });
+            }
             _addChartStyleGroup(section, metric.title, metric.sectionIndex);
+            if (metric.sectionIndex == 0)
+                _addChartStyleGroup(section, L"Kernel time", 5);
         }
 
         scroller.Content(body);
@@ -309,8 +368,8 @@ namespace tmpp::ui
 
             StackPanel label = controls::MakeStack(1.0);
             label.VerticalAlignment(VerticalAlignment::Center);
-            label.Children().Append(controls::MakeText(L"Line colour", 14.0));
-            label.Children().Append(controls::MakeText(L"Pick the colour used to plot this metric", 12.0, true));
+            label.Children().Append(controls::MakeText(sectionIndex == 5 ? L"Kernel line colour" : L"Line colour", 14.0));
+            label.Children().Append(controls::MakeText(sectionIndex == 5 ? L"Pick the colour used to plot kernel CPU time" : L"Pick the colour used to plot this metric", 12.0, true));
             Grid::SetColumn(label, 0);
             colourRow.Children().Append(label);
 
@@ -322,7 +381,8 @@ namespace tmpp::ui
             row.picker.IsHexInputVisible(true);
             row.picker.IsColorSpectrumVisible(true);
             row.picker.ColorSpectrumShape(winrt::Microsoft::UI::Xaml::Controls::ColorSpectrumShape::Box);
-            row.picker.IsMoreButtonVisible(true);
+            row.picker.IsMoreButtonVisible(false);
+            row.picker.IsColorChannelTextInputVisible(true);
             row.picker.Width(300.0);
             row.picker.VerticalAlignment(VerticalAlignment::Center);
             row.picker.Color(_makeColor(style));
@@ -332,7 +392,7 @@ namespace tmpp::ui
             colourButton.Flyout(pickerFlyout);
             colourButton.Padding(ThicknessHelper::FromLengths(10.0, 6.0, 10.0, 6.0));
             winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(
-                colourButton, ui::Localize(title) + L" line colour");
+                colourButton, ui::Localize(std::wstring{title} + L" line colour"));
             StackPanel preview = controls::MakeRow(10.0);
             row.swatch = Border();
             row.swatch.Width(24.0);
@@ -380,7 +440,7 @@ namespace tmpp::ui
 
             StackPanel label = controls::MakeStack(1.0);
             label.VerticalAlignment(VerticalAlignment::Center);
-            label.Children().Append(controls::MakeText(L"Line width", 14.0));
+            label.Children().Append(controls::MakeText(sectionIndex == 5 ? L"Kernel line width" : L"Line width", 14.0));
             label.Children().Append(controls::MakeText(L"Thickness of the plotted line", 12.0, true));
             Grid::SetColumn(label, 0);
             widthRow.Children().Append(label);

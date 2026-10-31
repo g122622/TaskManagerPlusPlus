@@ -66,6 +66,7 @@ namespace tmpp::ui
          */
         void SetSecondarySeries(ChartSeries const& series);
         void SetSecondaryLineColor(winrt::Windows::UI::Color color);
+        void SetSecondaryLineWidth(double width);
 
         /// Updates the large current-value readout.
         void SetCurrentValueText(std::wstring_view text);
@@ -208,6 +209,7 @@ namespace tmpp::ui
 
         /// Stroke width of the line, adjustable by the user.
         double m_lineWidth{1.0};
+        double m_secondaryLineWidth{0.0};
 
         /// Last diagnostic state reported, so a report is emitted per change rather than per call.
         std::string m_lastDiagnostic;

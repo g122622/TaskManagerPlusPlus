@@ -306,7 +306,7 @@ namespace tmpp::ui
         }
 
         m_caption.Text(ui::Localize("S " + _rateText(sendBps) + "  R " + _rateText(receiveBps) +
-            "  \xE2\x80\xA2  over " + std::to_string(m_coordinator.HistorySeconds()) + " s"));
+            "  |  over " + std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The adapter's own history, looked up by name. The adapter's series is plotted rather than the
         // aggregate, so opening a different adapter shows that adapter's traffic.

@@ -55,7 +55,7 @@ namespace tmpp::core
     {
         Processes = 0,
         Performance,
-        Details,
+        Details, ///< Legacy persisted value; migrated to Processes on load.
         LastUsed,
     };
 
@@ -131,6 +131,8 @@ namespace tmpp::core
         bool reduceWhenMinimized{true};
         uint32_t minimizedIntervalMs{domain::sampling::MINIMIZED_INTERVAL_MS};
         HistoryWindow historyWindow{HistoryWindow::Seconds60};
+        /// Zero keeps compatibility with files that only specified the legacy preset.
+        uint32_t historySeconds{0};
 
         // Startup
         /// Which page to open on. LastUsed resumes wherever the user left off.
@@ -146,11 +148,13 @@ namespace tmpp::core
 
         // Appearance
         bool opaqueChartFill{false};
+        bool micaBackdrop{true};
         bool showCpuKernelTimes{false};
         double chartFillOpacity{0.18};
         /// Per-metric chart styles, so each series can be coloured separately as the original
         /// allows. Keyed by the same Section the performance page uses.
         ChartStyle cpuChart{0x4C, 0xC2, 0xFF, 1.0};
+        ChartStyle cpuKernelChart{0xF2, 0x8B, 0x82, 1.0};
         // The memory series is violet, matching the original's memory chart.
         ChartStyle memoryChart{155, 140, 255, 1.0};
         ChartStyle diskChart{0x6E, 0xD8, 0xB0, 1.0};
@@ -195,6 +199,7 @@ namespace tmpp::core
         /// is a better answer than the nearest legal one.
         std::vector<double> processColumnWidths;
         std::vector<bool> processColumnVisible;
+        std::vector<uint32_t> processColumnOrder;
 
         // Window placement
         int32_t windowX{-1}; ///< Negative means "not yet decided".
@@ -206,7 +211,7 @@ namespace tmpp::core
         /**
          * @brief The chart style for a metric, by section index.
          *
-         * @param sectionIndex Index into the performance page's section list.
+         * @param sectionIndex Metric kind (0..4), or 5 for the CPU kernel overlay.
          * @return The style, or the CPU style for an index that has none yet, so a caller always
          *         has something to draw with rather than a blank series.
          */
@@ -224,6 +229,8 @@ namespace tmpp::core
                     return networkChart;
                 case 4:
                     return gpuChart;
+                case 5:
+                    return cpuKernelChart;
                 default:
                     return cpuChart;
             }
@@ -242,6 +249,8 @@ namespace tmpp::core
                     return networkChart;
                 case 4:
                     return gpuChart;
+                case 5:
+                    return cpuKernelChart;
                 case 0:
                 default:
                     return cpuChart;
@@ -261,6 +270,7 @@ namespace tmpp::core
         /// History window as a duration in seconds.
         [[nodiscard]] uint32_t HistorySeconds() const noexcept
         {
+            if (historySeconds != 0) return domain::sampling::ClampHistorySeconds(historySeconds);
             switch (historyWindow)
             {
                 case HistoryWindow::Minutes5:

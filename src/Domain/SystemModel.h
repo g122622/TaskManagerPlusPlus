@@ -383,6 +383,9 @@ namespace tmpp::domain
 
         [[nodiscard]] size_t HistoryCapacity() const noexcept { return m_historyCapacity; }
 
+        /// Resamples retained points on the new cadence, retaining counters and rate baselines.
+        void ConfigureHistory(uint32_t intervalMs, uint32_t historySeconds);
+
     private:
         /// Computes the per-processor percentages and pushes them into the per-core rings.
         ///
@@ -392,6 +395,7 @@ namespace tmpp::domain
 
         uint32_t m_logicalProcessorCount{0};
         size_t m_historyCapacity{0};
+        uint32_t m_historyIntervalMs{sampling::DEFAULT_INTERVAL_MS};
 
         RingBuffer<double> m_cpuHistory;
         RingBuffer<double> m_cpuKernelHistory;

@@ -7,6 +7,8 @@
 #pragma once
 
 #include <array>
+#include <optional>
+#include "UI/Lists/ProcessColumnLayout.h"
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -24,6 +26,9 @@
 
 namespace tmpp::ui
 {
+#if defined(_DEBUG)
+    namespace test { struct WindowVerification; }
+#endif
     /**
      * @brief Builds and owns the process list page.
      *
@@ -59,6 +64,8 @@ namespace tmpp::ui
          */
         void SetColumnWidths(std::vector<double> const& widths);
         void SetColumnVisibility(std::vector<bool> const& visible);
+        void SetColumnOrder(std::vector<uint32_t> const& order);
+        void SetColumnOrderHandler(std::function<void(std::vector<uint32_t>)> handler);
         void SetColumnVisibilityHandler(std::function<void(std::vector<bool>)> handler);
 
         /**
@@ -73,13 +80,12 @@ namespace tmpp::ui
         /**
          * @brief The process the user has selected, or zero when none is.
          *
-         * The Details page shows one process at a time, so the selection has to live somewhere both
-         * pages can see. It is held here because this is the only page that can set it.
+         * The process sidebar follows this selection; the list is the only view that changes it.
          */
         [[nodiscard]] uint32_t SelectedPid() const noexcept { return m_selectedPid; }
 
         /**
-         * @brief Called when the selection changes, so a detail page can follow it.
+         * @brief Called when the selected process changes.
          */
         void SetSelectionHandler(std::function<void(uint32_t)> handler);
 
@@ -124,6 +130,9 @@ namespace tmpp::ui
         void SetSidebarLayoutHandler(std::function<void(double, bool)> handler);
 
     private:
+#if defined(_DEBUG)
+        friend struct test::WindowVerification;
+#endif
         void _buildLayout();
 
         /// Updates the summary line, which reflects the filter and is cheap.
@@ -179,9 +188,8 @@ namespace tmpp::ui
          *
          * A separate flag because zero is a real process id: the System Idle Process is pid 0, and
          * without this, clicking its row set the same value that means "nothing is selected" and the
-         * row appeared not to respond. The consumers that take a pid -- the details page, the settings
-         * file -- still see 0, because neither has anything to show for a process with no executable
-         * image behind it; this is only about the list's own highlight and the sidebar.
+         * row appeared not to respond. Consumers that need an executable still see 0; this flag is
+         * only about the list's own highlight and the sidebar.
          */
         bool m_selectionActive{false};
 
@@ -236,10 +244,14 @@ namespace tmpp::ui
          * both the header and every row have to follow. The header and the rows are separate grids, so
          * there is nowhere else one width could live that both would see.
          */
-        std::array<double, 21> m_columnWidths{};
+        std::array<double, columns::Count> m_columnWidths{};
 
         /// The header's column definitions, resized as a column is dragged.
         std::vector<winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition> m_headerColumns;
+        std::vector<uint32_t> m_columnOrder{columns::NormalizeOrder({})};
+        std::array<uint32_t, columns::Count> m_columnPositions{};
+        std::optional<uint32_t> m_draggedColumn;
+        std::function<void(std::vector<uint32_t>)> m_onColumnOrderChanged;
 
         /**
          * @brief The layer the column boundaries are drawn in, over both the header and the rows.
@@ -256,7 +268,7 @@ namespace tmpp::ui
         /// Applies the current widths to the header and to every row on screen.
         void _applyColumnWidths();
         void _showColumnPicker();
-        std::array<bool, 21> m_columnVisible{};
+        std::array<bool, columns::Count> m_columnVisible{};
         std::function<void(std::vector<bool>)> m_onColumnVisibilityChanged;
         winrt::Microsoft::UI::Xaml::Controls::Grid m_tableHeader{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_table{nullptr};
@@ -279,10 +291,11 @@ namespace tmpp::ui
          * machine every band would otherwise be indistinguishable from no band at all, and the same
          * depth would mean something different in each column.
          */
-        std::array<double, 21> m_columnMaxima{};
+        std::array<double, columns::Count> m_columnMaxima{};
 
         /// Recomputes @c m_columnMaxima from the rows the list is showing.
         void _updateColumnMaxima();
+        void _updateHeatColors();
 
         /**
          * @brief The fill for one metric cell.

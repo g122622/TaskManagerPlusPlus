@@ -1,6 +1,6 @@
 #include "UI/Localization.h"
 #include "UI/WinRTUI.h"
-#include <unordered_set>
+#include <unordered_map>
 
 namespace tmpp::ui {
 namespace {
@@ -16,9 +16,15 @@ winrt::Windows::Foundation::IInspectable TranslateValue(winrt::Windows::Foundati
     return value;
 }
 
-void Visit(DependencyObject const& object, std::unordered_set<void*>& visited)
+using Visited = std::unordered_map<void*, DependencyObject>;
+
+void Visit(DependencyObject const& object, Visited& visited)
 {
-    if (object == nullptr || !visited.insert(winrt::get_abi(object)).second) return;
+    if (object == nullptr) return;
+    // IDependencyObject can be a temporary COM tear-off; its address may be recycled for another
+    // element. Use canonical IUnknown identity and retain each object until the walk finishes.
+    auto const identity = object.as<::IUnknown>();
+    if (!visited.emplace(identity.get(), object).second) return;
     if (auto const text = object.try_as<TextBlock>()) text.Text(Localize(text.Text()));
     if (auto const box = object.try_as<TextBox>()) box.PlaceholderText(Localize(box.PlaceholderText()));
     if (auto const content = object.try_as<ContentControl>()) content.Content(TranslateValue(content.Content()));
@@ -60,6 +66,20 @@ void Visit(DependencyObject const& object, std::unordered_set<void*>& visited)
         if (!name.empty()) Automation::AutomationProperties::SetName(element, Localize(name));
     }
     if (auto const button = object.try_as<Button>()) visitFlyout(button.Flyout());
+    // Pages can be detached or awaiting a template/layout pass during a language switch. Walk their
+    // logical content as well, so a cached page does not reappear with its old language.
+    if (auto const panel = object.try_as<Panel>())
+        for (auto const& child : panel.Children()) Visit(child, visited);
+    if (auto const border = object.try_as<Border>()) Visit(border.Child(), visited);
+    if (auto const content = object.try_as<ContentControl>())
+        Visit(content.Content().try_as<DependencyObject>(), visited);
+    if (auto const items = object.try_as<ItemsControl>())
+        for (auto const& item : items.Items()) Visit(item.try_as<DependencyObject>(), visited);
+    if (auto const navigation = object.try_as<NavigationView>())
+    {
+        for (auto const& item : navigation.MenuItems()) Visit(item.try_as<DependencyObject>(), visited);
+        for (auto const& item : navigation.FooterMenuItems()) Visit(item.try_as<DependencyObject>(), visited);
+    }
     auto const count = Media::VisualTreeHelper::GetChildrenCount(object);
     for (int i = 0; i < count; ++i)
         Visit(Media::VisualTreeHelper::GetChild(object, i), visited);
@@ -77,7 +97,7 @@ void LocalizeTree(winrt::Microsoft::UI::Xaml::DependencyObject const& root)
     struct Reset {
         ~Reset() { refreshing = false; }
     } reset;
-    std::unordered_set<void*> visited;
+    Visited visited;
     Visit(root, visited);
 }
 } // namespace tmpp::ui

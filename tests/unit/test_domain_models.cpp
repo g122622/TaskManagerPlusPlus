@@ -589,6 +589,47 @@ namespace tmpp::domain
         EXPECT_EQ(model.Latest().processor.architecture, "x64");
     }
 
+    TEST(SystemModelTest, ChangingCadenceResamplesHistoryAndRetainsTheRateBaseline)
+    {
+        SystemModel model(1, 1000, 60);
+        platform::SystemProcessorInfo info;
+        info.modelName = "Retained processor";
+        model.SetProcessorInfo(info);
+        for (uint32_t i = 0; i < 3; ++i)
+            model.Update(_makeCpuTimes(0, 1000 + 1000 * i, 0), _makeMemory(1000, 900 - 100 * i),
+                _secondsFrom(T0, i));
+        auto const version = model.Latest().version;
+        model.ConfigureHistory(500, 120);
+        auto const history = model.History();
+        EXPECT_EQ(history.windowSamples, 240u);
+        EXPECT_EQ(history.memoryUsed, (std::vector<double>{10, 15, 20, 25, 30}));
+        EXPECT_GT(model.Latest().version, version);
+        EXPECT_EQ(model.Latest().processor.modelName, "Retained processor");
+        model.Update(_makeCpuTimes(0, 4000, 0), _makeMemory(1000, 600), _secondsFrom(T0, 3));
+        EXPECT_FALSE(model.Latest().ratesUnavailable);
+        EXPECT_DOUBLE_EQ(model.Latest().cpuPercent, 100.0);
+    }
+
+    TEST(SystemModelTest, ChangingRetentionKeepsNewestSamplesAndDoesNotInventOlderHistory)
+    {
+        SystemModel model(1, 1000, 120);
+        for (uint32_t i = 0; i < 90; ++i)
+            model.Update(_makeCpuTimes(0, 1000 + i * 1000, 0), _makeMemory(1000, 1000 - i), _secondsFrom(T0, i));
+        model.ConfigureHistory(1000, 60);
+        auto const shorter = model.History();
+        ASSERT_EQ(shorter.memoryUsed.size(), 60u);
+        EXPECT_DOUBLE_EQ(shorter.memoryUsed.front(), 3.0);
+        EXPECT_DOUBLE_EQ(shorter.memoryUsed.back(), 8.9);
+        model.ConfigureHistory(1000, 300);
+        EXPECT_EQ(model.History().memoryUsed, shorter.memoryUsed);
+        EXPECT_EQ(model.HistoryCapacity(), 300u);
+        model.ConfigureHistory(2000, 300);
+        auto const slower = model.History();
+        ASSERT_EQ(slower.memoryUsed.size(), 30u);
+        EXPECT_DOUBLE_EQ(slower.memoryUsed.back(), 8.9);
+        EXPECT_DOUBLE_EQ(slower.memoryUsed.front(), 3.1);
+    }
+
     TEST(SystemModelTest, VersionIncrementsOnEveryUpdate)
     {
         SystemModel model(1, 1000, 60);

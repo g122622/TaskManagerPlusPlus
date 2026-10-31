@@ -6,6 +6,8 @@
 #include <shlobj.h>
 
 #include <vector>
+#include <winver.h>
+#pragma comment(lib, "version.lib")
 
 namespace tmpp::platform
 {
@@ -85,4 +87,24 @@ namespace tmpp::platform
 
         return paths;
     }
+    std::string ApplicationVersion()
+    {
+        std::vector<wchar_t> path(32768);
+        auto const length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+        if (length == 0 || length >= path.size()) return {};
+        DWORD ignored = 0;
+        DWORD const bytes = GetFileVersionInfoSizeW(path.data(), &ignored);
+        if (bytes == 0) return {};
+        std::vector<unsigned char> buffer(bytes);
+        if (!GetFileVersionInfoW(path.data(), 0, bytes, buffer.data())) return {};
+        VS_FIXEDFILEINFO* version = nullptr;
+        UINT size = 0;
+        if (!VerQueryValueW(buffer.data(), L"\\", reinterpret_cast<void**>(&version), &size) ||
+            size < sizeof(VS_FIXEDFILEINFO) || version->dwSignature != 0xFEEF04BD) return {};
+        std::string result = std::to_string(HIWORD(version->dwFileVersionMS)) + "." +
+            std::to_string(LOWORD(version->dwFileVersionMS)) + "." + std::to_string(HIWORD(version->dwFileVersionLS));
+        if (LOWORD(version->dwFileVersionLS) != 0) result += "." + std::to_string(LOWORD(version->dwFileVersionLS));
+        return result;
+    }
+
 }

@@ -18,9 +18,9 @@ namespace tmpp::ui
         /// Outer page margin.
         inline constexpr double PAGE_MARGIN = 24.0;
 
-        /// Left inset for a page that sits beside the navigation rail. Smaller than PAGE_MARGIN
-        /// because the rail already provides the separation from the window edge.
-        inline constexpr double CONTENT_LEFT_INSET = 8.0;
+        /// Keep page content aligned with the title bar and status bar beside the navigation rail.
+        inline constexpr double CONTENT_LEFT_INSET = PAGE_MARGIN;
+        inline constexpr double PERFORMANCE_LEFT_INSET = 12.0;
 
         /// Spacing between stacked elements.
         inline constexpr double STACK_SPACING = 8.0;

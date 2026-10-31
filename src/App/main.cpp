@@ -8,6 +8,9 @@
 #include "StartupLog.h"
 
 #include <windows.h>
+#if defined(_DEBUG)
+#include "../../tests/ui/ThemeVerification.h"
+#endif
 
 namespace
 {
@@ -57,7 +60,7 @@ namespace
     }
 }
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, [[maybe_unused]] PWSTR arguments, int)
 {
     tmpp::diag::LogStartup("--- startup begin ---");
 
@@ -67,9 +70,22 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     // already a window to show -- so it is checked first and directly. The mutex then closes the race
     // the window check cannot: two launches arriving before either has created a window would both
     // find none and both carry on.
-    bool const foundWindow = _activateRunningInstance();
+    bool verification = false;
+#if defined(_DEBUG)
+    if (arguments != nullptr && std::wstring_view{arguments} == L"--verify-theme")
+    {
+        verification = true;
+        tmpp::ui::test::EnableThemeVerification();
+    }
+    else if (arguments != nullptr && std::wstring_view{arguments} == L"--verify-window")
+    {
+        verification = true;
+        tmpp::ui::test::EnableWindowVerification();
+    }
+#endif
+    bool const foundWindow = !verification && _activateRunningInstance();
 
-    HANDLE const instanceMutex = CreateMutexW(nullptr, TRUE, SINGLE_INSTANCE_MUTEX);
+    HANDLE const instanceMutex = verification ? nullptr : CreateMutexW(nullptr, TRUE, SINGLE_INSTANCE_MUTEX);
     bool const mutexExists = (instanceMutex != nullptr) && (GetLastError() == ERROR_ALREADY_EXISTS);
 
     {
@@ -160,5 +176,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     }
 
     tmpp::diag::LogStartup("--- startup complete ---");
+#if defined(_DEBUG)
+    if (tmpp::ui::test::WindowVerificationEnabled()) return tmpp::ui::test::WindowVerificationExitCode();
+    if (verification) return tmpp::ui::test::ThemeVerificationExitCode();
+#endif
     return 0;
 }

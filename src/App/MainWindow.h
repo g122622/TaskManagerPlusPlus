@@ -9,6 +9,7 @@
 #include "WinRT.h"
 
 #include <functional>
+#include <chrono>
 #include <memory>
 
 #include <winrt/Microsoft.UI.Dispatching.h>
@@ -17,8 +18,12 @@
 #include "Core/Settings.h"
 #include "UI/Views/PerformanceView.h"
 #include "UI/Views/SettingsPage.h"
+#include "UI/Views/AboutPage.h"
 #include "UI/Views/ProcessesView.h"
-#include "UI/Views/DetailsPage.h"
+
+#if defined(_DEBUG)
+namespace tmpp::ui::test { struct WindowVerification; }
+#endif
 
 namespace tmpp
 {
@@ -37,6 +42,9 @@ namespace tmpp
         MainWindow();
 
     private:
+#if defined(_DEBUG)
+        friend struct ui::test::WindowVerification;
+#endif
         void _buildContent();
         void _createPages();
         void _selectPage(int32_t index);
@@ -78,16 +86,21 @@ namespace tmpp
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_rootGrid{nullptr};
 
-        /// The app title bar: carries the application name and reserves the region the
-        /// window buttons occupy. This is the element nominated as the title bar, so no
-        /// page content is drawn under the buttons.
+        /// Holds the unified title strip, including the system caption button inset.
         winrt::Microsoft::UI::Xaml::Controls::Grid m_titleBarSpacer{nullptr};
 
         /// The page header bar's title, updated as the navigation selection changes so the
         /// bar names the page being shown.
-        winrt::Microsoft::UI::Xaml::Controls::TitleBar m_unifiedTitleBar{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_unifiedTitleBar{nullptr};
         void _showRunTaskDialog();
         void _updateTitleBarTheme();
+        void _applyWindowBackdrop();
+        void _updateNativeDragRegions();
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel m_captionActions{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition m_captionButtonInset{nullptr};
+        winrt::Microsoft::UI::Input::InputNonClientPointerSource m_nonClientPointerSource{nullptr};
+        std::vector<winrt::Windows::Graphics::RectInt32> m_captionRects;
+        std::vector<winrt::Windows::Graphics::RectInt32> m_passthroughRects;
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_pageTitle{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_brandName{nullptr};
 
@@ -137,6 +150,7 @@ namespace tmpp
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_contentHost{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_statusText{nullptr};
+        std::chrono::steady_clock::time_point m_startedAt{std::chrono::steady_clock::now()};
         winrt::Microsoft::UI::Xaml::Controls::InfoBar m_permissionBar{nullptr};
 
         winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer m_refreshTimer{nullptr};
@@ -167,12 +181,7 @@ namespace tmpp
 
         /// The settings page. Recreated on each visit so it reflects the settings in force.
         std::unique_ptr<ui::SettingsPage> m_settingsPage;
-
-        /// The process details page. Built once and reused.
-        std::unique_ptr<ui::DetailsPage> m_detailsPage;
-
-        /// The details page when it is the visible one, so the refresh timer can drive it.
-        ui::DetailsPage* m_activeDetailsPage{nullptr};
+        std::unique_ptr<ui::AboutPage> m_aboutPage;
 
         /// The page currently shown, for the refresh timer to update.
         ui::ProcessesView* m_activeProcessesView{nullptr};
