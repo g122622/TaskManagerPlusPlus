@@ -212,7 +212,7 @@ namespace tmpp::ui
         row.Children().Append(labelBlock);
 
         DetailRow detail;
-        detail.value = controls::MakeText(winrt::to_hstring(UnavailableValue()), 13.0);
+        detail.value = controls::MakeText(ui::Localize(UnavailableValue()), 13.0);
         detail.value.HorizontalAlignment(HorizontalAlignment::Right);
         detail.value.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
         detail.value.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
@@ -227,7 +227,7 @@ namespace tmpp::ui
     {
         if (index < rows.size() && rows[index].value != nullptr)
         {
-            rows[index].value.Text(winrt::to_hstring(text));
+            rows[index].value.Text(ui::Localize(text));
         }
     }
 
@@ -270,6 +270,16 @@ namespace tmpp::ui
         }
     }
 
+    void DetailsPage::SetOpaqueFill(bool opaque)
+    {
+        if (m_cpuChart != nullptr) m_cpuChart->SetOpaqueFill(opaque);
+    }
+
+    void DetailsPage::SetFillOpacity(double opacity)
+    {
+        if (m_cpuChart != nullptr) m_cpuChart->SetFillOpacity(opacity);
+    }
+
     void DetailsPage::Refresh()
     {
         uint64_t const version = m_coordinator.ProcessVersion();
@@ -288,8 +298,8 @@ namespace tmpp::ui
         {
             m_body.Visibility(Visibility::Collapsed);
             m_emptyMessage.Visibility(Visibility::Visible);
-            m_heading.Text(L"Details");
-            m_subtitle.Text(L"");
+            m_heading.Text(ui::Localize(L"Details"));
+            m_subtitle.Text(ui::Localize(L""));
             return;
         }
 
@@ -307,8 +317,8 @@ namespace tmpp::ui
             // figures, which would look like a process that is still running.
             m_body.Visibility(Visibility::Collapsed);
             m_emptyMessage.Visibility(Visibility::Visible);
-            m_heading.Text(winrt::hstring{L"Process " + std::to_wstring(m_pid)});
-            m_subtitle.Text(L"has exited");
+            m_heading.Text(ui::Localize(L"Process " + std::to_wstring(m_pid)));
+            m_subtitle.Text(ui::Localize(L"has exited"));
             return;
         }
 
@@ -319,8 +329,8 @@ namespace tmpp::ui
 
         // The idle process has no image name from the platform, which is its report rather than a
         // failure; naming it is ours.
-        m_heading.Text(winrt::to_hstring(ProcessDisplayName(process.identity.pid, process.imageName)));
-        m_subtitle.Text(winrt::hstring{L"PID " + std::to_wstring(process.identity.pid)});
+        m_heading.Text(ui::Localize(ProcessDisplayName(process.identity.pid, process.imageName)));
+        m_subtitle.Text(ui::Localize(L"PID " + std::to_wstring(process.identity.pid)));
 
         // --- Current activity --------------------------------------------------
         _setDetail(m_column1,

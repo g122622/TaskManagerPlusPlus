@@ -32,8 +32,9 @@ namespace tmpp::domain
     }
 
     ProcessSnapshotView ProcessModel::Update(platform::ProcessSnapshot const& raw,
-                                             SystemCpuDelta const& systemCpu,
-                                             std::map<uint32_t, double> const& gpuPercentByPid)
+        SystemCpuDelta const& systemCpu,
+        std::map<uint32_t, double> const& gpuPercentByPid,
+        std::map<uint32_t, platform::ProcessGpuMemory> const& gpuMemoryByPid)
     {
         double const elapsedMs = m_hasPreviousSample ? platform::MillisecondsBetween(m_previousCapturedAt, raw.capturedAt) : 0.0;
         uint64_t const systemDelta = systemCpu.Total();
@@ -58,6 +59,7 @@ namespace tmpp::domain
             view.cpu = info.cpu;
             view.memory = info.memory;
             view.io = info.io;
+            view.network = info.network;
             view.threadCount = info.threadCount;
             view.handleCount = info.handleCount;
             view.sessionId = info.sessionId;
@@ -71,6 +73,11 @@ namespace tmpp::domain
             {
                 view.gpuPercent = gpu->second;
             }
+            if (auto const memory = gpuMemoryByPid.find(info.identity.pid); memory != gpuMemoryByPid.end()) {
+                view.gpuMemory = memory->second;
+            } else if (auto const available = gpuMemoryByPid.find(0); available != gpuMemoryByPid.end()) {
+                view.gpuMemory.available = available->second.available;
+            }
 
             uint64_t const key = _identityKey(info.identity);
             auto const previous = m_tracked.find(key);
@@ -80,6 +87,18 @@ namespace tmpp::domain
             if (hasBaseline)
             {
                 auto const& before = previous->second;
+
+                if (info.network.available && before.network.available) {
+                    Delta const received = ComputeDelta(before.network.receivedBytes, info.network.receivedBytes);
+                    Delta const sent = ComputeDelta(before.network.sentBytes, info.network.sentBytes);
+                    if (received.Usable() && sent.Usable()) {
+                        view.networkReceiveBytesPerSec =
+                            ComputeRatePerSecond(received.value, static_cast<uint64_t>(elapsedMs));
+                        view.networkSendBytesPerSec =
+                            ComputeRatePerSecond(sent.value, static_cast<uint64_t>(elapsedMs));
+                        view.networkRatesUnavailable = false;
+                    }
+                }
 
                 Delta const cpuKernel = ComputeDelta(before.cpu.kernelTime, info.cpu.kernelTime);
                 Delta const cpuUser = ComputeDelta(before.cpu.userTime, info.cpu.userTime);
@@ -113,6 +132,7 @@ namespace tmpp::domain
             TrackedProcess tracked;
             tracked.cpu = info.cpu;
             tracked.io = info.io;
+            tracked.network = info.network;
             tracked.pageFaults = info.memory.pageFaultCount;
             updated.emplace(key, tracked);
 

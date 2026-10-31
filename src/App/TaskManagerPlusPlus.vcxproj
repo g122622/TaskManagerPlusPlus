@@ -226,6 +226,7 @@
     <ClCompile Include="..\UI\Views\DiskPage.cpp" />
     <ClCompile Include="..\UI\Views\GpuPage.cpp" />
     <ClCompile Include="..\UI\Diagnostics.cpp" />
+    <ClCompile Include="..\UI\Localization.cpp" />
     <ClCompile Include="..\UI\Theming\Formatting.cpp">
     </ClCompile>
     <ClCompile Include="..\UI\Charts\HistoryChart.cpp" />
@@ -260,5 +261,11 @@
     <PRIResource Include="Resources.resw" />
   </ItemGroup>
 
+  <ItemGroup>
+    <LocaleResource Include="$(MSBuildProjectDirectory)\..\..\assets\locales\*.json" />
+  </ItemGroup>
+  <Target Name="CopyLocaleResources" AfterTargets="Build">
+    <Copy SourceFiles="@(LocaleResource)" DestinationFolder="$(OutDir)assets\locales" SkipUnchangedFiles="true" />
+  </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

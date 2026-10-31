@@ -45,6 +45,7 @@ namespace tmpp::ui
          * @param maximum Value mapped to the top of the plot.
          */
         void SetSeries(ChartSeries const& series, double maximum);
+        void SetSecondarySeries(ChartSeries const& series);
 
         /// Clears the plot, leaving it visibly empty.
         void Clear();
@@ -55,8 +56,14 @@ namespace tmpp::ui
         /// Changes the stroke width, driven by the user's setting.
         void SetThickness(double thickness);
 
+        void SetOpaqueFill(bool opaque);
+        void SetFillOpacity(double opacity);
+
     private:
         void _redraw();
+        bool m_opaqueFill{false};
+        double m_fillOpacity{0.18};
+        bool m_muted{false};
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Canvas m_canvas{nullptr};
@@ -67,6 +74,8 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Shapes::Polygon m_fill{nullptr};
 
         std::vector<double> m_values;
+        std::vector<double> m_secondaryValues;
+        winrt::Microsoft::UI::Xaml::Shapes::Polyline m_secondaryLine{nullptr};
         winrt::Windows::UI::Color m_color;
 
         double m_width{64.0};

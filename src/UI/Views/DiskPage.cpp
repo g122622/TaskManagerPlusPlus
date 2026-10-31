@@ -210,7 +210,7 @@ namespace tmpp::ui
         detail.label = controls::MakeText(label, 13.0, true);
         detail.label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
 
-        detail.value = controls::MakeText(winrt::to_hstring(UnavailableValue()), 13.0);
+        detail.value = controls::MakeText(ui::Localize(UnavailableValue()), 13.0);
         detail.value.HorizontalAlignment(HorizontalAlignment::Right);
         detail.value.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
         detail.value.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
@@ -248,6 +248,18 @@ namespace tmpp::ui
         }
     }
 
+    void DiskPage::SetOpaqueFill(bool opaque)
+    {
+        if (m_activeChart != nullptr) m_activeChart->SetOpaqueFill(opaque);
+        if (m_transferChart != nullptr) m_transferChart->SetOpaqueFill(opaque);
+    }
+
+    void DiskPage::SetFillOpacity(double opacity)
+    {
+        if (m_activeChart != nullptr) m_activeChart->SetFillOpacity(opacity);
+        if (m_transferChart != nullptr) m_transferChart->SetFillOpacity(opacity);
+    }
+
     void DiskPage::SetDeviceIndex(size_t index)
     {
         if (m_deviceIndex != index)
@@ -268,7 +280,7 @@ namespace tmpp::ui
             //
             // The label already carries the "Disk" prefix and the device number, so it is used as it
             // stands. Prefixing it again produced "Disk Disk 2 C: D:".
-            m_heading.Text(winrt::hstring{m_deviceLabel});
+            m_heading.Text(ui::Localize(m_deviceLabel));
         }
     }
 
@@ -290,7 +302,7 @@ namespace tmpp::ui
             // is what happens on the first frame.
             if (m_deviceIndex < system.disks.size())
             {
-                m_heading.Text(winrt::to_hstring("Disk " + system.disks[m_deviceIndex].instanceName));
+                m_heading.Text(ui::Localize("Disk " + system.disks[m_deviceIndex].instanceName));
             }
         }
 
@@ -302,11 +314,11 @@ namespace tmpp::ui
             size_t const captionIndex = (m_deviceIndex < system.disks.size()) ? m_deviceIndex : 0;
             if (captionIndex < system.disks.size() && !system.disks[captionIndex].modelName.empty())
             {
-                m_modelCaption.Text(winrt::to_hstring(system.disks[captionIndex].modelName));
+                m_modelCaption.Text(ui::Localize(system.disks[captionIndex].modelName));
             }
             else
             {
-                m_modelCaption.Text(L"");
+                m_modelCaption.Text(ui::Localize(L""));
             }
         }
 
@@ -319,9 +331,8 @@ namespace tmpp::ui
                                          ? system.disks[deviceIndex].activePercent
                                          : system.diskActivePercent;
 
-        m_activeCaption.Text(winrt::to_hstring("Active time   " + FormatPercent(activePercent) +
-                                               "   \xE2\x80\xA2   over " +
-                                               std::to_string(m_coordinator.HistorySeconds()) + " s"));
+        m_activeCaption.Text(ui::Localize("Active time   " + FormatPercent(activePercent) + "   \xE2\x80\xA2   over " +
+            std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The device's own history, looked up by instance name.
         //
@@ -409,7 +420,7 @@ namespace tmpp::ui
         {
             double const third = transferPeak / 3.0;
             m_transferChart->SetReferenceLine(
-                1.0 / 3.0, winrt::to_hstring(FormatBytes(static_cast<uint64_t>(third)) + "/s"));
+                1.0 / 3.0, ui::Localize(FormatBytes(static_cast<uint64_t>(third)) + "/s"));
         }
         else
         {
@@ -419,7 +430,7 @@ namespace tmpp::ui
         m_transferChart->SetSeries(readSeries);
         m_transferChart->SetSecondarySeries(writeSeries);
 
-        m_transferPeakLabel.Text(winrt::to_hstring(FormatBytes(static_cast<uint64_t>(transferPeak)) + "/s"));
+        m_transferPeakLabel.Text(ui::Localize(FormatBytes(static_cast<uint64_t>(transferPeak)) + "/s"));
 
         _updateDetails(system);
     }
@@ -429,7 +440,7 @@ namespace tmpp::ui
         auto assign = [](std::vector<DetailRow> const& rows, size_t index, std::string const& text) {
             if (index < rows.size() && rows[index].value != nullptr)
             {
-                rows[index].value.Text(winrt::to_hstring(text));
+                rows[index].value.Text(ui::Localize(text));
             }
         };
 

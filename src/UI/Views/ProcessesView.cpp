@@ -36,108 +36,118 @@ namespace tmpp::ui
          * Part of the column table so that adding a column cannot leave its shading unset: a column
          * with no metric is explicitly unshaded rather than shaded by whatever the default was.
          */
-        enum class ShadeMetric
-        {
-            /// The column carries no measure of resource use, so it is never shaded. PIDs and names do
-            /// not have a "more" and a "less".
-            None,
-            Cpu,
-            Memory,
-            Disk,
-            Network,
-            Gpu,
-        };
+    enum class ShadeMetric {
+        /// The column carries no measure of resource use, so it is never shaded. PIDs and names do
+        /// not have a "more" and a "less".
+        None,
+        Cpu,
+        Memory,
+        Disk,
+        Network,
+        Gpu,
+        DedicatedGpuMemory,
+        SharedGpuMemory,
+    };
 
-        /**
-         * @brief Column definition for the process list.
-         *
-         * Declared as data so the header, the row builder and the sort mapping all
-         * read from one table. Adding a column then cannot leave the header and the
-         * row builder disagreeing about order.
-         */
-        struct ColumnSpec
-        {
-            wchar_t const* title;
+    /**
+     * @brief Column definition for the process list.
+     *
+     * Declared as data so the header, the row builder and the sort mapping all
+     * read from one table. Adding a column then cannot leave the header and the
+     * row builder disagreeing about order.
+     */
+    struct ColumnSpec {
+        wchar_t const* title;
 
-            /// Starting width, in effective pixels. The live width is held by the view, because the user
-            /// can drag it: this is the value a fresh window starts from.
-            double width;
+        /// Starting width, in effective pixels. The live width is held by the view, because the user
+        /// can drag it: this is the value a fresh window starts from.
+        double width;
 
-            /// Narrowest the column may be dragged to. A column narrower than its own heading cannot be
-            /// read, and one dragged to nothing could not be grabbed again.
-            double minimumWidth;
+        /// Narrowest the column may be dragged to. A column narrower than its own heading cannot be
+        /// read, and one dragged to nothing could not be grabbed again.
+        double minimumWidth;
 
-            bool rightAligned;
-            SortColumn sortColumn;
+        bool rightAligned;
+        SortColumn sortColumn;
 
-            /// What the cell is shaded by, if anything.
-            ShadeMetric shade;
-        };
+        /// What the cell is shaded by, if anything.
+        ShadeMetric shade;
+    };
 
-        /// The columns shown, in the order Windows 11 Task Manager shows them.
-        ///
-        /// Name, PID, CPU, Memory, Disk, Network and GPU. There is deliberately no status column: the
-        /// original has none, and a per-process "Running" that is never anything else is a column of
-        /// identical text.
-        ///
-        /// The widths are proportions of the original's layout rather than its pixel values, since this
-        /// list sizes its columns in effective pixels and the original's are drawn at a different scale.
-        constexpr std::array<ColumnSpec, 7> COLUMNS{{
-            {L"Name", 300.0, 120.0, false, SortColumn::Name, ShadeMetric::None},
-            {L"PID", 80.0, 56.0, true, SortColumn::Pid, ShadeMetric::None},
-            {L"CPU", 90.0, 56.0, true, SortColumn::Cpu, ShadeMetric::Cpu},
-            {L"Memory", 120.0, 72.0, true, SortColumn::Memory, ShadeMetric::Memory},
-            {L"Disk", 100.0, 64.0, true, SortColumn::Disk, ShadeMetric::Disk},
-            {L"Network", 100.0, 64.0, true, SortColumn::Network, ShadeMetric::Network},
-            {L"GPU", 80.0, 56.0, true, SortColumn::Gpu, ShadeMetric::Gpu},
-        }};
+    /// Stable column order for persisted widths and visibility. New columns are appended.
+    constexpr std::array<ColumnSpec, 21> COLUMNS{{
+        {L"Name", 300.0, 120.0, false, SortColumn::Name, ShadeMetric::None},
+        {L"PID", 80.0, 56.0, true, SortColumn::Pid, ShadeMetric::None},
+        {L"CPU", 90.0, 56.0, true, SortColumn::Cpu, ShadeMetric::Cpu},
+        {L"Memory", 120.0, 72.0, true, SortColumn::Memory, ShadeMetric::Memory},
+        {L"Disk", 100.0, 64.0, true, SortColumn::Disk, ShadeMetric::Disk},
+        {L"Network", 100.0, 64.0, true, SortColumn::Network, ShadeMetric::Network},
+        {L"GPU", 80.0, 56.0, true, SortColumn::Gpu, ShadeMetric::Gpu},
+        {L"Priority", 110.0, 80.0, false, SortColumn::Priority, ShadeMetric::None},
+        {L"Dedicated GPU memory", 170.0, 150.0, true, SortColumn::DedicatedGpuMemory, ShadeMetric::DedicatedGpuMemory},
+        {L"Shared GPU memory", 160.0, 140.0, true, SortColumn::SharedGpuMemory, ShadeMetric::SharedGpuMemory},
+        {L"Threads", 90.0, 70.0, true, SortColumn::Threads, ShadeMetric::None},
+        {L"Handles", 90.0, 70.0, true, SortColumn::Handles, ShadeMetric::None},
+        {L"Commit size", 120.0, 95.0, true, SortColumn::CommitSize, ShadeMetric::None},
+        {L"Peak memory", 120.0, 100.0, true, SortColumn::PeakMemory, ShadeMetric::None},
+        {L"Disk read", 110.0, 80.0, true, SortColumn::DiskRead, ShadeMetric::None},
+        {L"Disk write", 110.0, 80.0, true, SortColumn::DiskWrite, ShadeMetric::None},
+        {L"Network receive", 140.0, 120.0, true, SortColumn::NetworkReceive, ShadeMetric::None},
+        {L"Network send", 130.0, 110.0, true, SortColumn::NetworkSend, ShadeMetric::None},
+        {L"Parent PID", 100.0, 85.0, true, SortColumn::ParentPid, ShadeMetric::None},
+        {L"Session ID", 100.0, 85.0, true, SortColumn::SessionId, ShadeMetric::None},
+        {L"Status", 110.0, 75.0, false, SortColumn::Status, ShadeMetric::None},
+    }};
 
-        /// The deepest a cell is filled. Windows' own task manager uses this shade, and the ramp is an
-        /// alpha of it rather than a path towards another colour: a band and the text on it then never
-        /// disagree about what colour the cell is.
-        constexpr winrt::Windows::UI::Color HEAT_COLOR{0xFF, 0x08, 0x33, 0x6E};
+    /// The deepest a cell is filled. Windows' own task manager uses this shade, and the ramp is an
+    /// alpha of it rather than a path towards another colour: a band and the text on it then never
+    /// disagree about what colour the cell is.
+    constexpr winrt::Windows::UI::Color HEAT_COLOR{0xFF, 0x08, 0x33, 0x6E};
 
-        /// How many steps the ramp is quantised into. Thirty-two steps of eight alpha units are finer
-        /// than the eye separates on adjacent rows, and few enough that the brushes can all be built
-        /// once at startup.
-        constexpr size_t HEAT_STEPS = 32;
+    /// How many steps the ramp is quantised into. Thirty-two steps of eight alpha units are finer
+    /// than the eye separates on adjacent rows, and few enough that the brushes can all be built
+    /// once at startup.
+    constexpr size_t HEAT_STEPS = 32;
 
-        /// A value below this is treated as nothing to shade rather than as a measurement of zero.
-        /// Rates are never negative, so a negative value is available as the "not known" marker.
-        constexpr double NO_HEAT = -1.0;
+    /// A value below this is treated as nothing to shade rather than as a measurement of zero.
+    /// Rates are never negative, so a negative value is available as the "not known" marker.
+    constexpr double NO_HEAT = -1.0;
 
-        /**
-         * @brief The value a metric column is shaded by, or @c NO_HEAT.
-         *
-         * A rate that could not be derived is not a zero and must not be drawn as one: the first
-         * sample of a session has no interval behind it, and shading that as "no activity" would state
-         * something the application does not know.
-         */
-        [[nodiscard]] double _shadeValue(ShadeMetric metric, domain::ProcessView const& process)
-        {
-            switch (metric)
-            {
-                case ShadeMetric::Cpu:
-                    return process.ratesUnavailable ? NO_HEAT : process.cpuPercent;
+    /**
+     * @brief The value a metric column is shaded by, or @c NO_HEAT.
+     *
+     * A rate that could not be derived is not a zero and must not be drawn as one: the first
+     * sample of a session has no interval behind it, and shading that as "no activity" would state
+     * something the application does not know.
+     */
+    [[nodiscard]] double _shadeValue(ShadeMetric metric, domain::ProcessView const& process)
+    {
+        switch (metric) {
+            case ShadeMetric::Cpu:
+                return process.ratesUnavailable ? NO_HEAT : process.cpuPercent;
 
-                case ShadeMetric::Memory:
-                    return static_cast<double>(process.memory.workingSetSize);
+            case ShadeMetric::Memory:
+                return static_cast<double>(process.memory.workingSetSize);
 
-                case ShadeMetric::Disk:
-                    return process.diskReadBytesPerSec + process.diskWriteBytesPerSec;
+            case ShadeMetric::Disk:
+                return process.diskReadBytesPerSec + process.diskWriteBytesPerSec;
 
-                case ShadeMetric::Network:
-                    // Not collected per process yet, so there is nothing to shade. Shading it would
-                    // mean inventing a figure for a column that already reports an em dash.
-                    return NO_HEAT;
+            case ShadeMetric::Network:
+                return process.networkRatesUnavailable
+                    ? NO_HEAT
+                    : process.networkReceiveBytesPerSec + process.networkSendBytesPerSec;
+            case ShadeMetric::DedicatedGpuMemory:
+                return process.gpuMemory.available ? static_cast<double>(process.gpuMemory.dedicatedBytes) : NO_HEAT;
+            case ShadeMetric::SharedGpuMemory:
+                return process.gpuMemory.available ? static_cast<double>(process.gpuMemory.sharedBytes) : NO_HEAT;
 
-                case ShadeMetric::Gpu:
-                    return process.gpuPercent;
+            case ShadeMetric::Gpu:
+                return process.gpuPercent;
 
-                case ShadeMetric::None:
-                default:
-                    return NO_HEAT;
-            }
+            case ShadeMetric::None:
+            default:
+                return NO_HEAT;
+        }
         }
 
         /// Edge length of the square an icon occupies in a row. Slightly larger than the 16 pixel bitmap
@@ -146,7 +156,7 @@ namespace tmpp::ui
 
         /// Width of the grab area on a column boundary. Wide enough to hit without aiming, narrow enough
         /// that it does not cover the heading beside it.
-        constexpr double COLUMN_HANDLE_WIDTH = 8.0;
+        constexpr double COLUMN_HANDLE_WIDTH = 9.0;
 
         /// Default width of the detail sidebar, before the user drags it.
         ///
@@ -250,6 +260,7 @@ namespace tmpp::ui
         for (size_t i = 0; i < m_columnWidths.size() && i < COLUMNS.size(); ++i)
         {
             m_columnWidths[i] = COLUMNS[i].width;
+            m_columnVisible[i] = i < 9;
         }
 
         // The shading ramp, built once. Step zero is fully transparent, which is what an idle machine
@@ -368,6 +379,7 @@ namespace tmpp::ui
         // column's name below it. The aggregates are what makes the header useful at a glance -- the
         // question "is the machine busy?" is answered without reading any row.
         Grid header = Grid();
+        m_tableHeader = header;
         header.Background(controls::ThemedBrush(theme::LAYER_BACKGROUND));
 
         // The same inset the rows use, so the header's columns and the rows' columns share one origin.
@@ -385,7 +397,7 @@ namespace tmpp::ui
             // Retained so a drag can resize them, and seeded from the live widths so a header rebuilt
             // after a drag matches the list the user has already adjusted.
             ColumnDefinition definition;
-            definition.Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+            definition.Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
             m_headerColumns.push_back(definition);
             header.ColumnDefinitions().Append(definition);
         }
@@ -450,6 +462,14 @@ namespace tmpp::ui
 
             winrt::Microsoft::UI::Xaml::Controls::Button button;
             button.Content(headerContent);
+            if (column.sortColumn == SortColumn::Network || column.sortColumn == SortColumn::NetworkReceive ||
+                column.sortColumn == SortColumn::NetworkSend)
+                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(button,
+                    winrt::box_value(ui::Localize(L"TCP and UDP traffic. Run as administrator if unavailable.")));
+            if (column.sortColumn == SortColumn::DedicatedGpuMemory || column.sortColumn == SortColumn::SharedGpuMemory)
+                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(button,
+                    winrt::box_value(
+                        ui::Localize(L"GPU memory is measured on the adapter shown on the Performance page.")));
             button.Padding(ThicknessHelper::FromLengths(8.0, 0.0, 8.0, 0.0));
             button.Background(
                 winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
@@ -496,7 +516,15 @@ namespace tmpp::ui
         // The header and the list are stacked in one grid so that the resize bars can be laid over the
         // pair. A bar placed inside the header could only span the header, which would leave the boundary
         // invisible where the user is actually reading the list.
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyout headerMenu;
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem selectColumns;
+        selectColumns.Text(ui::Localize(L"Select columns..."));
+        selectColumns.Click([this](auto const&, auto const&) { _showColumnPicker(); });
+        headerMenu.Items().Append(selectColumns);
+        header.ContextFlyout(headerMenu);
+
         Grid table = Grid();
+        m_table = table;
         table.RowDefinitions().Append(controls::MakeAutoRow()); // column headers
         table.RowDefinitions().Append(controls::MakeStarRow()); // rows
 
@@ -551,8 +579,7 @@ namespace tmpp::ui
                 }
             });
 
-        for (size_t i = 0; i + 1 < COLUMNS.size(); ++i)
-        {
+        for (size_t i = 0; i < COLUMNS.size(); ++i) {
             auto handle = std::make_unique<ColumnResizeHandle>();
             handle->Attach(
                 static_cast<uint32_t>(i),
@@ -581,9 +608,22 @@ namespace tmpp::ui
         Grid::SetRowSpan(m_handleLayer, 2);
         table.Children().Append(m_handleLayer);
 
-        Grid::SetRow(table, 1);
-        Grid::SetColumn(table, 0);
-        m_root.Children().Append(table);
+        // The scroll viewport contains all table visuals, including the resize overlay.
+        // Its clip prevents wide columns from painting over the adjacent settings pane.
+        winrt::Microsoft::UI::Xaml::Controls::ScrollViewer tableViewport;
+        tableViewport.HorizontalScrollBarVisibility(winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Auto);
+        tableViewport.VerticalScrollBarVisibility(winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Disabled);
+        tableViewport.VerticalContentAlignment(VerticalAlignment::Stretch);
+        tableViewport.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+        tableViewport.Content(table);
+        tableViewport.SizeChanged([](auto const& sender, winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args) {
+            winrt::Microsoft::UI::Xaml::Media::RectangleGeometry clip;
+            clip.Rect({0.0f, 0.0f, args.NewSize().Width, args.NewSize().Height});
+            sender.template as<winrt::Microsoft::UI::Xaml::UIElement>().Clip(clip);
+        });
+        Grid::SetRow(tableViewport, 1);
+        Grid::SetColumn(tableViewport, 0);
+        m_root.Children().Append(tableViewport);
 
         // --- Detail sidebar ----------------------------------------------------
         //
@@ -823,7 +863,7 @@ namespace tmpp::ui
         // vector's size, which is what was actually created, so no entry can be a null definition.
         for (size_t i = 0; i < m_headerColumns.size() && i < m_columnWidths.size(); ++i)
         {
-            m_headerColumns[i].Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+            m_headerColumns[i].Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
         }
 
         // The rows are separate grids and do not share the header's definitions, so each row on screen is
@@ -833,9 +873,14 @@ namespace tmpp::ui
         // The row width the host uses for its canvas is updated too, or the rows would be laid out at the
         // old total and the rightmost column would be clipped as soon as anything was widened.
         double total = 2.0 * ROW_INSET;
-        for (double const width : m_columnWidths)
-        {
-            total += width;
+        for (size_t i = 0; i < m_columnWidths.size(); ++i) {
+            if (m_columnVisible[i]) total += m_columnWidths[i];
+        }
+        m_table.MinWidth(total);
+        for (auto const& child : m_tableHeader.Children()) {
+            auto const column =
+                static_cast<size_t>(Grid::GetColumn(child.as<winrt::Microsoft::UI::Xaml::FrameworkElement>()));
+            child.Visibility(m_columnVisible[column] ? Visibility::Visible : Visibility::Collapsed);
         }
         m_rowHost->SetRowWidth(total);
 
@@ -846,8 +891,9 @@ namespace tmpp::ui
             {
                 for (size_t i = 0; i < m_columnWidths.size() && i < row.ColumnDefinitions().Size(); ++i)
                 {
-                    row.ColumnDefinitions().GetAt(static_cast<uint32_t>(i))
-                        .Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+                    row.ColumnDefinitions()
+                        .GetAt(static_cast<uint32_t>(i))
+                        .Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
                 }
             }
         }
@@ -855,15 +901,20 @@ namespace tmpp::ui
         // Each bar is placed at the sum of the widths to its left, which is exactly where its column ends.
         // Positioned from the widths rather than from a measured layout so the bars track a drag without
         // waiting for a layout pass.
+        m_rowHost->RefreshVisibleRows();
         double x = ROW_INSET;
         for (size_t i = 0; i < m_columnHandles.size() && i < m_columnWidths.size(); ++i)
         {
-            x += m_columnWidths[i];
+            if (m_columnVisible[i]) x += m_columnWidths[i];
 
             if (m_columnHandles[i] != nullptr)
             {
                 // The bar is centred on the boundary rather than starting at it, so its line sits on the
                 // boundary instead of a few pixels to one side.
+                bool const hasNext =
+                    std::any_of(m_columnVisible.begin() + i + 1, m_columnVisible.end(), [](bool v) { return v; });
+                m_columnHandles[i]->Element().Visibility(
+                    m_columnVisible[i] && hasNext ? Visibility::Visible : Visibility::Collapsed);
                 Canvas::SetLeft(m_columnHandles[i]->Element(), x - (COLUMN_HANDLE_WIDTH / 2.0));
                 Canvas::SetTop(m_columnHandles[i]->Element(), 0.0);
 
@@ -898,6 +949,80 @@ namespace tmpp::ui
         m_renderedVersion = 0;
     }
 
+    void ProcessesView::SetColumnVisibility(std::vector<bool> const& visible)
+    {
+        for (size_t i = 0; i < visible.size() && i < m_columnVisible.size(); ++i)
+            m_columnVisible[i] = visible[i];
+        m_columnVisible[0] = true;
+        for (size_t i = 0; i < COLUMNS.size(); ++i) {
+            if (COLUMNS[i].sortColumn == m_query.column && !m_columnVisible[i]) {
+                m_query.column = SortColumn::Name;
+                m_query.direction = SortDirection::Ascending;
+                m_renderedVersion = 0;
+            }
+        }
+        _applyColumnWidths();
+        _updateSortMarks();
+    }
+
+    void ProcessesView::SetColumnVisibilityHandler(std::function<void(std::vector<bool>)> handler)
+    {
+        m_onColumnVisibilityChanged = std::move(handler);
+    }
+
+    void ProcessesView::_showColumnPicker()
+    {
+        using namespace winrt::Microsoft::UI::Xaml::Controls;
+        ContentDialog dialog;
+        dialog.XamlRoot(m_root.XamlRoot());
+        dialog.Title(winrt::box_value(ui::Localize(L"Select columns")));
+        dialog.PrimaryButtonText(ui::Localize(L"Apply"));
+        dialog.SecondaryButtonText(ui::Localize(L"Reset to defaults"));
+        dialog.CloseButtonText(ui::Localize(L"Cancel"));
+        dialog.DefaultButton(ContentDialogButton::Primary);
+        StackPanel options = controls::MakeStack(2.0);
+        std::vector<ToggleSwitch> boxes;
+        for (size_t i = 0; i < COLUMNS.size(); ++i) {
+            ToggleSwitch box;
+            Grid option;
+            option.ColumnDefinitions().Append(controls::MakeStarColumn());
+            option.ColumnDefinitions().Append(controls::MakeAutoColumn());
+            auto title = controls::MakeText(COLUMNS[i].title, 13.0);
+            title.VerticalAlignment(VerticalAlignment::Center);
+            title.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 20.0, 0.0));
+            option.Children().Append(title);
+            box.MinWidth(0.0);
+            box.Width(40.0);
+            box.OnContent(winrt::box_value(L""));
+            box.OffContent(winrt::box_value(L""));
+            box.IsOn(m_columnVisible[i]);
+            box.HorizontalAlignment(HorizontalAlignment::Right);
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(box, ui::Localize(COLUMNS[i].title));
+            Grid::SetColumn(box, 1);
+            option.Children().Append(box);
+            box.IsEnabled(i != 0);
+            options.Children().Append(option);
+            boxes.push_back(box);
+        }
+        ScrollViewer scroller;
+        scroller.MaxHeight(420.0);
+        scroller.Content(options);
+        dialog.Content(scroller);
+        dialog.PrimaryButtonClick([this, boxes](auto const&, auto const&) {
+            std::vector<bool> visible;
+            for (auto const& box : boxes)
+                visible.push_back(box.IsOn());
+            SetColumnVisibility(visible);
+            if (m_onColumnVisibilityChanged) m_onColumnVisibilityChanged(std::move(visible));
+        });
+        dialog.SecondaryButtonClick([boxes](auto const&, ContentDialogButtonClickEventArgs const& args) {
+            args.Cancel(true);
+            for (size_t i = 0; i < boxes.size(); ++i)
+                boxes[i].IsOn(i < 9);
+        });
+        dialog.ShowAsync();
+    }
+
     winrt::Microsoft::UI::Xaml::FrameworkElement ProcessesView::_createRow()
     {
         Grid row = Grid();
@@ -910,6 +1035,11 @@ namespace tmpp::ui
         row.Background(
             winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
 
+        row.Tapped([this](winrt::Windows::Foundation::IInspectable const& sender, auto const&) {
+            auto const element = sender.as<Grid>();
+            if (element.Tag() != nullptr) _selectRow(winrt::unbox_value<uint32_t>(element.Tag()));
+        });
+
         // Built at the live widths, not at the column table's defaults.
         //
         // The table's width is what a fresh window starts from; the live value is whatever the user has
@@ -920,7 +1050,7 @@ namespace tmpp::ui
         for (size_t i = 0; i < COLUMNS.size(); ++i)
         {
             ColumnDefinition definition;
-            definition.Width(GridLengthHelper::FromPixels(m_columnWidths[i]));
+            definition.Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
             row.ColumnDefinitions().Append(definition);
         }
 
@@ -984,6 +1114,7 @@ namespace tmpp::ui
 
             TextBlock text = controls::MakeText(L"", 13.0);
             text.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            text.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
             text.VerticalAlignment(VerticalAlignment::Center);
             text.HorizontalAlignment(COLUMNS[i].rightAligned ? HorizontalAlignment::Right
                                                             : HorizontalAlignment::Left);
@@ -1017,6 +1148,14 @@ namespace tmpp::ui
         }
 
         domain::ProcessView const& process = m_snapshot.processes[processIndex];
+        for (size_t i = 0; i < COLUMNS.size(); ++i) {
+            row.ColumnDefinitions()
+                .GetAt(static_cast<uint32_t>(i))
+                .Width(GridLengthHelper::FromPixels(m_columnVisible[i] ? m_columnWidths[i] : 0.0));
+            row.Children()
+                .GetAt(static_cast<uint32_t>(i))
+                .Visibility(m_columnVisible[i] ? Visibility::Visible : Visibility::Collapsed);
+        }
 
         // The selection fill, and the click that sets it. The process id is captured by value
         // because the row is recycled for a different process when the list is resorted.
@@ -1024,10 +1163,7 @@ namespace tmpp::ui
         row.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
             selected ? ROW_SELECTION_FILL : winrt::Windows::UI::Colors::Transparent()));
         uint32_t const pid = process.identity.pid;
-        row.Tapped([this, pid](winrt::Windows::Foundation::IInspectable const&,
-                               winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const&) {
-            _selectRow(pid);
-        });
+        row.Tag(winrt::box_value(pid));
 
         // The context menu is rebuilt on every binding rather than attached once, because a row is
         // recycled for a different process when the list is reordered and the menu has to name the
@@ -1037,18 +1173,18 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout menu;
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem endTask;
-        endTask.Text(L"End task");
+        endTask.Text(ui::Localize(L"End task"));
         endTask.Click([this, pid, displayName](winrt::Windows::Foundation::IInspectable const&,
-                                               winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
-            _confirmAndTerminate(pid, winrt::to_hstring(displayName), /*entireTree=*/false);
+                          winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+            _confirmAndTerminate(pid, ui::Localize(displayName), /*entireTree=*/false);
         });
         menu.Items().Append(endTask);
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem endTree;
-        endTree.Text(L"End process tree");
+        endTree.Text(ui::Localize(L"End process tree"));
         endTree.Click([this, pid, displayName](winrt::Windows::Foundation::IInspectable const&,
-                                               winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
-            _confirmAndTerminate(pid, winrt::to_hstring(displayName), /*entireTree=*/true);
+                          winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+            _confirmAndTerminate(pid, ui::Localize(displayName), /*entireTree=*/true);
         });
         menu.Items().Append(endTree);
 
@@ -1089,7 +1225,7 @@ namespace tmpp::ui
 
             if (auto const label = nameCell.Children().GetAt(1).try_as<TextBlock>())
             {
-                label.Text(winrt::to_hstring(ProcessDisplayName(process.identity.pid, process.imageName)));
+                label.Text(ui::Localize(ProcessDisplayName(process.identity.pid, process.imageName)));
             }
         }
 
@@ -1113,7 +1249,7 @@ namespace tmpp::ui
 
             if (auto const label = cell.Child().try_as<TextBlock>())
             {
-                label.Text(winrt::to_hstring(text));
+                label.Text(ui::Localize(text));
             }
         };
 
@@ -1124,15 +1260,38 @@ namespace tmpp::ui
         // Disk is the sum of the two directions: one figure per process is what the column has room for,
         // and a process's total I/O is what the row is read for. Reads and writes are separated on the
         // device's own page, where there is space to show both.
-        setCell(4, _formatThroughput(process.diskReadBytesPerSec + process.diskWriteBytesPerSec));
+        setCell(4,
+            process.ratesUnavailable ? UnavailableValue()
+                                     : _formatThroughput(process.diskReadBytesPerSec + process.diskWriteBytesPerSec));
 
-        // Network is per-process and not yet collected, so it states that rather than showing a zero:
-        // a zero would claim the process is using none, which is a different claim from not knowing.
-        setCell(5, UnavailableValue());
-
-        // GPU comes from the same performance counters as the GPU page, which do publish a per-process
-        // instance for every engine.
+        setCell(5,
+            process.networkRatesUnavailable
+                ? UnavailableValue()
+                : _formatThroughput(process.networkReceiveBytesPerSec + process.networkSendBytesPerSec));
         setCell(6, process.gpuPercent > 0.0 ? FormatProcessCpuPercent(process.gpuPercent) : std::string{"0%"});
+        char const* priority = process.basePriority >= 24 ? "Realtime"
+            : process.basePriority >= 13                  ? "High"
+            : process.basePriority >= 10                  ? "Above normal"
+            : process.basePriority >= 8                   ? "Normal"
+            : process.basePriority >= 6                   ? "Below normal"
+                                                          : "Low";
+        setCell(7, priority);
+        setCell(8, process.gpuMemory.available ? FormatBytes(process.gpuMemory.dedicatedBytes) : UnavailableValue());
+        setCell(9, process.gpuMemory.available ? FormatBytes(process.gpuMemory.sharedBytes) : UnavailableValue());
+        setCell(10, std::to_string(process.threadCount));
+        setCell(11, std::to_string(process.handleCount));
+        setCell(12, FormatBytes(process.memory.privatePageCount));
+        setCell(13, FormatBytes(process.memory.peakWorkingSetSize));
+        setCell(14, process.ratesUnavailable ? UnavailableValue() : _formatThroughput(process.diskReadBytesPerSec));
+        setCell(15, process.ratesUnavailable ? UnavailableValue() : _formatThroughput(process.diskWriteBytesPerSec));
+        setCell(16,
+            process.networkRatesUnavailable ? UnavailableValue()
+                                            : _formatThroughput(process.networkReceiveBytesPerSec));
+        setCell(17,
+            process.networkRatesUnavailable ? UnavailableValue() : _formatThroughput(process.networkSendBytesPerSec));
+        setCell(18, std::to_string(process.parentPid));
+        setCell(19, std::to_string(process.sessionId));
+        setCell(20, process.suspended ? "Suspended" : "Running");
     }
 
     void ProcessesView::_selectRow(uint32_t pid)
@@ -1292,14 +1451,13 @@ namespace tmpp::ui
 
         if (last.Failed())
         {
-            m_actionMessage.Text(winrt::hstring{L"A saved rule could not be applied to "} +
-                                 winrt::to_hstring(last.executableName) + L": " +
-                                 winrt::to_hstring(last.result.message));
+            m_actionMessage.Text(ui::Localize(L"A saved rule could not be applied to ") +
+                ui::Localize(last.executableName) + L": " + ui::Localize(last.result.message));
         }
         else
         {
-            m_actionMessage.Text(winrt::hstring{L"A saved rule was applied to "} +
-                                 winrt::to_hstring(last.executableName) + L".");
+            m_actionMessage.Text(
+                ui::Localize(L"A saved rule was applied to ") + ui::Localize(last.executableName) + L".");
         }
     }
 
@@ -1331,15 +1489,14 @@ namespace tmpp::ui
         // work, and a task manager is a list of names a user can misread; the original asks too.
         winrt::Microsoft::UI::Xaml::Controls::ContentDialog dialog;
         dialog.XamlRoot(m_root.XamlRoot());
-        dialog.Title(winrt::box_value(winrt::hstring{entireTree ? L"End process tree?" : L"End task?"}));
+        dialog.Title(winrt::box_value(ui::Localize(entireTree ? L"End process tree?" : L"End task?")));
 
-        winrt::hstring const body =
-            entireTree
-                ? winrt::hstring{L"This will end "} + name + L" and every process it started."
-                : winrt::hstring{L"This will end "} + name + L". Unsaved work will be lost.";
+        winrt::hstring const body = entireTree
+            ? ui::Localize(L"This will end ") + name + L" and every process it started."
+            : ui::Localize(L"This will end ") + name + L". Unsaved work will be lost.";
         dialog.Content(winrt::box_value(body));
-        dialog.PrimaryButtonText(L"End");
-        dialog.CloseButtonText(L"Cancel");
+        dialog.PrimaryButtonText(ui::Localize(L"End"));
+        dialog.CloseButtonText(ui::Localize(L"Cancel"));
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
 
         // The dialog is shown without awaiting it. Awaiting from a UI event handler would need a
@@ -1379,19 +1536,19 @@ namespace tmpp::ui
             // The count matters for a tree, where the user asked for one thing and several ended.
             if (result.affected > 1)
             {
-                message = winrt::hstring{std::to_wstring(result.affected) + L" processes ended."};
+                message = ui::Localize(std::to_wstring(result.affected) + L" processes ended.");
             }
             else
             {
-                message = winrt::hstring{winrt::hstring{subject} + L" ended."};
+                message = winrt::hstring{ui::Localize(subject) + L" ended."};
             }
         }
         else
         {
-            message = winrt::hstring{winrt::hstring{subject} + L": " + winrt::to_hstring(result.message)};
+            message = winrt::hstring{ui::Localize(subject) + L": " + ui::Localize(result.message)};
         }
 
-        m_actionMessage.Text(message);
+        m_actionMessage.Text(ui::Localize(message));
 
         // Asking the sampler for a fresh snapshot is what makes the list reflect the change; the
         // application does that as part of acting.
@@ -1401,12 +1558,12 @@ namespace tmpp::ui
     {
         if (m_listModel->IsFiltered())
         {
-            m_summary.Text(winrt::hstring{L"Showing " + std::to_wstring(m_listModel->VisibleCount()) + L" of " +
-                                          std::to_wstring(m_listModel->TotalCount()) + L" processes"});
+            m_summary.Text(ui::Localize(winrt::hstring{L"Showing " + std::to_wstring(m_listModel->VisibleCount()) +
+                L" of " + std::to_wstring(m_listModel->TotalCount()) + L" processes"}));
         }
         else
         {
-            m_summary.Text(winrt::hstring{std::to_wstring(m_listModel->TotalCount()) + L" processes"});
+            m_summary.Text(ui::Localize(std::to_wstring(m_listModel->TotalCount()) + L" processes"));
         }
     }
 
@@ -1462,7 +1619,7 @@ namespace tmpp::ui
                     continue;
             }
 
-            cell.text.Text(winrt::to_hstring(text));
+            cell.text.Text(ui::Localize(text));
         }
     }
 

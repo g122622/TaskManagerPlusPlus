@@ -26,6 +26,7 @@ namespace tmpp::platform
     {
     public:
         WindowsProcessActions() = default;
+        [[nodiscard]] VoidResult Launch(std::string const& command) const;
 
         /**
          * @brief Terminates one process.

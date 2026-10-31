@@ -287,7 +287,7 @@ namespace tmpp::ui
             {
                 // An empty slot is listed so the count above makes sense, and named so the reader knows
                 // which one it is.
-                row.title = controls::MakeText(winrt::hstring{winrt::to_hstring(module.slot) + L"   (empty)"}, 13.0);
+                row.title = controls::MakeText(ui::Localize(ui::Localize(module.slot) + L"   (empty)"), 13.0);
                 entry.Children().Append(row.title);
                 m_moduleRowsHost.Children().Append(entry);
                 m_moduleRows.push_back(row);
@@ -295,9 +295,9 @@ namespace tmpp::ui
             }
 
             // The title is the slot and its capacity, which is what a reader looks for first.
-            std::wstring title = winrt::to_hstring(module.slot).c_str();
+            std::wstring title = ui::Localize(module.slot).c_str();
             title += L"   ";
-            title += winrt::to_hstring(FormatBytes(module.capacityBytes)).c_str();
+            title += ui::Localize(FormatBytes(module.capacityBytes)).c_str();
 
             row.title = controls::MakeText(title, 13.0);
             entry.Children().Append(row.title);
@@ -319,8 +319,8 @@ namespace tmpp::ui
                 detail += text.c_str();
             };
 
-            append(winrt::to_hstring(module.typeName));
-            append(winrt::to_hstring(module.formFactorName));
+            append(ui::Localize(module.typeName));
+            append(ui::Localize(module.formFactorName));
 
             if (module.configuredSpeedMhz > 0)
             {
@@ -332,13 +332,13 @@ namespace tmpp::ui
                 {
                     speed += L" (rated " + std::to_wstring(module.ratedSpeedMhz) + L" MHz)";
                 }
-                append(winrt::hstring{speed});
+                append(ui::Localize(speed));
             }
 
             // 0xFFFF is the firmware's "not populated" marker for a width, not a real width.
             if (module.dataWidthBits > 0 && module.dataWidthBits != 0xFFFF)
             {
-                append(winrt::hstring{std::to_wstring(module.dataWidthBits) + L"-bit"});
+                append(ui::Localize(std::to_wstring(module.dataWidthBits) + L"-bit"));
             }
 
             if (module.voltageMillivolts > 0)
@@ -346,17 +346,17 @@ namespace tmpp::ui
                 wchar_t volts[32]{};
                 // Volts with two decimals is how modules are described; the firmware reports millivolts.
                 swprintf_s(volts, L"%.2f V", static_cast<double>(module.voltageMillivolts) / 1000.0);
-                append(winrt::hstring{volts});
+                append(ui::Localize(volts));
             }
 
             if (!module.manufacturer.empty())
             {
-                append(winrt::to_hstring(module.manufacturer));
+                append(ui::Localize(module.manufacturer));
             }
 
             if (!module.partNumber.empty())
             {
-                append(winrt::to_hstring(module.partNumber));
+                append(ui::Localize(module.partNumber));
             }
 
             row.detail = controls::MakeText(detail, 12.0, true);
@@ -378,7 +378,7 @@ namespace tmpp::ui
         detail.label = controls::MakeText(label, 13.0, true);
         detail.label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
 
-        detail.value = controls::MakeText(winrt::to_hstring(UnavailableValue()), 13.0);
+        detail.value = controls::MakeText(ui::Localize(UnavailableValue()), 13.0);
         detail.value.HorizontalAlignment(HorizontalAlignment::Right);
         detail.value.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
         // A right-aligned value that is wider than its column would otherwise spill over the
@@ -410,6 +410,16 @@ namespace tmpp::ui
         }
     }
 
+    void MemoryPage::SetOpaqueFill(bool opaque)
+    {
+        if (m_chart != nullptr) m_chart->SetOpaqueFill(opaque);
+    }
+
+    void MemoryPage::SetFillOpacity(double opacity)
+    {
+        if (m_chart != nullptr) m_chart->SetFillOpacity(opacity);
+    }
+
     void MemoryPage::Refresh()
     {
         uint64_t const version = m_coordinator.SystemVersion();
@@ -424,11 +434,11 @@ namespace tmpp::ui
 
         // The heading carries the installed capacity, as the original does; the current usage is
         // the caption above the chart.
-        m_installedCaption.Text(winrt::to_hstring(FormatBytes(system.memory.totalPhysical)));
+        m_installedCaption.Text(ui::Localize(FormatBytes(system.memory.totalPhysical)));
 
-        m_caption.Text(winrt::to_hstring("In use " + FormatBytes(system.memoryUsedBytes) + " (" +
-                                         FormatPercent(system.memoryUsedPercent) + ")  \xE2\x80\xA2  over " +
-                                         std::to_string(m_coordinator.HistorySeconds()) + " s"));
+        m_caption.Text(ui::Localize("In use " + FormatBytes(system.memoryUsedBytes) + " (" +
+            FormatPercent(system.memoryUsedPercent) + ")  \xE2\x80\xA2  over " +
+            std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The window rides with the data, so the chart anchors its samples to the right edge
         // instead of stretching them across the full width.
@@ -574,7 +584,7 @@ namespace tmpp::ui
             }
             entry.Children().Append(swatch);
 
-            std::string text{winrt::to_string(winrt::hstring{category.label})};
+            std::string text{winrt::to_string(ui::Localize(category.label))};
             text += "  ";
             text += FormatBytes(category.bytes);
             text += "  (";
@@ -586,7 +596,7 @@ namespace tmpp::ui
 
             // A smaller size than the body text so several entries fit across the width, and trimming
             // so that if one still does not fit it is elided rather than running past the edge.
-            TextBlock labelBlock = controls::MakeText(winrt::to_hstring(text), 11.0, true);
+            TextBlock labelBlock = controls::MakeText(ui::Localize(text), 11.0, true);
             labelBlock.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
             entry.Children().Append(labelBlock);
 
@@ -676,7 +686,7 @@ namespace tmpp::ui
         auto assign = [](std::vector<DetailRow> const& rows, size_t index, std::string const& text) {
             if (index < rows.size() && rows[index].value != nullptr)
             {
-                rows[index].value.Text(winrt::to_hstring(text));
+                rows[index].value.Text(ui::Localize(text));
             }
         };
 

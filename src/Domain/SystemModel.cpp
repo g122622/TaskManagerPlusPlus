@@ -6,29 +6,30 @@
 
 namespace tmpp::domain
 {
-    SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, uint32_t historySeconds)
-        : m_logicalProcessorCount(logicalProcessorCount == 0 ? 1 : logicalProcessorCount),
-          m_historyCapacity(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_cpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_memoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_diskReadHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_diskWriteHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_networkReceiveHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_networkSendHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_gpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds)),
-          m_gpuMemoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
-    {
-        m_latest.perProcessorCpuPercent.reserve(m_logicalProcessorCount);
+SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, uint32_t historySeconds)
+    : m_logicalProcessorCount(logicalProcessorCount == 0 ? 1 : logicalProcessorCount)
+    , m_historyCapacity(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_cpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_cpuKernelHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_memoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_diskReadHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_diskWriteHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_networkReceiveHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_networkSendHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_gpuHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+    , m_gpuMemoryHistory(sampling::HistoryCapacity(intervalMs, historySeconds))
+{
+    m_latest.perProcessorCpuPercent.reserve(m_logicalProcessorCount);
 
-        // One history ring per logical processor, each with the same capacity as the
-        // aggregate, so every series in a HistoryView has the same length and a caller
-        // can index them in step. Allocated up front: the count is fixed for the
-        // lifetime of the process and reallocating mid-run would invalidate the series.
-        m_perProcessorHistory.reserve(m_logicalProcessorCount);
-        for (uint32_t i = 0; i < m_logicalProcessorCount; ++i)
-        {
-            m_perProcessorHistory.emplace_back(sampling::HistoryCapacity(intervalMs, historySeconds));
-        }
+    // One history ring per logical processor, each with the same capacity as the
+    // aggregate, so every series in a HistoryView has the same length and a caller
+    // can index them in step. Allocated up front: the count is fixed for the
+    // lifetime of the process and reallocating mid-run would invalidate the series.
+    m_perProcessorHistory.reserve(m_logicalProcessorCount);
+    for (uint32_t i = 0; i < m_logicalProcessorCount; ++i) {
+        m_perProcessorHistory.emplace_back(sampling::HistoryCapacity(intervalMs, historySeconds));
+        m_perProcessorKernelHistory.emplace_back(sampling::HistoryCapacity(intervalMs, historySeconds));
+    }
     }
 
     void SystemModel::Update(platform::SystemCpuTimes const& cpu,
@@ -70,6 +71,7 @@ namespace tmpp::domain
         next.diskActivePercent = m_latest.diskActivePercent;
 
         bool cpuDerived = false;
+        double kernelPercent = 0.0;
         if (m_hasBaseline && elapsedMs > 0.0)
         {
             // Kernel time includes idle, so the difference must be taken per field
@@ -86,6 +88,7 @@ namespace tmpp::domain
                 uint64_t const busy = kernelBusy + userDelta.value;
 
                 next.cpuPercent = ComputeSystemCpuPercent(busy, idle).value;
+                kernelPercent = ComputeSystemCpuPercent(kernelBusy, idle + userDelta.value).value;
                 cpuDerived = true;
             }
         }
@@ -102,6 +105,7 @@ namespace tmpp::domain
         // History holds placeholder values until a baseline exists, so the chart keeps a
         // consistent time axis from the first frame rather than jumping.
         m_cpuHistory.Push(cpuDerived ? next.cpuPercent : 0.0);
+        m_cpuKernelHistory.Push(cpuDerived ? kernelPercent : 0.0);
         m_memoryHistory.Push(next.memoryUsedPercent);
 
         m_latest = std::move(next);
@@ -114,6 +118,7 @@ namespace tmpp::domain
     void SystemModel::_appendPerProcessor(std::vector<platform::ProcessorCpuTimes> const& perProcessor)
     {
         std::vector<double> percentages;
+        std::vector<double> kernelPercentages(m_perProcessorHistory.size(), 0.0);
         percentages.reserve(m_perProcessorHistory.size());
 
         if (perProcessor.empty())
@@ -128,6 +133,8 @@ namespace tmpp::domain
             {
                 ring.Push(0.0);
             }
+            for (auto& ring : m_perProcessorKernelHistory)
+                ring.Push(0.0);
             m_perProcessorPercent = std::move(percentages);
             return;
         }
@@ -162,6 +169,8 @@ namespace tmpp::domain
             uint64_t const busy = kernelBusy + userDelta.value;
 
             percentages[i] = ComputeSystemCpuPercent(busy, idle).value;
+            if (i < kernelPercentages.size())
+                kernelPercentages[i] = ComputeSystemCpuPercent(kernelBusy, idle + userDelta.value).value;
         }
 
         m_previousPerProcessor = perProcessor;
@@ -172,6 +181,7 @@ namespace tmpp::domain
         {
             double const value = (i < percentages.size()) ? percentages[i] : 0.0;
             m_perProcessorHistory[i].Push(value);
+            m_perProcessorKernelHistory[i].Push(kernelPercentages[i]);
         }
 
         percentages.resize(m_perProcessorHistory.size(), 0.0);
@@ -491,6 +501,9 @@ namespace tmpp::domain
     {
         HistoryView view;
         view.cpuTotal = m_cpuHistory.ToVector();
+        view.cpuKernel = m_cpuKernelHistory.ToVector();
+        for (auto const& ring : m_perProcessorKernelHistory)
+            view.perProcessorKernelCpu.push_back(ring.ToVector());
         view.memoryUsed = m_memoryHistory.ToVector();
 
         for (auto const& entry : m_diskHistoryByDevice)

@@ -174,8 +174,7 @@ namespace tmpp::ui
             // announcing "27 percent" without saying of what is worse than no label at all. A
             // hatched part carries no label of its own here; the figure it stands for is named in
             // the legend, which is real text and is read in its own right.
-            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(
-                piece, winrt::hstring{segment.label});
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(piece, ui::Localize(segment.label));
 
             Grid::SetColumn(piece, static_cast<int32_t>(m_segments.Children().Size()));
             m_segments.Children().Append(piece);

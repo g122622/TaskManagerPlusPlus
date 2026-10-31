@@ -105,6 +105,7 @@
     <ClInclude Include="Windows\ProcessIconReader.h" />
     <ClInclude Include="Windows\WindowsProcessActions.h" />
     <ClInclude Include="Windows\WindowsProcessProbe.h" />
+    <ClInclude Include="Windows\ProcessNetworkProbe.h" />
     <ClInclude Include="Windows\WindowsProcessTuning.h" />
     <ClInclude Include="Windows\WindowsString.h" />
     <ClInclude Include="Windows\WindowsSystemProbe.h" />
@@ -120,6 +121,7 @@
     <ClCompile Include="Windows\WindowsClock.cpp" />
     <ClCompile Include="Windows\WindowsFileSystem.cpp" />
     <ClCompile Include="Windows\WindowsProcessProbe.cpp" />
+    <ClCompile Include="Windows\ProcessNetworkProbe.cpp" />
     <ClCompile Include="Windows\WindowsProcessTuning.cpp" />
     <ClCompile Include="Windows\WindowsStoragePaths.cpp" />
     <ClCompile Include="Windows\WindowsString.cpp" />

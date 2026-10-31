@@ -40,8 +40,17 @@ namespace tmpp::ui
         // The element is the line: a right-hand border thickness draws exactly one edge, which marks the
         // boundary without drawing a box around anything.
         m_root.Width(HIT_WIDTH);
-        m_root.BorderThickness(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(0.0, 0.0, LINE_WIDTH, 0.0));
         m_root.BorderBrush(SolidColorBrush(LINE_IDLE));
+        winrt::Microsoft::UI::Xaml::Controls::Border line;
+        line.Width(LINE_WIDTH);
+        line.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+        line.BorderThickness(winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(LINE_WIDTH, 0.0, 0.0, 0.0));
+        winrt::Microsoft::UI::Xaml::Data::Binding brushBinding;
+        brushBinding.Source(m_root);
+        brushBinding.Path(winrt::Microsoft::UI::Xaml::PropertyPath(L"BorderBrush"));
+        line.SetBinding(winrt::Microsoft::UI::Xaml::Controls::Border::BorderBrushProperty(), brushBinding);
+        line.IsHitTestVisible(false);
+        m_root.Children().Append(line);
 
         // Stretched vertically by the caller so the line runs the full height of the table.
         m_root.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Stretch);

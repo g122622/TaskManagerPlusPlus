@@ -4,6 +4,11 @@
 
 namespace tmpp::platform
 {
+    bool UsesChineseUI() noexcept
+    {
+        return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE;
+    }
+
     std::string ToUtf8(wchar_t const* wide, size_t length)
     {
         if (wide == nullptr || length == 0)

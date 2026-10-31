@@ -65,6 +65,7 @@ namespace tmpp::ui
          * @param series Samples and the window they are drawn against.
          */
         void SetSecondarySeries(ChartSeries const& series);
+        void SetSecondaryLineColor(winrt::Windows::UI::Color color);
 
         /// Updates the large current-value readout.
         void SetCurrentValueText(std::wstring_view text);
@@ -113,8 +114,13 @@ namespace tmpp::ui
          */
         void SetMaximum(double maximum);
 
+        void SetOpaqueFill(bool opaque);
+        void SetFillOpacity(double opacity);
+
     private:
         void _redraw();
+        bool m_opaqueFill{false};
+        double m_fillOpacity{0.18};
 
         /**
          * @brief Redraws the background grid at the current plot size.

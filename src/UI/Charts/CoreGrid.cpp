@@ -217,6 +217,20 @@ namespace tmpp::ui
         }
     }
 
+    void CoreGrid::SetFillOpacity(double opacity)
+    {
+        m_fillOpacity = std::clamp(opacity, 0.0, 1.0);
+        for (auto& cell : m_cells)
+            if (cell->chart != nullptr) cell->chart->SetFillOpacity(m_fillOpacity);
+    }
+
+    void CoreGrid::SetOpaqueFill(bool opaque)
+    {
+        m_opaqueFill = opaque;
+        for (auto& cell : m_cells)
+            if (cell->chart != nullptr) cell->chart->SetOpaqueFill(opaque);
+    }
+
     void CoreGrid::_onSizeChanged()
     {
         double const width = m_root.ActualWidth();
@@ -333,6 +347,8 @@ namespace tmpp::ui
                 // all once the grid had rearranged itself.
                 cell->chart->SetLineColor(m_color);
                 cell->chart->SetLineWidth(m_lineWidth);
+                cell->chart->SetFillOpacity(m_fillOpacity);
+                cell->chart->SetOpaqueFill(m_opaqueFill);
 
                 cell->frame.Child(cell->chart->Root());
             }
@@ -348,7 +364,10 @@ namespace tmpp::ui
         }
     }
 
-    void CoreGrid::UpdateSeries(std::vector<std::vector<double>> const& perCoreSeries, size_t windowSamples)
+    void CoreGrid::UpdateSeries(std::vector<std::vector<double>> const& perCoreSeries,
+        size_t windowSamples,
+        std::vector<std::vector<double>> const& kernelSeries,
+        bool showKernel)
     {
         for (size_t i = 0; i < m_cells.size(); ++i)
         {
@@ -370,6 +389,11 @@ namespace tmpp::ui
             // which would claim a measurement that does not exist.
 
             m_cells[i]->chart->SetSeries(series);
+            ChartSeries kernel;
+            kernel.windowSamples = windowSamples;
+            if (showKernel && i < kernelSeries.size()) kernel.values = kernelSeries[i];
+            m_cells[i]->chart->SetSecondaryLineColor({0xFF, 0xF2, 0x8B, 0x82});
+            m_cells[i]->chart->SetSecondarySeries(kernel);
         }
     }
 }

@@ -11,6 +11,7 @@
 
 #include "UI/WinRTUI.h"
 
+#include <deque>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -46,6 +47,8 @@ namespace tmpp::ui
             /// already provides a spectrum, a live preview and hex entry, and it is the control a user
             /// of this platform expects for choosing a colour.
             winrt::Microsoft::UI::Xaml::Controls::ColorPicker picker{nullptr};
+            winrt::Microsoft::UI::Xaml::Controls::Border swatch{nullptr};
+            winrt::Microsoft::UI::Xaml::Controls::TextBlock hex{nullptr};
 
             winrt::Microsoft::UI::Xaml::Controls::Slider width{nullptr};
             winrt::Microsoft::UI::Xaml::Controls::TextBlock readout{nullptr};
@@ -111,6 +114,7 @@ namespace tmpp::ui
 
             outControl = TControl();
             outControl.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+            outControl.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
             winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(outControl, 2);
             row.Children().Append(outControl);
 
@@ -145,16 +149,22 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
 
         /// One entry per metric, in the order they are added.
-        std::vector<ChartRow> m_chartRows;
+        std::deque<ChartRow> m_chartRows;
 
         /// Section indices parallel to m_chartRows, so a row's index can be mapped to its style.
         std::vector<int> m_rowSections;
 
-        winrt::Microsoft::UI::Xaml::Controls::CheckBox m_alwaysOnTop{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_alwaysOnTop{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_opaqueFill{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_kernelTimes{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_fillOpacityRow{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Slider m_fillOpacity{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_fillOpacityText{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ComboBox m_startupPage{nullptr};
 
         /// Follow the system, or force light or dark.
         winrt::Microsoft::UI::Xaml::Controls::ComboBox m_theme{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ComboBox m_language{nullptr};
 
         /// How the performance page orders its disk rows.
         winrt::Microsoft::UI::Xaml::Controls::ComboBox m_diskOrder{nullptr};

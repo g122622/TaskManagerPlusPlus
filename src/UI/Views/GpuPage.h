@@ -48,6 +48,8 @@ namespace tmpp::ui
 
         /// Applies the configured stroke width.
         void SetLineWidth(double width);
+        void SetOpaqueFill(bool opaque);
+        void SetFillOpacity(double opacity);
 
     private:
         struct DetailRow

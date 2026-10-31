@@ -54,7 +54,10 @@ namespace tmpp::ui
          * @param windowSamples Samples representing the full time window, so each cell
          *        anchors its data to the right rather than stretching it across the width.
          */
-        void UpdateSeries(std::vector<std::vector<double>> const& perCoreSeries, size_t windowSamples);
+        void UpdateSeries(std::vector<std::vector<double>> const& perCoreSeries,
+            size_t windowSamples,
+            std::vector<std::vector<double>> const& kernelSeries = {},
+            bool showKernel = false);
 
         /// Colour applied to every cell.
         void SetColor(winrt::Windows::UI::Color color);
@@ -106,6 +109,9 @@ namespace tmpp::ui
         /// page's sizing and for tests.
         [[nodiscard]] static double TargetCellWidth() noexcept;
 
+        void SetOpaqueFill(bool opaque);
+        void SetFillOpacity(double opacity);
+
     private:
         /// Rebuilds the grid rows and columns for the current width and core count.
         void _rebuildLayout();
@@ -113,6 +119,8 @@ namespace tmpp::ui
         /// Recomputes the column count from the current width and rebuilds if it
         /// changed. This is what makes the grid respond to a window resize.
         void _onSizeChanged();
+        bool m_opaqueFill{false};
+        double m_fillOpacity{0.18};
 
         winrt::Microsoft::UI::Xaml::Controls::Grid m_root{nullptr};
 

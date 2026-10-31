@@ -69,6 +69,10 @@ namespace tmpp::domain
         double diskReadBytesPerSec{0.0};
         double diskWriteBytesPerSec{0.0};
         double pageFaultsPerSec{0.0};
+        double networkReceiveBytesPerSec{0.0};
+        double networkSendBytesPerSec{0.0};
+        bool networkRatesUnavailable{true};
+        platform::ProcessGpuMemory gpuMemory;
 
         /// GPU utilisation, as the busiest engine's percentage for this process.
         ///
@@ -82,6 +86,7 @@ namespace tmpp::domain
         platform::ProcessCpuTimes cpu;
         platform::ProcessMemoryCounters memory;
         platform::ProcessIoCounters io;
+        platform::ProcessNetworkCounters network;
         uint32_t threadCount{0};
         uint32_t handleCount{0};
         uint32_t sessionId{0};
@@ -152,8 +157,9 @@ namespace tmpp::domain
          * @return The newly published snapshot.
          */
         ProcessSnapshotView Update(platform::ProcessSnapshot const& raw,
-                                   SystemCpuDelta const& systemCpu,
-                                   std::map<uint32_t, double> const& gpuPercentByPid = {});
+            SystemCpuDelta const& systemCpu,
+            std::map<uint32_t, double> const& gpuPercentByPid = {},
+            std::map<uint32_t, platform::ProcessGpuMemory> const& gpuMemoryByPid = {});
 
         [[nodiscard]] ProcessSnapshotView const& Latest() const noexcept { return m_latest; }
 
@@ -171,6 +177,7 @@ namespace tmpp::domain
         {
             platform::ProcessCpuTimes cpu;
             platform::ProcessIoCounters io;
+            platform::ProcessNetworkCounters network;
             uint32_t pageFaults{0};
         };
 

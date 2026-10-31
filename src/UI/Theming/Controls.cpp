@@ -20,7 +20,7 @@ namespace tmpp::ui::controls
         // transparent brush rather than an exception, so one absent resource cannot
         // take the window down.
         auto const resources = Application::Current().Resources();
-        auto const found = resources.TryLookup(winrt::box_value(winrt::hstring{key}));
+        auto const found = resources.TryLookup(winrt::box_value(ui::Localize(key)));
         if (found != nullptr)
         {
             if (auto const brush = found.try_as<Media::Brush>())
@@ -34,7 +34,7 @@ namespace tmpp::ui::controls
     TextBlock MakeText(std::wstring_view text, double fontSize, bool subtle)
     {
         TextBlock block;
-        block.Text(winrt::hstring{text});
+        block.Text(ui::Localize(text));
         block.FontSize(fontSize);
         block.TextWrapping(TextWrapping::Wrap);
         if (subtle)
@@ -47,7 +47,7 @@ namespace tmpp::ui::controls
     TextBlock MakeHeading(std::wstring_view text, double fontSize)
     {
         TextBlock block;
-        block.Text(winrt::hstring{text});
+        block.Text(ui::Localize(text));
         block.FontSize(fontSize);
         block.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
         return block;
@@ -92,7 +92,7 @@ namespace tmpp::ui::controls
     TextBox MakeSearchBox(std::wstring_view placeholder)
     {
         TextBox box;
-        box.PlaceholderText(winrt::hstring{placeholder});
+        box.PlaceholderText(ui::Localize(placeholder));
         box.MinWidth(240.0);
 
         // The template's minimum height is 32, and a minimum wins over an explicit Height. A caller that

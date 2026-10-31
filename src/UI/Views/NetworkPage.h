@@ -48,6 +48,8 @@ namespace tmpp::ui
 
         /// Applies the configured stroke width.
         void SetLineWidth(double width);
+        void SetOpaqueFill(bool opaque);
+        void SetFillOpacity(double opacity);
 
         /// Selects which adapter the page reports. Out-of-range falls back to the first.
         void SetAdapterIndex(size_t index);

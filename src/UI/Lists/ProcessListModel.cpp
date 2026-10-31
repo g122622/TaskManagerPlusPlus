@@ -58,11 +58,27 @@ namespace tmpp::ui
                 case SortColumn::ParentPid:
                     return static_cast<double>(process.parentPid);
                 case SortColumn::Network:
-                    // Per-process network is not collected: it needs a per-process view of the adapter
-                    // counters, which Windows does not publish. Sorting by it yields a stable order rather
-                    // than a meaningless one, and the column states that it is unavailable.
-                    return 0.0;
+                    return process.networkReceiveBytesPerSec + process.networkSendBytesPerSec;
+                case SortColumn::Priority:
+                    return process.basePriority;
+                case SortColumn::DedicatedGpuMemory:
+                    return static_cast<double>(process.gpuMemory.dedicatedBytes);
+                case SortColumn::SharedGpuMemory:
+                    return static_cast<double>(process.gpuMemory.sharedBytes);
+                case SortColumn::CommitSize:
+                    return static_cast<double>(process.memory.privatePageCount);
+                case SortColumn::PeakMemory:
+                    return static_cast<double>(process.memory.peakWorkingSetSize);
+                case SortColumn::DiskRead:
+                    return process.diskReadBytesPerSec;
+                case SortColumn::DiskWrite:
+                    return process.diskWriteBytesPerSec;
+                case SortColumn::NetworkReceive:
+                    return process.networkReceiveBytesPerSec;
+                case SortColumn::NetworkSend:
+                    return process.networkSendBytesPerSec;
                 case SortColumn::Status:
+                    return process.suspended ? 1.0 : 0.0;
                 case SortColumn::Name:
                 default:
                     return 0.0;
@@ -147,9 +163,26 @@ namespace tmpp::ui
                              // During the first sample no process has rates yet.
                              // Ordering those rows consistently keeps the list from
                              // jumping around while the values settle.
-                             if (m_query.placeUnavailableLast && a.ratesUnavailable != b.ratesUnavailable)
-                             {
-                                 return b.ratesUnavailable;
+                             auto unavailable = [this](domain::ProcessView const& process) {
+                                 switch (m_query.column) {
+                                     case SortColumn::Cpu:
+                                     case SortColumn::Disk:
+                                     case SortColumn::DiskRead:
+                                     case SortColumn::DiskWrite:
+                                         return process.ratesUnavailable;
+                                     case SortColumn::Network:
+                                     case SortColumn::NetworkReceive:
+                                     case SortColumn::NetworkSend:
+                                         return process.networkRatesUnavailable;
+                                     case SortColumn::DedicatedGpuMemory:
+                                     case SortColumn::SharedGpuMemory:
+                                         return !process.gpuMemory.available;
+                                     default:
+                                         return false;
+                                 }
+                             };
+                             if (m_query.placeUnavailableLast && unavailable(a) != unavailable(b)) {
+                                 return unavailable(b);
                              }
 
                              double const keyA = _numericKey(a, m_query.column);

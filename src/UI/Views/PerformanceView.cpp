@@ -183,6 +183,7 @@ namespace tmpp::ui
     void PerformanceView::ApplySettings(core::Settings const& settings)
     {
         m_settings = settings;
+        m_renderedVersion = 0;
 
         // The styles are pushed into the sidebar thumbnails and the pages, so a colour change is
         // visible without recreating anything.
@@ -195,6 +196,8 @@ namespace tmpp::ui
             {
                 m_rows[i].sparkline->SetColors(color, /*muted=*/i != m_selectedRow);
                 m_rows[i].sparkline->SetThickness(style.ClampedLineWidth());
+                m_rows[i].sparkline->SetFillOpacity(settings.chartFillOpacity);
+                m_rows[i].sparkline->SetOpaqueFill(settings.opaqueChartFill);
             }
         }
 
@@ -203,6 +206,9 @@ namespace tmpp::ui
             core::ChartStyle const& cpu = settings.ChartStyleFor(0);
             m_cpuPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, cpu.red, cpu.green, cpu.blue});
             m_cpuPage->SetLineWidth(cpu.ClampedLineWidth());
+            m_cpuPage->SetFillOpacity(settings.chartFillOpacity);
+            m_cpuPage->SetOpaqueFill(settings.opaqueChartFill);
+            m_cpuPage->SetShowKernelTimes(settings.showCpuKernelTimes);
         }
 
         if (m_memoryPage != nullptr)
@@ -210,6 +216,8 @@ namespace tmpp::ui
             core::ChartStyle const& memory = settings.ChartStyleFor(1);
             m_memoryPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, memory.red, memory.green, memory.blue});
             m_memoryPage->SetLineWidth(memory.ClampedLineWidth());
+            m_memoryPage->SetFillOpacity(settings.chartFillOpacity);
+            m_memoryPage->SetOpaqueFill(settings.opaqueChartFill);
         }
 
         for (auto const& page : m_diskPages)
@@ -219,6 +227,8 @@ namespace tmpp::ui
                 core::ChartStyle const& disk = settings.ChartStyleFor(2);
                 page->SetAccentColor(winrt::Windows::UI::Color{0xFF, disk.red, disk.green, disk.blue});
                 page->SetLineWidth(disk.ClampedLineWidth());
+                page->SetFillOpacity(settings.chartFillOpacity);
+                page->SetOpaqueFill(settings.opaqueChartFill);
             }
         }
 
@@ -227,6 +237,8 @@ namespace tmpp::ui
             core::ChartStyle const& network = settings.ChartStyleFor(3);
             m_networkPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, network.red, network.green, network.blue});
             m_networkPage->SetLineWidth(network.ClampedLineWidth());
+            m_networkPage->SetFillOpacity(settings.chartFillOpacity);
+            m_networkPage->SetOpaqueFill(settings.opaqueChartFill);
         }
 
         if (m_gpuPage != nullptr)
@@ -234,6 +246,8 @@ namespace tmpp::ui
             core::ChartStyle const& gpu = settings.ChartStyleFor(4);
             m_gpuPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, gpu.red, gpu.green, gpu.blue});
             m_gpuPage->SetLineWidth(gpu.ClampedLineWidth());
+            m_gpuPage->SetFillOpacity(settings.chartFillOpacity);
+            m_gpuPage->SetOpaqueFill(settings.opaqueChartFill);
         }
     }
 
@@ -448,7 +462,7 @@ namespace tmpp::ui
             {
                 // The instance name is the form the original uses: the device index followed by the
                 // volumes it backs, as in "2 C: D:".
-                title += winrt::to_hstring(system.disks[device].instanceName).c_str();
+                title += ui::Localize(system.disks[device].instanceName).c_str();
                 m_diskTitles[device] = title;
             }
             else if (auto const known = m_diskTitles.find(device); known != m_diskTitles.end())
@@ -583,6 +597,8 @@ namespace tmpp::ui
             row.title = title;
             row.subtitle = subtitle;
             row.detail = detail;
+            sparkline->SetFillOpacity(m_settings.chartFillOpacity);
+            sparkline->SetOpaqueFill(m_settings.opaqueChartFill);
             row.sparkline = std::move(sparkline);
             row.kind = spec.kind;
             row.subIndex = spec.subIndex;
@@ -670,6 +686,10 @@ namespace tmpp::ui
                 if (m_cpuPage == nullptr)
                 {
                     m_cpuPage = std::make_unique<CpuPage>(m_coordinator, style);
+                    m_cpuPage->SetKernelTimesHandler([this](bool show) {
+                        m_settings.showCpuKernelTimes = show;
+                        if (m_onKernelTimesChanged) m_onKernelTimesChanged(show);
+                    });
                 }
                 m_detailHost.Children().Append(m_cpuPage->Root());
                 break;
@@ -717,6 +737,8 @@ namespace tmpp::ui
                 break;
         }
 
+        ApplySettings(m_settings);
+
         // The newly opened page has not drawn anything yet, so the version check must not skip it.
         m_renderedVersion = 0;
     }
@@ -727,7 +749,7 @@ namespace tmpp::ui
         auto setSubtitle = [this](size_t index, std::string const& text) {
             if (index < m_rows.size() && m_rows[index].subtitle != nullptr)
             {
-                m_rows[index].subtitle.Text(winrt::to_hstring(text));
+                m_rows[index].subtitle.Text(ui::Localize(text));
             }
         };
 
@@ -739,7 +761,7 @@ namespace tmpp::ui
                 return;
             }
 
-            m_rows[index].detail.Text(winrt::to_hstring(text));
+            m_rows[index].detail.Text(ui::Localize(text));
             m_rows[index].detail.Visibility(text.empty() ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
                                                                        : winrt::Microsoft::UI::Xaml::Visibility::Visible);
         };
@@ -774,6 +796,9 @@ namespace tmpp::ui
                     series.values = history.cpuTotal;
                     series.windowSamples = history.windowSamples;
                     m_rows[i].sparkline->SetSeries(series, 100.0);
+                    m_rows[i].sparkline->SetSecondarySeries(
+                        {m_settings.showCpuKernelTimes ? history.cpuKernel : std::vector<double>{},
+                            history.windowSamples});
                     break;
                 }
 
@@ -806,6 +831,7 @@ namespace tmpp::ui
                     series.values = history.memoryUsed;
                     series.windowSamples = history.windowSamples;
                     m_rows[i].sparkline->SetSeries(series, 100.0);
+
                     break;
                 }
 
@@ -949,6 +975,7 @@ namespace tmpp::ui
                     series.values = history.gpuUtilization;
                     series.windowSamples = history.windowSamples;
                     m_rows[i].sparkline->SetSeries(series, 100.0);
+
                     break;
                 }
             }

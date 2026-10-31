@@ -10,7 +10,6 @@
 #include <string>
 
 using winrt::Microsoft::UI::Xaml::Controls::Border;
-using winrt::Microsoft::UI::Xaml::Controls::CheckBox;
 using winrt::Microsoft::UI::Xaml::Controls::ComboBox;
 using winrt::Microsoft::UI::Xaml::Controls::Grid;
 using winrt::Microsoft::UI::Xaml::Controls::Slider;
@@ -96,10 +95,10 @@ namespace tmpp::ui
             // The order matches the StartupPage enum, so the selected index is the enum value and no
             // lookup table is needed to map between them.
             m_startupPage.MinWidth(180.0);
-            m_startupPage.Items().Append(winrt::box_value(winrt::hstring{L"Processes"}));
-            m_startupPage.Items().Append(winrt::box_value(winrt::hstring{L"Performance"}));
-            m_startupPage.Items().Append(winrt::box_value(winrt::hstring{L"Details"}));
-            m_startupPage.Items().Append(winrt::box_value(winrt::hstring{L"Last used page"}));
+            m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Processes")));
+            m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Performance")));
+            m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Details")));
+            m_startupPage.Items().Append(winrt::box_value(ui::Localize(L"Last used page")));
             m_startupPage.SelectedIndex(static_cast<int32_t>(m_settings.startupPage));
             m_startupPage.SelectionChanged(
                 [this](winrt::Windows::Foundation::IInspectable const&,
@@ -123,8 +122,8 @@ namespace tmpp::ui
 
             // The order matches the DiskSortOrder enum, so the selected index is the enum value.
             m_diskOrder.MinWidth(180.0);
-            m_diskOrder.Items().Append(winrt::box_value(winrt::hstring{L"By device number"}));
-            m_diskOrder.Items().Append(winrt::box_value(winrt::hstring{L"By first drive letter"}));
+            m_diskOrder.Items().Append(winrt::box_value(ui::Localize(L"By device number")));
+            m_diskOrder.Items().Append(winrt::box_value(ui::Localize(L"By first drive letter")));
             m_diskOrder.SelectedIndex(static_cast<int32_t>(m_settings.diskSortOrder));
             m_diskOrder.SelectionChanged(
                 [this](winrt::Windows::Foundation::IInspectable const&,
@@ -137,6 +136,20 @@ namespace tmpp::ui
                     }
                 });
 
+            _addRow(section, L"\xE774", L"Language", L"Choose the display language", m_language);
+            m_language.MinWidth(180.0);
+            for (auto const* label : {L"System default", L"English", L"Simplified Chinese"})
+                m_language.Items().Append(winrt::box_value(ui::Localize(label)));
+            m_language.SelectedIndex(static_cast<int32_t>(m_settings.language));
+            m_language.SelectionChanged([this](auto const&, auto const&) {
+                if (ui::LocalizationInProgress()) return;
+                auto const index = m_language.SelectedIndex();
+                if (index >= 0) {
+                    m_settings.language = static_cast<core::LanguageMode>(index);
+                    _notifyChange();
+                }
+            });
+
             // Theme. The setting existed in the file but was never applied, so choosing one did
             // nothing at all.
             _addRow(section,
@@ -148,9 +161,9 @@ namespace tmpp::ui
             // The order matches the ThemeMode enum, so the selected index is the enum value and no
             // lookup table is needed to map between them.
             m_theme.MinWidth(180.0);
-            m_theme.Items().Append(winrt::box_value(winrt::hstring{L"Use system setting"}));
-            m_theme.Items().Append(winrt::box_value(winrt::hstring{L"Light"}));
-            m_theme.Items().Append(winrt::box_value(winrt::hstring{L"Dark"}));
+            m_theme.Items().Append(winrt::box_value(ui::Localize(L"Use system setting")));
+            m_theme.Items().Append(winrt::box_value(ui::Localize(L"Light")));
+            m_theme.Items().Append(winrt::box_value(ui::Localize(L"Dark")));
             m_theme.SelectedIndex(static_cast<int32_t>(m_settings.theme));
             m_theme.SelectionChanged(
                 [this](winrt::Windows::Foundation::IInspectable const&,
@@ -168,15 +181,77 @@ namespace tmpp::ui
                     L"Keep the window on top",
                     L"Leave the window above other windows",
                     m_alwaysOnTop);
-            m_alwaysOnTop.IsChecked(m_settings.alwaysOnTop);
-            m_alwaysOnTop.Checked([this](winrt::Windows::Foundation::IInspectable const&,
-                                         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
-                m_settings.alwaysOnTop = m_alwaysOnTop.IsChecked().GetBoolean();
+            m_alwaysOnTop.IsOn(m_settings.alwaysOnTop);
+            m_alwaysOnTop.MinWidth(0.0);
+            m_alwaysOnTop.Width(40.0);
+            m_alwaysOnTop.OnContent(winrt::box_value(ui::Localize(L"")));
+            m_alwaysOnTop.OffContent(winrt::box_value(ui::Localize(L"")));
+            m_alwaysOnTop.Toggled([this](auto const&, auto const&) {
+                m_settings.alwaysOnTop = m_alwaysOnTop.IsOn();
                 _notifyChange();
             });
-            m_alwaysOnTop.Unchecked([this](winrt::Windows::Foundation::IInspectable const&,
-                                           winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
-                m_settings.alwaysOnTop = m_alwaysOnTop.IsChecked().GetBoolean();
+        }
+
+        {
+            StackPanel section = _addSection(body, L"Charts");
+            _addRow(
+                section, L"\xE9D9", L"Show kernel times", L"Overlay kernel CPU time on the CPU charts", m_kernelTimes);
+            m_kernelTimes.MinWidth(0.0);
+            m_kernelTimes.Width(40.0);
+            m_kernelTimes.OnContent(winrt::box_value(L""));
+            m_kernelTimes.OffContent(winrt::box_value(L""));
+            m_kernelTimes.IsOn(m_settings.showCpuKernelTimes);
+            m_kernelTimes.Toggled([this](auto const&, auto const&) {
+                m_settings.showCpuKernelTimes = m_kernelTimes.IsOn();
+                _notifyChange();
+            });
+            _addRow(section,
+                L"\xE790",
+                L"Opaque chart fill",
+                L"Use solid colour below the line instead of a translucent fill",
+                m_opaqueFill);
+            m_opaqueFill.IsOn(m_settings.opaqueChartFill);
+            m_opaqueFill.MinWidth(0.0);
+            m_opaqueFill.Width(40.0);
+            m_opaqueFill.OnContent(winrt::box_value(ui::Localize(L"")));
+            m_opaqueFill.OffContent(winrt::box_value(ui::Localize(L"")));
+            m_opaqueFill.Toggled([this](auto const&, auto const&) {
+                m_settings.opaqueChartFill = m_opaqueFill.IsOn();
+                m_fillOpacityRow.Visibility(m_settings.opaqueChartFill
+                        ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                        : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+                _notifyChange();
+            });
+            m_fillOpacityRow = Grid();
+            m_fillOpacityRow.Padding(ThicknessHelper::FromLengths(16.0, 10.0, 16.0, 10.0));
+            m_fillOpacityRow.ColumnDefinitions().Append(controls::MakeStarColumn());
+            m_fillOpacityRow.ColumnDefinitions().Append(controls::MakeAutoColumn());
+            auto label = controls::MakeText(L"Fill opacity", 14.0);
+            label.VerticalAlignment(VerticalAlignment::Center);
+            m_fillOpacityRow.Children().Append(label);
+            auto opacityControls = controls::MakeRow(10.0);
+            opacityControls.HorizontalAlignment(HorizontalAlignment::Right);
+            m_fillOpacity = Slider();
+            m_fillOpacity.Minimum(0.0);
+            m_fillOpacity.Maximum(100.0);
+            m_fillOpacity.StepFrequency(1.0);
+            m_fillOpacity.Width(180.0);
+            m_fillOpacity.Value(m_settings.chartFillOpacity * 100.0);
+            opacityControls.Children().Append(m_fillOpacity);
+            m_fillOpacityText = controls::MakeText(
+                std::to_wstring(static_cast<int>(m_settings.chartFillOpacity * 100.0)) + L"%", 12.0, true);
+            m_fillOpacityText.Width(44.0);
+            m_fillOpacityText.TextAlignment(winrt::Microsoft::UI::Xaml::TextAlignment::Right);
+            m_fillOpacityText.VerticalAlignment(VerticalAlignment::Center);
+            opacityControls.Children().Append(m_fillOpacityText);
+            Grid::SetColumn(opacityControls, 1);
+            m_fillOpacityRow.Children().Append(opacityControls);
+            m_fillOpacityRow.Visibility(m_settings.opaqueChartFill ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                                                   : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            section.Children().Append(m_fillOpacityRow);
+            m_fillOpacity.ValueChanged([this](auto const&, auto const&) {
+                m_settings.chartFillOpacity = m_fillOpacity.Value() / 100.0;
+                m_fillOpacityText.Text(ui::Localize(std::to_wstring(static_cast<int>(m_fillOpacity.Value())) + L"%"));
                 _notifyChange();
             });
         }
@@ -222,7 +297,8 @@ namespace tmpp::ui
         (void)title;
         core::ChartStyle& style = m_settings.MutableChartStyleFor(sectionIndex);
 
-        ChartRow row;
+        m_chartRows.emplace_back();
+        ChartRow& row = m_chartRows.back();
 
         // --- Colour row: the framework's colour picker ---
         {
@@ -238,9 +314,7 @@ namespace tmpp::ui
             Grid::SetColumn(label, 0);
             colourRow.Children().Append(label);
 
-            // Expanded so the spectrum, the preview and the RGB fields are all usable without an
-            // extra click; collapsed, the control is a single swatch button and the user would have to
-            // open it before seeing any of that.
+            // Keep the full spectrum and RGB controls in a flyout opened from the colour preview.
             row.picker = winrt::Microsoft::UI::Xaml::Controls::ColorPicker();
             row.picker.IsAlphaEnabled(false);
             row.picker.IsAlphaSliderVisible(false);
@@ -249,11 +323,32 @@ namespace tmpp::ui
             row.picker.IsColorSpectrumVisible(true);
             row.picker.ColorSpectrumShape(winrt::Microsoft::UI::Xaml::Controls::ColorSpectrumShape::Box);
             row.picker.IsMoreButtonVisible(true);
-            row.picker.MinWidth(320.0);
+            row.picker.Width(300.0);
             row.picker.VerticalAlignment(VerticalAlignment::Center);
             row.picker.Color(_makeColor(style));
-            Grid::SetColumn(row.picker, 1);
-            colourRow.Children().Append(row.picker);
+            winrt::Microsoft::UI::Xaml::Controls::Flyout pickerFlyout;
+            pickerFlyout.Content(row.picker);
+            winrt::Microsoft::UI::Xaml::Controls::Button colourButton;
+            colourButton.Flyout(pickerFlyout);
+            colourButton.Padding(ThicknessHelper::FromLengths(10.0, 6.0, 10.0, 6.0));
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(
+                colourButton, ui::Localize(title) + L" line colour");
+            StackPanel preview = controls::MakeRow(10.0);
+            row.swatch = Border();
+            row.swatch.Width(24.0);
+            row.swatch.Height(18.0);
+            row.swatch.CornerRadius(winrt::Microsoft::UI::Xaml::CornerRadiusHelper::FromUniformRadius(4.0));
+            preview.Children().Append(row.swatch);
+            row.hex = controls::MakeText(L"", 13.0);
+            row.hex.VerticalAlignment(VerticalAlignment::Center);
+            preview.Children().Append(row.hex);
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon chevron;
+            chevron.Glyph(L"\xE70D");
+            chevron.FontSize(10.0);
+            preview.Children().Append(chevron);
+            colourButton.Content(preview);
+            Grid::SetColumn(colourButton, 1);
+            colourRow.Children().Append(colourButton);
 
             row.picker.ColorChanged(
                 [this, sectionIndex, &row](winrt::Microsoft::UI::Xaml::Controls::ColorPicker const& sender,
@@ -292,19 +387,21 @@ namespace tmpp::ui
 
             StackPanel widthControls = controls::MakeRow(10.0);
             widthControls.VerticalAlignment(VerticalAlignment::Center);
+            widthControls.HorizontalAlignment(HorizontalAlignment::Right);
 
             row.width = Slider();
             row.width.Minimum(0.5);
             row.width.Maximum(8.0);
             row.width.StepFrequency(0.5);
             row.width.Value(style.ClampedLineWidth());
-            row.width.Width(220.0);
+            row.width.Width(180.0);
             row.width.VerticalAlignment(VerticalAlignment::Center);
             widthControls.Children().Append(row.width);
 
             row.readout = controls::MakeText(L"", 12.0, true);
             row.readout.VerticalAlignment(VerticalAlignment::Center);
-            row.readout.MinWidth(60.0);
+            row.readout.Width(60.0);
+            row.readout.TextAlignment(winrt::Microsoft::UI::Xaml::TextAlignment::Right);
             widthControls.Children().Append(row.readout);
 
             Grid::SetColumn(widthControls, 1);
@@ -331,7 +428,6 @@ namespace tmpp::ui
             section.Children().Append(widthRow);
         }
 
-        m_chartRows.push_back(row);
         m_rowSections.push_back(sectionIndex);
     }
 
@@ -345,6 +441,10 @@ namespace tmpp::ui
             // Writing into a control raises its change event, which would call back into this page and
             // restart the handler. The flag makes the round trip harmless.
             row.suppress = true;
+            row.swatch.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(_makeColor(style)));
+            wchar_t hex[8]{};
+            swprintf_s(hex, L"#%02X%02X%02X", style.red, style.green, style.blue);
+            row.hex.Text(ui::Localize(hex));
 
             winrt::Windows::UI::Color const color = _makeColor(style);
             if (row.picker != nullptr && row.picker.Color() != color)
@@ -360,7 +460,7 @@ namespace tmpp::ui
             // The readout makes an exact width reachable, which a slider on its own cannot guarantee.
             std::string text = std::to_string(style.ClampedLineWidth()).substr(0, 3);
             text += " px";
-            row.readout.Text(winrt::to_hstring(text));
+            row.readout.Text(ui::Localize(text));
 
             row.suppress = false;
         }
@@ -368,6 +468,7 @@ namespace tmpp::ui
 
     void SettingsPage::_notifyChange()
     {
+        if (ui::LocalizationInProgress()) return;
         _refreshFromSettings();
         if (m_onChange)
         {

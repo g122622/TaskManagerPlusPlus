@@ -85,7 +85,11 @@ namespace tmpp
 
         /// The page header bar's title, updated as the navigation selection changes so the
         /// bar names the page being shown.
+        winrt::Microsoft::UI::Xaml::Controls::TitleBar m_unifiedTitleBar{nullptr};
+        void _showRunTaskDialog();
+        void _updateTitleBarTheme();
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_pageTitle{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::TextBlock m_brandName{nullptr};
 
         /// The process search box, hosted in the title bar so it is reachable from every page.
         winrt::Microsoft::UI::Xaml::Controls::TextBox m_searchBox{nullptr};
@@ -120,9 +124,7 @@ namespace tmpp
         /// stack. Their heights are set to zero rather than the elements being hidden, because a fixed
         /// row keeps its height whether or not its child is visible.
         winrt::Microsoft::UI::Xaml::Controls::RowDefinition m_titleBarRow{nullptr};
-        winrt::Microsoft::UI::Xaml::Controls::RowDefinition m_pageHeaderRow{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::RowDefinition m_bottomRow{nullptr};
-        winrt::Microsoft::UI::Xaml::Controls::Grid m_pageHeader{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_bottomStack{nullptr};
 
         /// The navigation rail''s resize handle. A NavigationView has no splitter, so this is an

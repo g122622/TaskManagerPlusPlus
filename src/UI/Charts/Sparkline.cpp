@@ -55,6 +55,10 @@ namespace tmpp::ui
 
         m_canvas.Children().Append(m_fill);
         m_canvas.Children().Append(m_line);
+        m_secondaryLine = winrt::Microsoft::UI::Xaml::Shapes::Polyline();
+        m_secondaryLine.Stroke(SolidColorBrush({0xFF, 0xF2, 0x8B, 0x82}));
+        m_secondaryLine.StrokeThickness(m_thickness);
+        m_canvas.Children().Append(m_secondaryLine);
 
         // The thumbnail carries the same faint rounded frame as every other chart, from the same
         // factory, so the border width, radius and opacity cannot drift from the large ones.
@@ -73,9 +77,17 @@ namespace tmpp::ui
         _redraw();
     }
 
+    void Sparkline::SetSecondarySeries(ChartSeries const& series)
+    {
+        m_secondaryValues = series.values;
+        _redraw();
+    }
+
     void Sparkline::Clear()
     {
         m_values.clear();
+        m_secondaryValues.clear();
+        m_secondaryLine.Points().Clear();
         m_line.Points().Clear();
         m_fill.Points().Clear();
     }
@@ -83,22 +95,38 @@ namespace tmpp::ui
     void Sparkline::SetColors(winrt::Windows::UI::Color color, bool muted)
     {
         m_color = color;
+        m_muted = muted;
 
         double const lineAlpha = muted ? MUTED_OPACITY : 1.0;
         m_line.Stroke(SolidColorBrush(_withAlpha(m_color, lineAlpha)));
-        m_fill.Fill(SolidColorBrush(_withAlpha(m_color, muted ? FILL_OPACITY * MUTED_OPACITY : FILL_OPACITY)));
+        m_fill.Fill(SolidColorBrush(
+            _withAlpha(m_color, m_opaqueFill ? 1.0 : (muted ? m_fillOpacity * MUTED_OPACITY : m_fillOpacity))));
+    }
+
+    void Sparkline::SetFillOpacity(double opacity)
+    {
+        m_fillOpacity = std::clamp(opacity, 0.0, 1.0);
+        SetOpaqueFill(m_opaqueFill);
+    }
+
+    void Sparkline::SetOpaqueFill(bool opaque)
+    {
+        m_opaqueFill = opaque;
+        SetColors(m_color, m_muted);
     }
 
     void Sparkline::SetThickness(double thickness)
     {
         m_thickness = std::clamp(thickness, 0.5, 8.0);
         m_line.StrokeThickness(m_thickness);
+        m_secondaryLine.StrokeThickness(m_thickness);
     }
 
     void Sparkline::_redraw()
     {
         m_line.Points().Clear();
         m_fill.Points().Clear();
+        m_secondaryLine.Points().Clear();
 
         // A single point cannot describe a line. Leaving the plot empty is honest;
         // drawing a flat line would claim a reading that does not exist.
@@ -134,6 +162,11 @@ namespace tmpp::ui
 
             linePoints.Append(winrt::Windows::Foundation::Point{x, y});
             fillPoints.Append(winrt::Windows::Foundation::Point{x, y});
+            if (m_secondaryValues.size() == m_values.size()) {
+                auto const kernelY =
+                    static_cast<float>(m_height * (1.0 - std::clamp(m_secondaryValues[i] / m_maximum, 0.0, 1.0)));
+                m_secondaryLine.Points().Append({x, kernelY});
+            }
         }
 
         // Close the shape along the baseline, spanning only the samples that exist so the

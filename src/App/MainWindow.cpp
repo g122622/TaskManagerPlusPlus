@@ -70,20 +70,8 @@ namespace tmpp
         /// buttons. Without this the CPU percentage was drawn on top of them.
         constexpr double TITLE_BAR_HEIGHT = 40.0;
 
-        /// Height of the app title bar: the strip carrying "Task Manager" and the search box.
-        ///
-        /// Must match the system's caption height, which is what TitleBarHeightOption::Standard sets at 32
-        /// pixels. The window buttons are drawn by the system in that region, centred on it, so a row of a
-        /// different height puts them off the centre of the line they share with the title.
-        constexpr double APP_TITLE_BAR_HEIGHT = 32.0;
-
-        /// Height of the page header bar: the strip carrying the page name and the task
-        /// actions. The original shows both bars stacked at the top of the window.
-        ///
-        /// Taller than the label it carries, which is a 14 point line of about 19 pixels, so the text sits
-        /// with clear space above and below it rather than filling the strip. At 24 the strip cleared the
-        /// text's own box but left it visibly cramped.
-        constexpr double PAGE_HEADER_HEIGHT = 40.0;
+        // One native title bar aligns the app identity, page, search and actions with the caption buttons.
+        constexpr double APP_TITLE_BAR_HEIGHT = 48.0;
 
         /// Index used for the Settings page. Outside the range a navigation item can produce, so it
         /// cannot collide with a page the user selected from the main list.
@@ -121,6 +109,9 @@ namespace tmpp
         }
 
         core::Settings const& settings = m_loadedSettings;
+        core::localization::Initialize(
+            paths.Success() ? paths.Value().ApplicationDirectory() + "assets/locales" : "assets/locales",
+            settings.language);
 
         // The session's working copy. Save writes the whole document, so every change is made to one
         // copy that is current rather than being layered over the loaded one at close.
@@ -213,6 +204,9 @@ namespace tmpp
         // against its own column's bounds and falls back to the default for anything it rejects, so a
         // hand-edited file cannot leave a column unreadable.
         m_processesView->SetColumnWidths(m_currentSettings.processColumnWidths);
+        m_processesView->SetColumnVisibility(m_currentSettings.processColumnVisible);
+        m_processesView->SetColumnVisibilityHandler(
+            [this](std::vector<bool> visible) { m_currentSettings.processColumnVisible = std::move(visible); });
 
         // A drag reports the whole set on release, and it is stored in the session's copy so the file is
         // written once on close rather than on every drag. The application owns the file and decides when
@@ -236,6 +230,11 @@ namespace tmpp
             *m_coordinator,
             m_currentSettings,
             [this](double width) { m_currentSettings.performanceSidebarWidth = width; });
+
+        m_performanceView->SetKernelTimesHandler([this](bool show) {
+            m_currentSettings.showCpuKernelTimes = show;
+            m_performanceView->ApplySettings(m_currentSettings);
+        });
 
         // The search box lives in the title bar, which this window owns, so its text is handed to the page
         // that filters on it.
@@ -265,21 +264,22 @@ namespace tmpp
 
         m_contentHost.Children().Clear();
 
-        // The page header names the page being shown, matching the original's second bar.
-        if (m_pageTitle != nullptr)
-        {
+        if (m_unifiedTitleBar != nullptr) {
             switch (index)
             {
+                case SETTINGS_PAGE_INDEX:
+                    m_pageTitle.Text(ui::Localize(L"Settings"));
+                    break;
                 case 0:
-                    m_pageTitle.Text(L"Processes");
+                    m_pageTitle.Text(ui::Localize(L"Processes"));
                     m_currentPage = core::StartupPage::Processes;
                     break;
                 case 1:
-                    m_pageTitle.Text(L"Performance");
+                    m_pageTitle.Text(ui::Localize(L"Performance"));
                     m_currentPage = core::StartupPage::Performance;
                     break;
                 default:
-                    m_pageTitle.Text(L"Details");
+                    m_pageTitle.Text(ui::Localize(L"Details"));
                     m_currentPage = core::StartupPage::Details;
                     break;
             }
@@ -336,6 +336,7 @@ namespace tmpp
                 break;
             }
         }
+        ui::LocalizeTree(m_contentHost);
     }
 
     void MainWindow::_setMiniMode(bool mini)
@@ -386,16 +387,8 @@ namespace tmpp
         // The title bar keeps its height: the window buttons and the drag region live in it, and a
         // compact window still has to be movable and closable. Only the page header and the status bar
         // go, since neither describes anything the compact list shows.
-        if (m_pageHeaderRow != nullptr)
-        {
-            m_pageHeaderRow.Height(ui::controls::MakeFixedRow(mini ? 0.0 : PAGE_HEADER_HEIGHT).Height());
-        }
-
-        if (m_pageHeader != nullptr)
-        {
-            m_pageHeader.Visibility(mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
-                                         : winrt::Microsoft::UI::Xaml::Visibility::Visible);
-        }
+        m_unifiedTitleBar.RightHeader().Visibility(
+            mini ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed : winrt::Microsoft::UI::Xaml::Visibility::Visible);
 
         if (m_bottomStack != nullptr)
         {
@@ -412,7 +405,9 @@ namespace tmpp
     void MainWindow::_applySettings(core::Settings const& updated)
     {
         // The settings page edits its own copy, so the application's is brought into line here.
+        bool const languageChanged = m_currentSettings.language != updated.language;
         m_currentSettings = updated;
+        core::localization::SetLanguage(updated.language);
 
         // The topmost state is applied immediately: it is the one setting whose effect is expected
         // the moment it is changed rather than at the next launch.
@@ -458,6 +453,14 @@ namespace tmpp
             core::ChartStyle const& cpu = updated.ChartStyleFor(0);
             m_detailsPage->SetAccentColor(winrt::Windows::UI::Color{0xFF, cpu.red, cpu.green, cpu.blue});
             m_detailsPage->SetLineWidth(cpu.ClampedLineWidth());
+            m_detailsPage->SetOpaqueFill(updated.opaqueChartFill);
+            m_detailsPage->SetFillOpacity(updated.chartFillOpacity);
+        }
+        if (m_rootGrid != nullptr) m_rootGrid.Language(ui::Localize(core::localization::Locale()));
+        if (languageChanged && m_rootGrid != nullptr) {
+            m_rootGrid.Language(ui::Localize(core::localization::Locale()));
+            ui::LocalizeTree(m_rootGrid);
+            _updateStatusBar();
         }
     }
 
@@ -580,7 +583,7 @@ namespace tmpp
 
         auto addItem = [this](wchar_t const* label, wchar_t const* glyph) {
             NavigationViewItem item;
-            item.Content(winrt::box_value(winrt::hstring{label}));
+            item.Content(winrt::box_value(ui::Localize(label)));
             FontIcon icon;
             icon.Glyph(glyph);
             item.Icon(icon);
@@ -597,7 +600,7 @@ namespace tmpp
         // selection handler can tell it apart from the pages above.
         {
             NavigationViewItem settingsItem;
-            settingsItem.Content(winrt::box_value(winrt::hstring{L"Settings"}));
+            settingsItem.Content(winrt::box_value(ui::Localize(L"Settings")));
             FontIcon settingsIcon;
             settingsIcon.Glyph(L"\xE713");
             settingsItem.Icon(settingsIcon);
@@ -684,216 +687,112 @@ namespace tmpp
         m_permissionBar.IsOpen(false);
         m_permissionBar.IsClosable(true);
 
-        // --- Page header bar ----------------------------------------------------
-        //
-        // The second of the two bars the original has: the page name on the left, and the
-        // task actions on the right. The buttons are placeholders -- they are present and
-        // laid out, but do nothing yet -- because the original's actions belong to features
-        // this milestone does not include (docs/ROADMAP.md).
-        Grid pageHeader = Grid();
-        pageHeader.Height(PAGE_HEADER_HEIGHT);
+        // --- Unified title bar -------------------------------------------------
+        // TitleBar manages the caption insets, drag regions and interactive content for us.
+        m_unifiedTitleBar = winrt::Microsoft::UI::Xaml::Controls::TitleBar();
+        m_unifiedTitleBar.Height(APP_TITLE_BAR_HEIGHT);
+        m_unifiedTitleBar.Resources().Insert(
+            winrt::box_value(ui::Localize(L"TitleBarMinDragRegionWidth")), winrt::box_value(8.0));
+        m_unifiedTitleBar.Resources().Insert(
+            winrt::box_value(ui::Localize(L"TitleBarDeactivatedOpacity")), winrt::box_value(0.8));
+        auto identity = ui::controls::MakeRow(12.0);
+        identity.Margin(ThicknessHelper::FromLengths(2.0, 0.0, 16.0, 0.0));
+        FontIcon appIcon;
+        appIcon.Glyph(L"\xE9D9");
+        appIcon.FontSize(18.0);
+        identity.Children().Append(appIcon);
+        m_brandName = ui::controls::MakeText(L"Task Manager++", 13.0);
+        m_brandName.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        identity.Children().Append(m_brandName);
+        winrt::Microsoft::UI::Xaml::Controls::Border divider;
+        divider.Width(1.0);
+        divider.Height(18.0);
+        divider.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush({0x60, 0x88, 0x88, 0x88}));
+        identity.Children().Append(divider);
+        m_pageTitle = ui::controls::MakeHeading(L"Processes", 13.0);
+        m_pageTitle.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+        identity.Children().Append(m_pageTitle);
+        m_unifiedTitleBar.LeftHeader(identity);
 
-        // Inset on both sides. The right inset matches the left so the page's actions line up with the
-        // content below them rather than sitting flush against the window edge.
-        pageHeader.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, ui::metrics::PAGE_MARGIN, 0.0));
-        pageHeader.Background(ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
-
-        // Two equal star columns with an Auto between them, so the Auto column is centred in the bar.
-        //
-        // A single star in the middle would not do it: the columns either side are as wide as their content,
-        // and the page name and the actions are not the same width, so the middle column's centre sits off
-        // to one side of the bar's. Two equal stars take the same amount of slack each, which is what forces
-        // the Auto column -- and the search box in it -- to the bar's centre.
-        pageHeader.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
-        pageHeader.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
-        pageHeader.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
-
-        // The page name, sized to the strip it sits in. It names the page rather than being the page's
-        // own title, so it is a label: at a heading's size it competed with the headings inside the page
-        // it labels, and it no longer fits a strip this short.
-        m_pageTitle = ui::controls::MakeHeading(L"Processes", 14.0);
-        m_pageTitle.VerticalAlignment(VerticalAlignment::Center);
-
-        // Pinned left inside its star column. The column now takes slack rather than sizing to its content,
-        // so without this the heading would sit at the column's centre instead of the bar's left edge.
-        m_pageTitle.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
-        Grid::SetColumn(m_pageTitle, 0);
-        pageHeader.Children().Append(m_pageTitle);
-
-        // The search box, on the page's own bar rather than in the title bar.
-        //
-        // It filters the process list and nothing else, so putting it on the page that it filters is what
-        // makes its scope visible: on the title bar it read as a window-wide control even though it never
-        // filtered the performance pages. The bar is also taller than the caption, so the field has room
-        // to be a field rather than the full height of the strip it sits in.
-        m_searchBox = ui::controls::MakeSearchBox(L"Type a name, publisher, or PID to search for");
+        m_searchBox = winrt::Microsoft::UI::Xaml::Controls::TextBox();
+        m_searchBox.PlaceholderText(ui::Localize(L"Search processes (name or PID)"));
+        m_searchBox.Height(32.0);
+        m_searchBox.Width(320.0);
         m_searchBox.VerticalAlignment(VerticalAlignment::Center);
-
-        // Centred in the slack column, which is what puts it in the middle of the bar: the column starts
-        // where the page name ends and stops where the actions begin, and the two are close enough in width
-        // that the column's centre and the bar's centre are within a few pixels of each other.
-        //
-        // No margin. A margin would be counted inside the alignment, so the box would be centred as if it
-        // were wider than it is and would sit off to one side by half the margin -- which is exactly the
-        // problem a right-aligned box had, one step further along.
-        m_searchBox.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
-
-        // Wide, but not the whole bar: a field that spans the window would read as the page's main content
-        // rather than as a control on it. The minimum keeps it usable in a narrow window and the maximum
-        // stops it growing into a bar-wide band on a wide one.
-        m_searchBox.MinWidth(280.0);
-        m_searchBox.MaxWidth(420.0);
-        m_searchBox.Height(PAGE_HEADER_HEIGHT * 0.72);
-        Grid::SetColumn(m_searchBox, 1);
-        pageHeader.Children().Append(m_searchBox);
-
-        // The page owns the filter, so the text is handed to it as it changes. Applied on the next refresh
-        // rather than here, so a fast typist does not trigger a rebuild per keystroke.
-        m_searchBox.TextChanged(
-            [this](winrt::Windows::Foundation::IInspectable const& sender,
-                   winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&) {
-                auto const box = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>();
-                if (box == nullptr || !m_onSearch)
-                {
-                    return;
-                }
-                m_onSearch(winrt::to_string(box.Text()));
-            });
+        m_searchBox.TextChanged([this](auto const&, auto const&) {
+            if (m_onSearch) m_onSearch(winrt::to_string(m_searchBox.Text()));
+        });
+        m_unifiedTitleBar.Content(m_searchBox);
 
         StackPanel actions = ui::controls::MakeRow(4.0);
         actions.VerticalAlignment(VerticalAlignment::Center);
+        winrt::Microsoft::UI::Xaml::Controls::Button runTask;
+        runTask.Background(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+        runTask.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
+        runTask.Padding(ThicknessHelper::FromLengths(10.0, 6.0, 10.0, 6.0));
+        StackPanel runContent = ui::controls::MakeRow(6.0);
+        FontIcon runIcon;
+        runIcon.Glyph(L"\xE8A7");
+        runIcon.FontSize(14.0);
+        runContent.Children().Append(runIcon);
+        auto runLabel = ui::controls::MakeText(L"Run new task", 12.0);
+        runContent.Children().Append(runLabel);
+        runTask.Content(runContent);
+        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+            runTask, winrt::box_value(ui::Localize(L"Run new task")));
+        runTask.Click([this](auto const&, auto const&) { _showRunTaskDialog(); });
+        actions.Children().Append(runTask);
 
-        // Pinned to the right edge of its column explicitly. The column sizes to the actions' content, so
-        // without this they take the column's full width and the buttons sit at its left -- which puts them
-        // wherever the column happens to start rather than against the window's edge.
-        //
-        // No right margin: the bar's own right padding is the inset, and adding one here would double it.
-        actions.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
-
-        {
-            // "Run new task" is a real button with an icon and a label, as in the original.
-            //
-            // The button is sized to the strip it sits in. The padding is small because the strip is only
-            // 32 pixels: enough to keep the highlight off the text without pushing the button past the
-            // strip's edges.
-            winrt::Microsoft::UI::Xaml::Controls::Button runTask;
-            runTask.Background(
-                winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{winrt::Windows::UI::Colors::Transparent()});
-            runTask.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
-            runTask.Padding(ThicknessHelper::FromLengths(10.0, 2.0, 10.0, 2.0));
-
-            StackPanel runContent = ui::controls::MakeRow(6.0);
-            winrt::Microsoft::UI::Xaml::Controls::FontIcon runIcon;
-            runIcon.Glyph(L"\xE8A7"); // Segoe Fluent Icons: task view
-            runIcon.FontSize(12.0);
-            runContent.Children().Append(runIcon);
-            runContent.Children().Append(ui::controls::MakeText(L"Run new task", 12.0));
-            runTask.Content(runContent);
-
-            // TODO: open the run-new-task dialog. The control is present so the bar matches
-            //       the original; the dialog arrives with the process-control work in M2.
-            runTask.Click([](winrt::Windows::Foundation::IInspectable const&,
-                             winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {});
-
-            actions.Children().Append(runTask);
-        }
-
-        {
-            // The overflow menu, matching the original's "..." button. Sized to the strip for the same
-            // reason as the button above it.
-            winrt::Microsoft::UI::Xaml::Controls::Button overflow;
-            overflow.Background(
-                winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{winrt::Windows::UI::Colors::Transparent()});
-            overflow.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
-            overflow.Padding(ThicknessHelper::FromLengths(8.0, 2.0, 8.0, 2.0));
-
-            winrt::Microsoft::UI::Xaml::Controls::FontIcon moreIcon;
-            moreIcon.Glyph(L"\xE712"); // Segoe Fluent Icons: More
-            moreIcon.FontSize(12.0);
-            overflow.Content(moreIcon);
-
-            // TODO: show the settings and options menu.
-            overflow.Click([](winrt::Windows::Foundation::IInspectable const&,
-                              winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {});
-
-            actions.Children().Append(overflow);
-        }
-
-        // Column 2, which the search box does not occupy. It was column 1 before the search box moved onto
-        // this bar, and leaving it there put the two on top of each other.
-        Grid::SetColumn(actions, 2);
-        pageHeader.Children().Append(actions);
+        winrt::Microsoft::UI::Xaml::Controls::Button overflow;
+        overflow.Background(
+            winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(winrt::Windows::UI::Colors::Transparent()));
+        overflow.BorderThickness(ThicknessHelper::FromUniformLength(0.0));
+        overflow.Padding(ThicknessHelper::FromLengths(10.0, 6.0, 10.0, 6.0));
+        FontIcon moreIcon;
+        moreIcon.Glyph(L"\xE712");
+        moreIcon.FontSize(14.0);
+        overflow.Content(moreIcon);
+        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+            overflow, winrt::box_value(ui::Localize(L"More options")));
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyout menu;
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem refresh;
+        refresh.Text(ui::Localize(L"Refresh now"));
+        refresh.Click([this](auto const&, auto const&) { m_coordinator->RequestRefresh(); });
+        menu.Items().Append(refresh);
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem settings;
+        settings.Text(ui::Localize(L"Settings"));
+        settings.Click(
+            [this](auto const&, auto const&) { m_navigation.SelectedItem(m_navigation.FooterMenuItems().GetAt(0)); });
+        menu.Items().Append(settings);
+        overflow.Flyout(menu);
+        actions.Children().Append(overflow);
+        m_unifiedTitleBar.RightHeader(actions);
+        m_unifiedTitleBar.SizeChanged(
+            [this, runLabel](auto const&, winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args) {
+                double const width = args.NewSize().Width;
+                runLabel.Visibility(width < 760.0 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                                  : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+                m_brandName.Visibility(width < 640.0 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                                                     : winrt::Microsoft::UI::Xaml::Visibility::Visible);
+                m_searchBox.Width(std::clamp(width - (width < 760.0 ? 490.0 : 650.0), 120.0, 360.0));
+            });
 
         // --- Assembly -----------------------------------------------------------
         //
-        // Four rows: the app title bar, the page header, the page, then the bottom stack.
-        // The page row is the only star, so it absorbs all remaining height. A row that is
-        // meant to size to its content must be built with MakeAutoRow: a default-constructed
-        // RowDefinition is 1* (Star) and would silently claim an equal share instead.
         Grid contentColumn = Grid();
-
         m_titleBarRow = ui::controls::MakeFixedRow(APP_TITLE_BAR_HEIGHT);
         contentColumn.RowDefinitions().Append(m_titleBarRow);
-        m_pageHeaderRow = ui::controls::MakeFixedRow(PAGE_HEADER_HEIGHT);
-        contentColumn.RowDefinitions().Append(m_pageHeaderRow);
         contentColumn.RowDefinitions().Append(ui::controls::MakeStarRow());
         m_bottomRow = ui::controls::MakeAutoRow();
         contentColumn.RowDefinitions().Append(m_bottomRow);
-        // The first of the two bars: the application name, matching the original's
-        // "Task Manager", with the search box centred in the middle of the strip. The window buttons sit
-        // over its right-hand end, so nothing else is drawn there.
-        //
-        // Three columns: the title, the search box taking the slack, and a spacer the width of the window
-        // buttons. Without the trailing spacer the centred box would sit under the buttons rather than in
-        // the middle of the window.
         m_titleBarSpacer = Grid();
-        m_titleBarSpacer.Padding(ThicknessHelper::FromLengths(ui::metrics::PAGE_MARGIN, 0.0, 0.0, 0.0));
-        m_titleBarSpacer.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
-        m_titleBarSpacer.ColumnDefinitions().Append(ui::controls::MakeStarColumn());
-        m_titleBarSpacer.ColumnDefinitions().Append(ui::controls::MakeAutoColumn());
-
-        {
-            StackPanel titleContent = ui::controls::MakeRow(10.0);
-            titleContent.VerticalAlignment(VerticalAlignment::Center);
-
-            // The application icon, as the original shows beside its title.
-            winrt::Microsoft::UI::Xaml::Controls::FontIcon appIcon;
-            appIcon.Glyph(L"\xE9D9"); // Segoe Fluent Icons: task view
-            appIcon.FontSize(14.0);
-            titleContent.Children().Append(appIcon);
-
-            // The application's own name rather than the one it replaces. It is drawn inside the extended
-            // title bar, so it is a label like the rest of the strip and does not set the window's own
-            // title, which is what the single-instance check looks the window up by.
-            titleContent.Children().Append(ui::controls::MakeText(L"Task Manager++", 12.0));
-
-            Grid::SetColumn(titleContent, 0);
-            m_titleBarSpacer.Children().Append(titleContent);
-        }
-
-        // The middle column is left empty here. The search box used to live in it; it now sits on the
-        // page's own bar, where its scope -- it filters the process list and nothing else -- is visible
-        // from where it is.
-        //
-        // The trailing spacer keeps its own column so the buttons' reserve is still accounted for, which is
-        // what stops the title from being centred against the window's edge rather than against the space
-        // the buttons leave.
-        // The trailing spacer. Sized to the window buttons' reserve so the centre of the star column is the
-        // centre of the window rather than of the space left beside the buttons. The three buttons are each
-        // 46 pixels wide at the standard caption height.
-        Grid buttonSpacer = Grid();
-        buttonSpacer.Width(138.0);
-        Grid::SetColumn(buttonSpacer, 2);
-        m_titleBarSpacer.Children().Append(buttonSpacer);
-
+        m_titleBarSpacer.Children().Append(m_unifiedTitleBar);
         Grid::SetRow(m_titleBarSpacer, 0);
         contentColumn.Children().Append(m_titleBarSpacer);
-        m_pageHeader = pageHeader;
-        Grid::SetRow(m_pageHeader, 1);
-        contentColumn.Children().Append(m_pageHeader);
 
         m_contentHost = Grid();
-        Grid::SetRow(m_contentHost, 2);
+        Grid::SetRow(m_contentHost, 1);
         contentColumn.Children().Append(m_contentHost);
 
         // The permission bar and the status bar share the last row, the notice above
@@ -910,7 +809,7 @@ namespace tmpp
         Grid::SetRow(statusBar, 1);
         m_bottomStack.Children().Append(statusBar);
 
-        Grid::SetRow(m_bottomStack, 3);
+        Grid::SetRow(m_bottomStack, 2);
         contentColumn.Children().Append(m_bottomStack);
         m_navigation.Content(contentColumn);
 
@@ -1052,24 +951,17 @@ namespace tmpp
         m_rootGrid.Children().Append(m_navigationSplitter);
 
         Content(m_rootGrid);
+        m_rootGrid.ActualThemeChanged([this](auto const&, auto const&) { _updateTitleBarTheme(); });
 
         // Extend into the title bar and nominate the strip as the drag region. The
         // navigation view is not used as the title bar because its own layout would
         // then be consulted for the button cut-out, which is what put the CPU readout
         // under the window buttons.
         ExtendsContentIntoTitleBar(true);
-        SetTitleBar(m_titleBarSpacer);
+        SetTitleBar(m_unifiedTitleBar);
 
-        // Standard rather than Tall, so the system's caption area is the same height as the row the
-        // content is laid out in.
-        //
-        // The window buttons are drawn by the system in a region whose height this option sets, and that
-        // region is centred on the window's top edge independently of the app's own rows. Tall makes it 48
-        // pixels: eight more than the 36 this strip occupies, so the buttons sat below the row's centre
-        // and looked misaligned against the title they share a line with. Standard matches the row, and
-        // the buttons centre on it.
-        AppWindow().TitleBar().PreferredHeightOption(
-            winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Standard);
+        // Align caption buttons to the same 48px row as the app's controls.
+        AppWindow().TitleBar().PreferredHeightOption(winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
 
         // The window handle is resolved once here rather than at each drag. This is the same lookup the
         // single-instance check uses: the process has one top-level window and it is titled with the
@@ -1112,8 +1004,57 @@ namespace tmpp
         // The remembered theme and the chart styles, applied once the root exists. Doing this only
         // from the settings page would mean a choice took effect only after visiting that page.
         _applySettings(m_currentSettings);
+        _updateTitleBarTheme();
 
         _updateStatusBar();
+    }
+
+    void MainWindow::_updateTitleBarTheme()
+    {
+        bool const dark = m_rootGrid.ActualTheme() == winrt::Microsoft::UI::Xaml::ElementTheme::Dark;
+        auto primary = winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(dark
+                ? winrt::Windows::UI::Color{0xFF, 0xF3, 0xF3, 0xF3}
+                : winrt::Windows::UI::Color{0xFF, 0x20, 0x20, 0x20});
+        auto secondary = winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(dark
+                ? winrt::Windows::UI::Color{0xFF, 0xCB, 0xCB, 0xCB}
+                : winrt::Windows::UI::Color{0xFF, 0x55, 0x55, 0x55});
+        m_unifiedTitleBar.Foreground(primary);
+        m_brandName.Foreground(primary);
+        m_pageTitle.Foreground(primary);
+        m_searchBox.Foreground(primary);
+        for (auto key : {L"TextControlPlaceholderForeground",
+                 L"TextControlPlaceholderForegroundFocused",
+                 L"TextControlPlaceholderForegroundPointerOver"})
+            m_searchBox.Resources().Insert(winrt::box_value(key), secondary);
+    }
+
+    void MainWindow::_showRunTaskDialog()
+    {
+        using namespace winrt::Microsoft::UI::Xaml::Controls;
+        ContentDialog dialog;
+        dialog.XamlRoot(m_rootGrid.XamlRoot());
+        dialog.Title(winrt::box_value(ui::Localize(L"Run new task")));
+        dialog.PrimaryButtonText(ui::Localize(L"Run"));
+        dialog.CloseButtonText(ui::Localize(L"Cancel"));
+        dialog.DefaultButton(ContentDialogButton::Primary);
+        StackPanel body = ui::controls::MakeStack(12.0);
+        TextBox command;
+        command.PlaceholderText(ui::Localize(L"Program or command, for example notepad.exe"));
+        command.MinWidth(340.0);
+        body.Children().Append(command);
+        auto error = ui::controls::MakeText(L"", 12.0, true);
+        error.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::Wrap);
+        body.Children().Append(error);
+        dialog.Content(body);
+        dialog.PrimaryButtonClick([this, command, error](auto const&, ContentDialogButtonClickEventArgs const& args) {
+            auto const result = platform::WindowsProcessActions{}.Launch(winrt::to_string(command.Text()));
+            if (!result.Success()) {
+                args.Cancel(true);
+                error.Text(ui::Localize(result.GetError().Message()));
+            } else
+                m_coordinator->RequestRefresh();
+        });
+        dialog.ShowAsync();
     }
 
     void MainWindow::_startRefreshTimer()
@@ -1155,7 +1096,7 @@ namespace tmpp
         std::wstring text;
         text += std::to_wstring(m_coordinator->IntervalMs());
         text += L" ms interval";
-        text += L"  \x2022  ";
+        text += L"  |  ";
         text += std::to_wstring(m_coordinator->SampleCount());
         text += L" samples";
 
@@ -1163,12 +1104,12 @@ namespace tmpp
         // worst outcome for a monitoring tool.
         if (status.consecutiveFailures > 0)
         {
-            text += L"  \x2022  ";
+            text += L"  |  ";
             text += std::to_wstring(status.consecutiveFailures);
             text += L" consecutive sampling failures";
         }
 
-        m_statusText.Text(winrt::hstring{text});
+        m_statusText.Text(ui::Localize(text));
 
         // The notice appears only when process I/O counts are actually unavailable.
         auto const capabilities = m_coordinator->ProcessCapabilities();

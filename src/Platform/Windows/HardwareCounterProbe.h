@@ -10,6 +10,7 @@
 // network and GPU charts blank for almost everyone.
 #pragma once
 
+#include "Platform/ProcessTypes.h"
 #include <cstdint>
 #include <map>
 #include <string>
@@ -81,6 +82,7 @@ namespace tmpp::platform
          *        using the GPU disappears rather than keeping its last reading.
          */
         void ReadProcessGpu(std::map<uint32_t, double>& out);
+        void ReadProcessGpuMemory(std::map<uint32_t, ProcessGpuMemory>& out, std::vector<ProcessInfo> const& processes);
 
         /// True when at least one disk's counters were readable.
         [[nodiscard]] bool DisksAvailable() const noexcept { return m_disksAvailable; }
@@ -112,6 +114,8 @@ namespace tmpp::platform
         void* m_gpuEngineCounter{nullptr};
         void* m_gpuMemoryCounter{nullptr};
         void* m_gpuSharedCounter{nullptr};
+        void* m_processDedicatedCounter{nullptr};
+        void* m_processSharedCounter{nullptr};
 
         bool m_disksAvailable{false};
 
@@ -131,6 +135,8 @@ namespace tmpp::platform
         /// Adapter totals, resolved once. Dedicated memory does not change while the adapter is
         /// present, and querying it costs as much as the utilisation does.
         mutable uint64_t m_gpuDedicatedTotal{0};
+        mutable uint64_t m_gpuAdapterLuid{0};
+        mutable bool m_hasGpuAdapterLuid{false};
         mutable std::string m_gpuName;
 
         /// The driver version, resolved with the adapter totals.

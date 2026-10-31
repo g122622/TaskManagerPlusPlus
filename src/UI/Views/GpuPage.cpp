@@ -200,7 +200,7 @@ namespace tmpp::ui
         detail.label = controls::MakeText(label, 13.0, true);
         detail.label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
 
-        detail.value = controls::MakeText(winrt::to_hstring(UnavailableValue()), 13.0);
+        detail.value = controls::MakeText(ui::Localize(UnavailableValue()), 13.0);
         detail.value.HorizontalAlignment(HorizontalAlignment::Right);
         detail.value.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
         detail.value.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
@@ -238,6 +238,18 @@ namespace tmpp::ui
         }
     }
 
+    void GpuPage::SetOpaqueFill(bool opaque)
+    {
+        if (m_chart != nullptr) m_chart->SetOpaqueFill(opaque);
+        if (m_memoryChart != nullptr) m_memoryChart->SetOpaqueFill(opaque);
+    }
+
+    void GpuPage::SetFillOpacity(double opacity)
+    {
+        if (m_chart != nullptr) m_chart->SetFillOpacity(opacity);
+        if (m_memoryChart != nullptr) m_memoryChart->SetFillOpacity(opacity);
+    }
+
     void GpuPage::Refresh()
     {
         uint64_t const version = m_coordinator.SystemVersion();
@@ -252,7 +264,7 @@ namespace tmpp::ui
 
         if (m_heading != nullptr && system.gpu.available && !system.gpu.adapterName.empty())
         {
-            m_heading.Text(winrt::to_hstring(system.gpu.adapterName));
+            m_heading.Text(ui::Localize(system.gpu.adapterName));
         }
 
         // Memory is stated as used against total, because a figure on its own says nothing about
@@ -261,21 +273,18 @@ namespace tmpp::ui
         {
             if (system.gpu.available && system.gpu.dedicatedTotalBytes > 0)
             {
-                m_memoryCaption.Text(winrt::to_hstring(
-                    FormatBytes(system.gpu.dedicatedUsedBytes) + " / " +
-                    FormatBytes(system.gpu.dedicatedTotalBytes)));
+                m_memoryCaption.Text(ui::Localize(
+                    FormatBytes(system.gpu.dedicatedUsedBytes) + " / " + FormatBytes(system.gpu.dedicatedTotalBytes)));
             }
             else
             {
-                m_memoryCaption.Text(winrt::to_hstring(UnavailableValue()));
+                m_memoryCaption.Text(ui::Localize(UnavailableValue()));
             }
         }
 
-        m_caption.Text(winrt::to_hstring("Utilisation  " +
-                                         (system.gpu.available ? FormatPercent(system.gpu.utilizationPercent)
-                                                               : std::string{UnavailableValue()}) +
-                                         "  \xE2\x80\xA2  over " + std::to_string(m_coordinator.HistorySeconds()) +
-                                         " s"));
+        m_caption.Text(ui::Localize("Utilisation  " +
+            (system.gpu.available ? FormatPercent(system.gpu.utilizationPercent) : std::string{UnavailableValue()}) +
+            "  \xE2\x80\xA2  over " + std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The window rides with the data, so the chart anchors its samples to the right edge rather
         // than stretching a handful of them across the full width.
@@ -316,12 +325,12 @@ namespace tmpp::ui
                     caption += " of " + FormatBytes(system.gpu.dedicatedTotalBytes);
                 }
             }
-            m_memoryChartCaption.Text(winrt::to_hstring(caption));
+            m_memoryChartCaption.Text(ui::Localize(caption));
         }
 
         if (m_memoryChartPeak != nullptr)
         {
-            m_memoryChartPeak.Text(winrt::to_hstring(FormatBytes(static_cast<uint64_t>(memoryPeak))));
+            m_memoryChartPeak.Text(ui::Localize(FormatBytes(static_cast<uint64_t>(memoryPeak))));
         }
 
         _updateDetails(system);
@@ -332,7 +341,7 @@ namespace tmpp::ui
         auto assign = [](std::vector<DetailRow> const& rows, size_t index, std::string const& text) {
             if (index < rows.size() && rows[index].value != nullptr)
             {
-                rows[index].value.Text(winrt::to_hstring(text));
+                rows[index].value.Text(ui::Localize(text));
             }
         };
 

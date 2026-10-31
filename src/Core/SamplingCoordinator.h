@@ -20,6 +20,7 @@
 #include "Domain/SystemModel.h"
 #include "Platform/ProcessTuningTypes.h"
 #include "Platform/Windows/HardwareCounterProbe.h"
+#include "Platform/Windows/ProcessNetworkProbe.h"
 #include "Platform/Windows/ProcessorSpeedProbe.h"
 #include "Platform/Windows/WindowsProcessActions.h"
 #include "Platform/Windows/WindowsProcessProbe.h"
@@ -308,6 +309,7 @@ namespace tmpp::core
         /// Disk, network and GPU counters. Opened once and reused: opening a performance-counter
         /// query enumerates the counter set and costs far more than collecting from it.
         std::unique_ptr<platform::HardwareCounterProbe> m_hardwareProbe;
+        std::unique_ptr<platform::ProcessNetworkProbe> m_processNetworkProbe;
 
         domain::ProcessModel m_processModel;
         domain::SystemModel m_systemModel;

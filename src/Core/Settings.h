@@ -145,6 +145,9 @@ namespace tmpp::core
         StartupPage lastUsedPage{StartupPage::Processes};
 
         // Appearance
+        bool opaqueChartFill{false};
+        bool showCpuKernelTimes{false};
+        double chartFillOpacity{0.18};
         /// Per-metric chart styles, so each series can be coloured separately as the original
         /// allows. Keyed by the same Section the performance page uses.
         ChartStyle cpuChart{0x4C, 0xC2, 0xFF, 1.0};
@@ -191,6 +194,7 @@ namespace tmpp::core
         /// that far out is a hand-edited or truncated file rather than a drag, and the column's own default
         /// is a better answer than the nearest legal one.
         std::vector<double> processColumnWidths;
+        std::vector<bool> processColumnVisible;
 
         // Window placement
         int32_t windowX{-1}; ///< Negative means "not yet decided".

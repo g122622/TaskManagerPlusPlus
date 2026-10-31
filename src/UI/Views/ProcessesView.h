@@ -58,6 +58,8 @@ namespace tmpp::ui
          * @param widths One per column, in the column table's order. Shorter than the table is allowed.
          */
         void SetColumnWidths(std::vector<double> const& widths);
+        void SetColumnVisibility(std::vector<bool> const& visible);
+        void SetColumnVisibilityHandler(std::function<void(std::vector<bool>)> handler);
 
         /**
          * @brief Called when the user drags a column's edge.
@@ -234,7 +236,7 @@ namespace tmpp::ui
          * both the header and every row have to follow. The header and the rows are separate grids, so
          * there is nowhere else one width could live that both would see.
          */
-        std::array<double, 7> m_columnWidths{};
+        std::array<double, 21> m_columnWidths{};
 
         /// The header's column definitions, resized as a column is dragged.
         std::vector<winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition> m_headerColumns;
@@ -253,6 +255,11 @@ namespace tmpp::ui
 
         /// Applies the current widths to the header and to every row on screen.
         void _applyColumnWidths();
+        void _showColumnPicker();
+        std::array<bool, 21> m_columnVisible{};
+        std::function<void(std::vector<bool>)> m_onColumnVisibilityChanged;
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_tableHeader{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Grid m_table{nullptr};
 
         // ====================================================================
         // Cell shading
@@ -272,7 +279,7 @@ namespace tmpp::ui
          * machine every band would otherwise be indistinguishable from no band at all, and the same
          * depth would mean something different in each column.
          */
-        std::array<double, 7> m_columnMaxima{};
+        std::array<double, 21> m_columnMaxima{};
 
         /// Recomputes @c m_columnMaxima from the rows the list is showing.
         void _updateColumnMaxima();

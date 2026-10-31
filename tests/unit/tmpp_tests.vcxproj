@@ -139,6 +139,8 @@
     <ClCompile Include="test_memory_legend_layout.cpp" />
     <ClCompile Include="test_stacked_chart_height.cpp" />
     <ClCompile Include="test_process_gpu.cpp" />
+    <ClCompile Include="test_process_metrics.cpp" />
+    <ClCompile Include="test_localization.cpp" />
     <ClCompile Include="test_process_icon.cpp" />
     <ClCompile Include="test_process_icon_cache.cpp" />
     <ClCompile Include="test_chart_baseline.cpp" />

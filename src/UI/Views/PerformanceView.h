@@ -64,6 +64,7 @@ namespace tmpp::ui
          * is visible without a restart.
          */
         void ApplySettings(core::Settings const& settings);
+        void SetKernelTimesHandler(std::function<void(bool)> handler) { m_onKernelTimesChanged = std::move(handler); }
 
         /**
          * @brief Called when the sidebar is double-clicked.
@@ -183,6 +184,7 @@ namespace tmpp::ui
 
         /// The settings as loaded, for the sidebar width and per-metric chart styles.
         core::Settings m_settings;
+        std::function<void(bool)> m_onKernelTimesChanged;
 
         /// Called when the user drags the sidebar, so the width can be persisted.
         std::function<void(double)> m_onSidebarWidthChanged;

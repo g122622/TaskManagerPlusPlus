@@ -228,6 +228,7 @@ namespace tmpp::domain
     struct HistoryView
     {
         std::vector<double> cpuTotal;
+        std::vector<double> cpuKernel;
         std::vector<double> memoryUsed;
 
         /// Aggregate disk throughput across every device, in bytes per second. Two series rather than
@@ -273,6 +274,7 @@ namespace tmpp::domain
         /// draws one sparkline per core, and a set of current values would render as a
         /// flat line with no history.
         std::vector<std::vector<double>> perProcessorCpu;
+        std::vector<std::vector<double>> perProcessorKernelCpu;
 
         /**
          * @brief Number of samples that represents the full time window.
@@ -392,6 +394,7 @@ namespace tmpp::domain
         size_t m_historyCapacity{0};
 
         RingBuffer<double> m_cpuHistory;
+        RingBuffer<double> m_cpuKernelHistory;
         RingBuffer<double> m_memoryHistory;
 
         RingBuffer<double> m_diskReadHistory;
@@ -423,6 +426,7 @@ namespace tmpp::domain
         /// unavailable, in which case no per-core chart can be drawn and the UI says
         /// so rather than showing a row of flat lines.
         std::vector<RingBuffer<double>> m_perProcessorHistory;
+        std::vector<RingBuffer<double>> m_perProcessorKernelHistory;
 
         SystemView m_latest;
         uint64_t m_version{0};

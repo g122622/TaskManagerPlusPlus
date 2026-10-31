@@ -71,6 +71,18 @@ namespace tmpp::platform
         uint32_t pageFaultCount{0};
     };
 
+    struct ProcessNetworkCounters {
+        uint64_t receivedBytes{0};
+        uint64_t sentBytes{0};
+        bool available{false};
+    };
+
+    struct ProcessGpuMemory {
+        uint64_t dedicatedBytes{0};
+        uint64_t sharedBytes{0};
+        bool available{false};
+    };
+
     /**
      * @brief One process as reported by a single snapshot.
      */
@@ -87,6 +99,7 @@ namespace tmpp::platform
         ProcessCpuTimes cpu;
         ProcessMemoryCounters memory;
         ProcessIoCounters io;
+        ProcessNetworkCounters network;
 
         uint32_t threadCount{0};
         uint32_t handleCount{0};

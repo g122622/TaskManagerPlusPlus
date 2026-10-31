@@ -174,7 +174,7 @@ namespace tmpp::ui
 
         [[nodiscard]] std::wstring _toWide(std::string_view utf8)
         {
-            return winrt::to_hstring(utf8).c_str();
+            return ui::Localize(utf8).c_str();
         }
 
         /**
@@ -225,7 +225,7 @@ namespace tmpp::ui
         void _appendOption(ComboBox const& box, wchar_t const* label)
         {
             ComboBoxItem item;
-            item.Content(winrt::box_value(winrt::hstring{label}));
+            item.Content(winrt::box_value(ui::Localize(label)));
             box.Items().Append(item);
         }
 
@@ -257,7 +257,7 @@ namespace tmpp::ui
 
             apply.MinWidth(64.0);
             winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
-                apply, winrt::box_value(winrt::hstring{tooltip}));
+                apply, winrt::box_value(ui::Localize(tooltip)));
             Grid::SetRow(apply, row);
             Grid::SetColumn(apply, 2);
             host.Children().Append(apply);
@@ -444,9 +444,8 @@ namespace tmpp::ui
 
         m_undoButton = controls::MakeButton(L"Undo last change", [this] { _undoLastChange(); });
         m_undoButton.Margin(ThicknessHelper::FromLengths(0.0, 8.0, 0.0, 0.0));
-        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
-            m_undoButton,
-            winrt::box_value(winrt::hstring{L"Put the settings back the way they were before the most recent change."}));
+        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(m_undoButton,
+            winrt::box_value(ui::Localize(L"Put the settings back the way they were before the most recent change.")));
         content.Children().Append(m_undoButton);
 
         card.Child(content);
@@ -483,7 +482,7 @@ namespace tmpp::ui
             Button button = controls::MakeButton(spec.label, [this, i] { _applyPreset(i); });
             button.Padding(ThicknessHelper::FromLengths(10.0, 4.0, 10.0, 4.0));
             winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
-                button, winrt::box_value(winrt::hstring{spec.tooltip}));
+                button, winrt::box_value(ui::Localize(spec.tooltip)));
             presets.Children().Append(button);
         }
 
@@ -649,9 +648,9 @@ namespace tmpp::ui
             // The spoken name spells out what the chip's own label abbreviates, because a screen reader
             // announcing "P7 T2" says nothing about what was selected.
             winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(
-                chip, winrt::hstring{spec.label + L", " + spec.detail});
+                chip, ui::Localize(spec.label + L", " + spec.detail));
             winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
-                chip, winrt::box_value(winrt::hstring{spec.detail}));
+                chip, winrt::box_value(ui::Localize(spec.detail)));
 
             currentRow.Children().Append(chip);
             m_chips.push_back({logicalIndex, chip, chipLabel});
@@ -831,7 +830,7 @@ namespace tmpp::ui
         // suspend it again.
         if (wasSuspended != m_suspended)
         {
-            m_suspendButton.Content(winrt::box_value(winrt::hstring{m_suspended ? L"Resume" : L"Suspend"}));
+            m_suspendButton.Content(winrt::box_value(ui::Localize(m_suspended ? L"Resume" : L"Suspend")));
         }
     }
 
@@ -862,11 +861,11 @@ namespace tmpp::ui
 
         {
             diagnostics::ScopedTimer const timer{"sidebar: read path"};
-            m_path.Text(winrt::hstring{_toWide(m_coordinator.ProcessExecutablePath(m_pid))});
+            m_path.Text(ui::Localize(_toWide(m_coordinator.ProcessExecutablePath(m_pid))));
         }
         if (m_path.Text().size() == 0)
         {
-            m_path.Text(L"The executable path is not available for this process.");
+            m_path.Text(ui::Localize(L"The executable path is not available for this process."));
         }
 
         // The state push is timed as one stage: it changes a handful of properties, and if it overruns
@@ -968,7 +967,7 @@ namespace tmpp::ui
         m_affinityApply.IsEnabled(m_state.affinityAvailable);
         m_affinityReset.IsEnabled(m_state.affinityAvailable);
 
-        m_suspendButton.Content(winrt::box_value(winrt::hstring{m_suspended ? L"Resume" : L"Suspend"}));
+        m_suspendButton.Content(winrt::box_value(ui::Localize(m_suspended ? L"Resume" : L"Suspend")));
         m_suspendButton.IsEnabled(m_state.suspendState != platform::ProcessSuspendState::Unknown);
     }
 
@@ -998,7 +997,7 @@ namespace tmpp::ui
         {
             text += L"\nSelected: " + _formatMask(m_pendingAffinity.value(), groupSize) + L" (not applied yet)";
         }
-        m_affinityText.Text(text);
+        m_affinityText.Text(ui::Localize(text));
 
         platform::ProcessorTopology const& topology = m_coordinator.ProcessorTopology();
         std::wstring topologyText = L"Detected: " + std::to_wstring(topology.logicalProcessors.size()) +
@@ -1015,7 +1014,7 @@ namespace tmpp::ui
         topologyText += L" \u00B7 this process may use " +
                         std::to_wstring(static_cast<uint32_t>(std::popcount(m_state.affinityMask))) +
                         L" of them";
-        m_topologyText.Text(topologyText);
+        m_topologyText.Text(ui::Localize(topologyText));
     }
 
     void ProcessDetailPanel::_refreshFigures()
@@ -1030,9 +1029,9 @@ namespace tmpp::ui
             figures += L"  \u00B7  Suspended";
         }
 
-        m_figures.Text(figures);
+        m_figures.Text(ui::Localize(figures));
 
-        m_title.Text(winrt::hstring{_toWide(ProcessDisplayName(m_pid, m_imageName))});
+        m_title.Text(ui::Localize(_toWide(ProcessDisplayName(m_pid, m_imageName))));
     }
 
     void ProcessDetailPanel::_refreshUndo()
@@ -1041,7 +1040,7 @@ namespace tmpp::ui
         if (depth == 0)
         {
             m_undoButton.IsEnabled(false);
-            m_undoButton.Content(winrt::box_value(winrt::hstring{L"Undo last change"}));
+            m_undoButton.Content(winrt::box_value(ui::Localize(L"Undo last change")));
             return;
         }
 
@@ -1053,7 +1052,7 @@ namespace tmpp::ui
 
     void ProcessDetailPanel::_refreshRule()
     {
-        m_ruleStatus.Text(L"No rule is saved for this executable.");
+        m_ruleStatus.Text(ui::Localize(L"No rule is saved for this executable."));
         m_deleteRule.IsEnabled(false);
         m_saveRule.IsEnabled(!m_imageName.empty() && m_hasState);
 
@@ -1074,7 +1073,7 @@ namespace tmpp::ui
 
             std::wstring text = rule.enabled ? L"Applies to every new " : L"Saved but disabled for ";
             text += _toWide(m_imageName) + L": " + _toWide(rule.Describe()) + L".";
-            m_ruleStatus.Text(text);
+            m_ruleStatus.Text(ui::Localize(text));
             m_deleteRule.IsEnabled(true);
             return;
         }
@@ -1088,7 +1087,7 @@ namespace tmpp::ui
             return;
         }
 
-        m_status.Text(text);
+        m_status.Text(ui::Localize(text));
 
         // The warning colour rather than the error one: everything the panel can refuse is a
         // permission or an unsupported setting, and both are conditions rather than faults. The
@@ -1242,13 +1241,13 @@ namespace tmpp::ui
 
         winrt::Microsoft::UI::Xaml::Controls::ContentDialog dialog;
         dialog.XamlRoot(m_root.XamlRoot());
-        dialog.Title(winrt::box_value(winrt::hstring{L"Suspend this process?"}));
-        dialog.Content(winrt::box_value(winrt::hstring{
-            winrt::hstring{L"Every thread of "} + winrt::hstring{_toWide(m_imageName)} +
-            L" will stop until it is resumed. A process holding unsaved work can be lost if it never "
-            L"resumes, and some drivers cannot recover from a suspension at all."}));
-        dialog.PrimaryButtonText(L"Suspend");
-        dialog.CloseButtonText(L"Cancel");
+        dialog.Title(winrt::box_value(ui::Localize(L"Suspend this process?")));
+        dialog.Content(
+            winrt::box_value(winrt::hstring{ui::Localize(L"Every thread of ") + ui::Localize(_toWide(m_imageName)) +
+                L" will stop until it is resumed. A process holding unsaved work can be lost if it never "
+                L"resumes, and some drivers cannot recover from a suspension at all."}));
+        dialog.PrimaryButtonText(ui::Localize(L"Suspend"));
+        dialog.CloseButtonText(ui::Localize(L"Cancel"));
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
 
         dialog.PrimaryButtonClick(

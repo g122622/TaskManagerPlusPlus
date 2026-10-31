@@ -12,6 +12,8 @@
 #include <pdhmsg.h>
 #include <winioctl.h>
 
+#include <set>
+#include <d3dkmthk.h>
 #include <dxgi.h>
 #include <wrl/client.h>
 
@@ -778,6 +780,12 @@ namespace tmpp::platform
         // the next one is differenced against and the first read is otherwise invalid.
         PdhCollectQueryData(query);
 
+        PDH_HCOUNTER processDedicated = nullptr;
+        PDH_HCOUNTER processShared = nullptr;
+        PdhAddEnglishCounterW(query, L"\\GPU Process Memory(*)\\Dedicated Usage", 0, &processDedicated);
+        PdhAddEnglishCounterW(query, L"\\GPU Process Memory(*)\\Shared Usage", 0, &processShared);
+        m_processDedicatedCounter = processDedicated;
+        m_processSharedCounter = processShared;
         m_gpuQuery = query;
         m_gpuEngineCounter = engine;
         m_gpuMemoryCounter = memory;
@@ -850,6 +858,9 @@ namespace tmpp::platform
         {
             m_gpuName = _toNarrow(bestDesc.Description);
             m_gpuDedicatedTotal = bestDesc.DedicatedVideoMemory;
+            m_gpuAdapterLuid = (static_cast<uint64_t>(static_cast<uint32_t>(bestDesc.AdapterLuid.HighPart)) << 32) |
+                bestDesc.AdapterLuid.LowPart;
+            m_hasGpuAdapterLuid = true;
         }
 
         // The driver version is a registry value rather than anything DXGI reports. It is read from
@@ -1098,6 +1109,72 @@ namespace tmpp::platform
         for (auto& entry : out)
         {
             entry.second = std::clamp(entry.second, 0.0, 100.0);
+        }
+    }
+    void HardwareCounterProbe::ReadProcessGpuMemory(
+        std::map<uint32_t, ProcessGpuMemory>& out, std::vector<ProcessInfo> const& processes)
+    {
+        out.clear();
+        _resolveGpuTotals();
+        if (!m_hasGpuAdapterLuid || m_gpuQuery == nullptr) return;
+        auto const queryStatistics = reinterpret_cast<PFND3DKMT_QUERYSTATISTICS>(
+            GetProcAddress(GetModuleHandleW(L"gdi32.dll"), "D3DKMTQueryStatistics"));
+        if (queryStatistics == nullptr) return;
+
+        // PDH provides the candidate PIDs only. Its Dedicated/Shared Usage counters represent
+        // commitments, which can exceed VRAM capacity; they must never be presented as residency.
+        std::set<uint32_t> candidates;
+        auto readCandidates = [&candidates](void* counter) {
+            if (counter == nullptr) return false;
+            std::vector<InstanceValue> values;
+            if (!_readCounterArray(static_cast<PDH_HCOUNTER>(counter), values)) return false;
+            for (auto const& value : values) {
+                if (value.instance.rfind("pid_", 0) != 0) continue;
+                auto const end = value.instance.find('_', 4);
+                if (end == std::string::npos || end == 4) continue;
+                uint32_t pid = 0;
+                bool valid = true;
+                for (size_t i = 4; i < end; ++i) {
+                    if (!std::isdigit(static_cast<unsigned char>(value.instance[i]))) {
+                        valid = false;
+                        break;
+                    }
+                    pid = pid * 10 + static_cast<uint32_t>(value.instance[i] - '0');
+                }
+                if (valid) candidates.insert(pid);
+            }
+            return true;
+        };
+        bool const dedicated = readCandidates(m_processDedicatedCounter);
+        bool const shared = readCandidates(m_processSharedCounter);
+        if (!dedicated || !shared) return;
+        out[0].available = true;
+        for (auto const& process : processes) {
+            uint32_t const pid = process.identity.pid;
+            if (pid == 0 || !candidates.contains(pid)) continue;
+            auto& memory = out[pid];
+            // D3DKMT requires PROCESS_QUERY_INFORMATION; a limited-query handle is rejected.
+            HANDLE handle = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+            if (handle == nullptr) continue;
+            FILETIME created{}, exited{}, kernel{}, user{};
+            bool const sameProcess = GetProcessTimes(handle, &created, &exited, &kernel, &user) &&
+                ((static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime) ==
+                    process.identity.createTime;
+            if (sameProcess) {
+                D3DKMT_QUERYSTATISTICS query{};
+                query.Type = D3DKMT_QUERYSTATISTICS_PROCESS_SEGMENT_GROUP;
+                query.AdapterLuid.LowPart = static_cast<uint32_t>(m_gpuAdapterLuid);
+                query.AdapterLuid.HighPart = static_cast<LONG>(m_gpuAdapterLuid >> 32);
+                query.hProcess = handle;
+                query.QueryProcessSegmentGroup = D3DKMT_MEMORY_SEGMENT_GROUP_LOCAL;
+                bool const localOk = queryStatistics(&query) >= 0;
+                if (localOk) memory.dedicatedBytes = query.QueryResult.ProcessSegmentGroupInformation.Usage;
+                query.QueryProcessSegmentGroup = D3DKMT_MEMORY_SEGMENT_GROUP_NON_LOCAL;
+                bool const sharedOk = queryStatistics(&query) >= 0;
+                if (sharedOk) memory.sharedBytes = query.QueryResult.ProcessSegmentGroupInformation.Usage;
+                memory.available = localOk && sharedOk;
+            }
+            CloseHandle(handle);
         }
     }
 }

@@ -71,6 +71,10 @@ namespace tmpp::core
         // The live speed counter is a percentage of the rated clock, so the probe
         // cannot be built before the topology has been read.
         m_hardwareProbe = std::make_unique<platform::HardwareCounterProbe>();
+        m_processNetworkProbe = std::make_unique<platform::ProcessNetworkProbe>();
+        if (!m_processNetworkProbe->Available())
+            spdlog::info("Per-process network tracing unavailable (Windows error {}); elevation may be required",
+                m_processNetworkProbe->ErrorCode());
 
         // Read once: the modules a machine has do not change while it runs, so this is a startup cost
         // rather than a per-sample one.
@@ -403,6 +407,7 @@ namespace tmpp::core
         // collected values; collecting twice within one sample would measure an interval of nearly zero
         // for whichever reading came second.
         std::map<uint32_t, double> processGpu;
+        std::map<uint32_t, platform::ProcessGpuMemory> processGpuMemory;
         if (m_hardwareProbe != nullptr)
         {
             if (auto const read = m_hardwareProbe->ReadGpu(); read.Success() && read.Value().available)
@@ -415,7 +420,11 @@ namespace tmpp::core
         }
 
         // --- Processes: one bulk snapshot for the whole system.
-        auto const processes = m_processProbe.Enumerate();
+        auto processes = m_processProbe.Enumerate();
+        if (processes.Success()) {
+            m_processNetworkProbe->Read(processes.Value());
+            m_hardwareProbe->ReadProcessGpuMemory(processGpuMemory, processes.Value().processes);
+        }
         status.processEnumerationSucceeded = processes.Success();
 
         uint32_t threadTotal = 0;
@@ -441,8 +450,9 @@ namespace tmpp::core
 
             std::lock_guard const lock(m_mutex);
             published = m_processModel.Update(processes.Value(),
-                                              haveCpuDelta ? processCpuDelta : domain::SystemCpuDelta{},
-                                              processGpu);
+                haveCpuDelta ? processCpuDelta : domain::SystemCpuDelta{},
+                processGpu,
+                processGpuMemory);
         }
 
         // --- Live clock speed. Independent of everything above: a missing counter must

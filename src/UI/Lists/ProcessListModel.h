@@ -19,48 +19,54 @@ namespace tmpp::ui
     /**
      * @brief Columns the process list can be sorted by.
      */
-    enum class SortColumn
-    {
-        Name = 0,
-        Pid,
-        Status,
-        Cpu,
-        Memory,
-        Disk,
-        Network,
-        Gpu,
-        Threads,
-        Handles,
-        SessionId,
-        ParentPid,
-    };
+enum class SortColumn {
+    Name = 0,
+    Pid,
+    Status,
+    Cpu,
+    Memory,
+    Disk,
+    Network,
+    Gpu,
+    Threads,
+    Handles,
+    SessionId,
+    ParentPid,
+    Priority,
+    DedicatedGpuMemory,
+    SharedGpuMemory,
+    CommitSize,
+    PeakMemory,
+    DiskRead,
+    DiskWrite,
+    NetworkReceive,
+    NetworkSend,
+};
 
-    /**
-     * @brief Sort direction.
-     */
-    enum class SortDirection
-    {
-        Ascending = 0,
-        Descending,
-    };
+/**
+ * @brief Sort direction.
+ */
+enum class SortDirection {
+    Ascending = 0,
+    Descending,
+};
 
-    /**
-     * @brief Current sort and filter state.
-     */
-    struct ListQuery
-    {
-        SortColumn column{SortColumn::Cpu};
-        SortDirection direction{SortDirection::Descending};
+/**
+ * @brief Current sort and filter state.
+ */
+struct ListQuery {
+    SortColumn column{SortColumn::Cpu};
+    SortDirection direction{SortDirection::Descending};
 
-        /// Case-insensitive substring matched against the process name. Empty
-        /// matches everything.
-        std::string filter;
+    /// Case-insensitive substring matched against the process name. Empty
+    /// matches everything.
+    std::string filter;
 
-        /// When false, entries whose rates are not yet available are ordered last
-        /// regardless of direction, so a column is not dominated by blanks during
-        /// the first sample.
-        bool placeUnavailableLast{true};
-    };
+    /// When false, entries whose rates are not yet available are ordered last
+    /// regardless of direction, so a column is not dominated by blanks during
+    /// the first sample.
+    bool placeUnavailableLast{true};
+};
 
     /**
      * @brief Owns the cached ordering of the process list.

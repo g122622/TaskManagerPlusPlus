@@ -129,7 +129,7 @@ Type 17 结构。`SmbiosMemoryProbe` 的字段偏移曾整体错位一个字段�
 | 接口索引枚举 | `GetIfTable2` | **每次进程只调用一次**，见下 |
 | 累计收发字节、包数、错误、丢弃 | `GetIfEntry2`（按索引） | 累计值，速率由 Domain 差分得出 |
 | 链路速率、连接状态、描述 | 同上，`MIB_IF_ROW2` 内 | |
-| 逐进程网络字节数 | 未实现 | 需要管理员权限，见下 |
+| 逐进程网络字节数 | 独立 ETW SystemTraceProvider 会话，TCP/UDP、IPv4/IPv6 | 累计字节数，由 Domain 按采样间隔差分；需要管理员权限 |
 
 > **`GetIfTable2` 每次采样调用一次会让采样周期失效**。实测：本机 76 个实例、
 > **433 ms**；同样 76 个实例改用 `GetIfEntry2` 逐个查询只要 **2 ms**。
@@ -146,8 +146,8 @@ Type 17 结构。`SmbiosMemoryProbe` 的字段偏移曾整体错位一个字段�
 
 > **重要限制**：逐进程 TCP 字节计数**需要管理员权限**才能启用采集。
 > 无权限时该列必须显示为不可用，并提示提权。
-> 参考项目中记录的实测行为：需先调用 `SetPerTcpConnectionEStats` 启用采集，
-> 才能通过 `GetPerTcpConnectionEStats` 读取。
+> 实现使用独立名称和 GUID 的 ETW 会话，只停止自身拥有的会话，不占用共享 NT Kernel Logger。
+> 无权限时保留“不可用”，网络表头提示以管理员身份运行。
 
 ## 5. GPU
 
@@ -175,6 +175,7 @@ Type 17 结构。`SmbiosMemoryProbe` 的字段偏移曾整体错位一个字段�
 - **显存计数用 `GPU Adapter Memory` 而非 `GPU Process Memory`**。后者报告的是
   进程**提交量**而非驻留量：本机实测求和得到 **112 GB**，而显卡只有 4 GB。
   该数字不可能作为「占显卡容量的比例」呈现。
+- **进程显存使用量**读取所选显卡 LUID 的 `D3DKMT_QUERYSTATISTICS_PROCESS_SEGMENT_GROUP_INFORMATION::Usage`（LOCAL/NON_LOCAL）。PDH 仅用于发现候选 PID；不把提交量当作物理显存占用，也不跨适配器重复累加。查询需 `PROCESS_QUERY_INFORMATION`；无法读取的进程显示不可用。
 - **显存总量用 DXGI 而非注册表**。注册表 `HardwareInformation.qwMemorySize`
   与用量计数器相差一个由驱动决定的倍数（实测 3.98 GB vs 5.95 GB）。
   DXGI 的 `DXGI_ADAPTER_DESC1::DedicatedVideoMemory` 是权威值，且顺带给出适配器名。

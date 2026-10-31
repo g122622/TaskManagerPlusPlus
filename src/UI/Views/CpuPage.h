@@ -53,6 +53,10 @@ namespace tmpp::ui
 
         /// Applies the configured stroke width to every chart on the page.
         void SetLineWidth(double width);
+        void SetOpaqueFill(bool opaque);
+        void SetFillOpacity(double opacity);
+        void SetShowKernelTimes(bool show);
+        void SetKernelTimesHandler(std::function<void(bool)> handler) { m_onKernelTimesChanged = std::move(handler); }
 
     private:
         void _buildLayout();
@@ -93,5 +97,8 @@ namespace tmpp::ui
         std::vector<DetailRow> m_column3;
 
         uint64_t m_renderedVersion{0};
+        bool m_showKernelTimes{false};
+        std::function<void(bool)> m_onKernelTimesChanged;
+        winrt::Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem m_kernelMenu{nullptr};
     };
 }

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include <cmath>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -136,6 +137,10 @@ namespace tmpp::core
         // Appearance. Each chart's colour is stored as three channels rather than one packed
         // integer, so the file stays readable and hand-editable.
         json const& appearance = _subObject(root, "appearance");
+        settings.opaqueChartFill = _getBool(appearance, "opaqueChartFill", false);
+        settings.showCpuKernelTimes = _getBool(appearance, "showCpuKernelTimes", false);
+        double const fillOpacity = _getNumber<double>(appearance, "chartFillOpacity", 0.18);
+        settings.chartFillOpacity = std::isfinite(fillOpacity) ? std::clamp(fillOpacity, 0.0, 1.0) : 0.18;
         auto readStyle = [&appearance](char const* key, ChartStyle& style) {
             json const& node = _subObject(appearance, key);
             style.red = static_cast<uint8_t>(std::clamp(_getNumber<int>(node, "r", style.red), 0, 255));
@@ -174,17 +179,20 @@ namespace tmpp::core
             {
                 if (!entry.is_number())
                 {
+                    settings.processColumnWidths.push_back(0.0);
                     continue;
                 }
 
                 double const width = entry.get<double>();
-                if (width > 0.0 && width < 4000.0)
-                {
-                    settings.processColumnWidths.push_back(width);
-                }
+                settings.processColumnWidths.push_back(width > 0.0 && width < 4000.0 ? width : 0.0);
             }
         }
 
+        settings.processColumnVisible.clear();
+        if (auto const found = layout.find("processColumnVisible"); found != layout.end() && found->is_array()) {
+            for (auto const& entry : *found)
+                settings.processColumnVisible.push_back(entry.is_boolean() ? entry.get<bool>() : true);
+        }
         json const& window = _subObject(root, "window");
         settings.windowX = _getNumber<int32_t>(window, "x", settings.windowX);
         settings.windowY = _getNumber<int32_t>(window, "y", settings.windowY);
@@ -247,6 +255,9 @@ namespace tmpp::core
         appearance["memory"] = writeStyle(settings.memoryChart);
         appearance["disk"] = writeStyle(settings.diskChart);
         appearance["network"] = writeStyle(settings.networkChart);
+        appearance["opaqueChartFill"] = settings.opaqueChartFill;
+        appearance["showCpuKernelTimes"] = settings.showCpuKernelTimes;
+        appearance["chartFillOpacity"] = settings.chartFillOpacity;
         appearance["gpu"] = writeStyle(settings.gpuChart);
         root["appearance"] = std::move(appearance);
 
@@ -261,6 +272,7 @@ namespace tmpp::core
         // legitimate value that means "never dragged", so it is written too rather than omitted: the file
         // then says what the state is rather than leaving it to be inferred from a missing key.
         layout["processColumnWidths"] = settings.processColumnWidths;
+        layout["processColumnVisible"] = settings.processColumnVisible;
         root["layout"] = std::move(layout);
 
         json window;

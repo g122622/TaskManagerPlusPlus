@@ -576,4 +576,33 @@ namespace tmpp::core
         // The counter and the callback must agree.
         EXPECT_EQ(sampler.SampleCount(), static_cast<uint64_t>(samples.load()));
     }
+    TEST(SettingsStoreTest, RemembersColumnVisibilityWidthsAndChartFill)
+    {
+        TempDirectory const temp;
+        SettingsStore store(temp.File("settings.json"));
+        Settings chosen;
+        chosen.processColumnVisible = {true, false, true, false, true};
+        chosen.processColumnWidths = {400.0, 90.0, 100.0};
+        chosen.opaqueChartFill = true;
+        chosen.chartFillOpacity = 0.47;
+        chosen.showCpuKernelTimes = true;
+        ASSERT_TRUE(store.Save(chosen).Success());
+        auto const loaded = store.Load();
+        EXPECT_EQ(loaded.processColumnVisible, chosen.processColumnVisible);
+        EXPECT_EQ(loaded.processColumnWidths, chosen.processColumnWidths);
+        EXPECT_TRUE(loaded.opaqueChartFill);
+        EXPECT_DOUBLE_EQ(loaded.chartFillOpacity, 0.47);
+        EXPECT_TRUE(loaded.showCpuKernelTimes);
+    }
+
+    TEST(SettingsStoreTest, InvalidWidthDoesNotMoveLaterWidthsToAnotherColumn)
+    {
+        TempDirectory const temp;
+        auto const file = temp.File("settings.json");
+        _writeRaw(file, R"({"layout":{"processColumnWidths":[400,"bad",100,-1,120]}})");
+        auto const loaded = SettingsStore(file).Load();
+        EXPECT_EQ(loaded.processColumnWidths, (std::vector<double>{400, 0, 100, 0, 120}));
+        EXPECT_FALSE(loaded.opaqueChartFill);
+        EXPECT_TRUE(loaded.processColumnVisible.empty());
+    }
 }

@@ -1,4 +1,5 @@
 #include "Platform/Windows/WindowsProcessActions.h"
+#include "Platform/Windows/WindowsString.h"
 
 #include <windows.h>
 
@@ -8,6 +9,23 @@
 
 namespace tmpp::platform
 {
+VoidResult WindowsProcessActions::Launch(std::string const& command) const
+{
+    std::wstring text = ToUtf16(command);
+    if (text.find_first_not_of(L" \t\r\n") == std::wstring::npos)
+        return Error{ErrorCode::InvalidArgument, "Enter a program or command.", "Launch"};
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr, text.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process))
+        return Error{ErrorCode::NativeFailure,
+            "Could not start the program (Windows error " + std::to_string(GetLastError()) + ").",
+            "Launch"};
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return VoidResult::Ok();
+}
+
     namespace
     {
         /// Turns a Win32 error into an outcome and a sentence.

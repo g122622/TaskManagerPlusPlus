@@ -205,7 +205,7 @@ namespace tmpp::ui
         detail.label = controls::MakeText(label, 13.0, true);
         detail.label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
 
-        detail.value = controls::MakeText(winrt::to_hstring(UnavailableValue()), 13.0);
+        detail.value = controls::MakeText(ui::Localize(UnavailableValue()), 13.0);
         detail.value.HorizontalAlignment(HorizontalAlignment::Right);
         detail.value.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
         detail.value.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
@@ -235,6 +235,16 @@ namespace tmpp::ui
         }
     }
 
+    void NetworkPage::SetOpaqueFill(bool opaque)
+    {
+        if (m_chart != nullptr) m_chart->SetOpaqueFill(opaque);
+    }
+
+    void NetworkPage::SetFillOpacity(double opacity)
+    {
+        if (m_chart != nullptr) m_chart->SetFillOpacity(opacity);
+    }
+
     void NetworkPage::SetAdapterIndex(size_t index)
     {
         if (m_adapterIndex != index)
@@ -249,7 +259,7 @@ namespace tmpp::ui
         m_adapterLabel.assign(label);
         if (m_heading != nullptr && !m_adapterLabel.empty())
         {
-            m_heading.Text(winrt::hstring{m_adapterLabel});
+            m_heading.Text(ui::Localize(m_adapterLabel));
         }
     }
 
@@ -269,11 +279,11 @@ namespace tmpp::ui
         {
             if (m_adapterIndex < system.networks.size())
             {
-                m_heading.Text(winrt::to_hstring(system.networks[m_adapterIndex].adapterName));
+                m_heading.Text(ui::Localize(system.networks[m_adapterIndex].adapterName));
             }
             else
             {
-                m_heading.Text(L"Network");
+                m_heading.Text(ui::Localize(L"Network"));
             }
         }
 
@@ -295,9 +305,8 @@ namespace tmpp::ui
             }
         }
 
-        m_caption.Text(winrt::to_hstring("S " + _rateText(sendBps) + "  R " + _rateText(receiveBps) +
-                                         "  \xE2\x80\xA2  over " + std::to_string(m_coordinator.HistorySeconds()) +
-                                         " s"));
+        m_caption.Text(ui::Localize("S " + _rateText(sendBps) + "  R " + _rateText(receiveBps) +
+            "  \xE2\x80\xA2  over " + std::to_string(m_coordinator.HistorySeconds()) + " s"));
 
         // The adapter's own history, looked up by name. The adapter's series is plotted rather than the
         // aggregate, so opening a different adapter shows that adapter's traffic.
@@ -346,7 +355,7 @@ namespace tmpp::ui
         //
         // Formatted through the same helper the caption and the detail rows use, so the figure at the top
         // of the axis reads in the same units and to the same precision as the readings beneath it.
-        m_peakLabel.Text(winrt::to_hstring(_rateText(peak)));
+        m_peakLabel.Text(ui::Localize(_rateText(peak)));
 
         // An axis of zero would divide by it in the plotting arithmetic. One byte per second is the
         // smallest range that leaves the plot empty, which is the honest picture of no traffic.
@@ -361,7 +370,7 @@ namespace tmpp::ui
         // name.
         if (peak > 0.0)
         {
-            m_chart->SetReferenceLine(1.0 / 3.0, winrt::to_hstring(_rateText(peak / 3.0)));
+            m_chart->SetReferenceLine(1.0 / 3.0, ui::Localize(_rateText(peak / 3.0)));
         }
         else
         {
@@ -379,7 +388,7 @@ namespace tmpp::ui
         auto assign = [](std::vector<DetailRow> const& rows, size_t index, std::string const& text) {
             if (index < rows.size() && rows[index].value != nullptr)
             {
-                rows[index].value.Text(winrt::to_hstring(text));
+                rows[index].value.Text(ui::Localize(text));
             }
         };
 
@@ -418,8 +427,7 @@ namespace tmpp::ui
 
         if (m_adapterModel != nullptr)
         {
-            m_adapterModel.Text(winrt::to_hstring(iface.adapterName.empty() ? UnavailableValue()
-                                                                           : iface.adapterName));
+            m_adapterModel.Text(ui::Localize(iface.adapterName.empty() ? UnavailableValue() : iface.adapterName));
         }
     }
 }

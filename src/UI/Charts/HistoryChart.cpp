@@ -127,7 +127,7 @@ namespace tmpp::ui
         m_canvas.VerticalAlignment(VerticalAlignment::Stretch);
 
         m_fill = winrt::Microsoft::UI::Xaml::Shapes::Polygon();
-        m_fill.Fill(SolidColorBrush(_withAlpha(m_color, FILL_OPACITY)));
+        m_fill.Fill(SolidColorBrush(_withAlpha(m_color, m_opaqueFill ? 1.0 : m_fillOpacity)));
 
         m_line = winrt::Microsoft::UI::Xaml::Shapes::Polyline();
         m_line.Stroke(SolidColorBrush(m_color));
@@ -237,14 +237,31 @@ namespace tmpp::ui
 
     void HistoryChart::SetCurrentValueText(std::wstring_view text)
     {
-        m_currentValue.Text(winrt::hstring{text});
+        m_currentValue.Text(ui::Localize(text));
     }
 
     void HistoryChart::SetLineColor(winrt::Windows::UI::Color color)
     {
         m_color = color;
         m_line.Stroke(SolidColorBrush(m_color));
-        m_fill.Fill(SolidColorBrush(_withAlpha(m_color, FILL_OPACITY)));
+        m_fill.Fill(SolidColorBrush(_withAlpha(m_color, m_opaqueFill ? 1.0 : m_fillOpacity)));
+    }
+
+    void HistoryChart::SetSecondaryLineColor(winrt::Windows::UI::Color color)
+    {
+        m_secondaryLine.Stroke(SolidColorBrush(color));
+    }
+
+    void HistoryChart::SetFillOpacity(double opacity)
+    {
+        m_fillOpacity = std::clamp(opacity, 0.0, 1.0);
+        SetOpaqueFill(m_opaqueFill);
+    }
+
+    void HistoryChart::SetOpaqueFill(bool opaque)
+    {
+        m_opaqueFill = opaque;
+        m_fill.Fill(SolidColorBrush(_withAlpha(m_color, opaque ? 1.0 : m_fillOpacity)));
     }
 
     void HistoryChart::SetHeaderVisible(bool visible)
@@ -273,7 +290,7 @@ namespace tmpp::ui
             return;
         }
 
-        m_referenceLabel.Text(winrt::hstring{label});
+        m_referenceLabel.Text(ui::Localize(label));
         m_referenceLine.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
         m_referenceLabel.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
 

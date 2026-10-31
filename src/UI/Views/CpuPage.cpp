@@ -106,7 +106,7 @@ namespace tmpp::ui
 
         // The model is long and a narrow window would clip it, so it is trimmed from its end and
         // aligned to the bottom so it sits on the heading's baseline.
-        m_processorModel = controls::MakeText(winrt::to_hstring(UnavailableValue()), SPEED_FONT_SIZE, true);
+        m_processorModel = controls::MakeText(ui::Localize(UnavailableValue()), SPEED_FONT_SIZE, true);
         m_processorModel.HorizontalAlignment(HorizontalAlignment::Right);
         m_processorModel.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Bottom);
         m_processorModel.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
@@ -168,6 +168,15 @@ namespace tmpp::ui
         // thing keeping it right.
         m_coreGrid->SetColor(DEFAULT_CPU_COLOR);
         m_coreGrid->SetCoreCount(m_coordinator.LogicalProcessorCount());
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyout cpuMenu;
+        m_kernelMenu = winrt::Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem();
+        m_kernelMenu.Text(ui::Localize(L"Show kernel times"));
+        m_kernelMenu.Click([this](auto const&, auto const&) {
+            SetShowKernelTimes(m_kernelMenu.IsChecked());
+            if (m_onKernelTimesChanged) m_onKernelTimesChanged(m_showKernelTimes);
+        });
+        cpuMenu.Items().Append(m_kernelMenu);
+        m_root.ContextFlyout(cpuMenu);
 
         Grid::SetRow(m_coreGrid->Root(), 2);
         m_root.Children().Append(m_coreGrid->Root());
@@ -244,7 +253,7 @@ namespace tmpp::ui
         detail.label = controls::MakeText(label, 13.0, true);
         detail.label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
 
-        detail.value = controls::MakeText(winrt::to_hstring(UnavailableValue()), 13.0);
+        detail.value = controls::MakeText(ui::Localize(UnavailableValue()), 13.0);
         detail.value.HorizontalAlignment(HorizontalAlignment::Right);
         detail.value.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
 
@@ -285,6 +294,25 @@ namespace tmpp::ui
         }
     }
 
+    void CpuPage::SetOpaqueFill(bool opaque)
+    {
+        if (m_coreGrid != nullptr) m_coreGrid->SetOpaqueFill(opaque);
+        if (m_totalChart != nullptr) m_totalChart->SetOpaqueFill(opaque);
+    }
+
+    void CpuPage::SetShowKernelTimes(bool show)
+    {
+        if (m_showKernelTimes != show) m_renderedVersion = 0;
+        m_showKernelTimes = show;
+        if (m_kernelMenu != nullptr) m_kernelMenu.IsChecked(show);
+    }
+
+    void CpuPage::SetFillOpacity(double opacity)
+    {
+        if (m_coreGrid != nullptr) m_coreGrid->SetFillOpacity(opacity);
+        if (m_totalChart != nullptr) m_totalChart->SetFillOpacity(opacity);
+    }
+
     void CpuPage::Refresh()
     {
         uint64_t const version = m_coordinator.SystemVersion();
@@ -301,7 +329,7 @@ namespace tmpp::ui
         // available rather than every frame.
         if (!system.processor.modelName.empty())
         {
-            m_processorModel.Text(winrt::to_hstring(system.processor.modelName));
+            m_processorModel.Text(ui::Localize(system.processor.modelName));
         }
 
         // The current clock is not shown here. It is a figure that changes every sample and is already
@@ -310,7 +338,13 @@ namespace tmpp::ui
 
         // The core grid draws one series per logical processor, which is what makes it a
         // history rather than a row of bars showing only the current instant.
-        m_coreGrid->UpdateSeries(history.perProcessorCpu, history.windowSamples);
+        m_coreGrid->UpdateSeries(
+            history.perProcessorCpu, history.windowSamples, history.perProcessorKernelCpu, m_showKernelTimes);
+        if (m_totalChart != nullptr) {
+            m_totalChart->SetSeries({history.cpuTotal, history.windowSamples});
+            m_totalChart->SetSecondarySeries(
+                {m_showKernelTimes ? history.cpuKernel : std::vector<double>{}, history.windowSamples});
+        }
 
         _updateDetails(system);
     }
@@ -325,7 +359,7 @@ namespace tmpp::ui
         auto assign = [](std::vector<DetailRow> const& rows, size_t index, std::string const& text) {
             if (index < rows.size() && rows[index].value != nullptr)
             {
-                rows[index].value.Text(winrt::to_hstring(text));
+                rows[index].value.Text(ui::Localize(text));
             }
         };
 
