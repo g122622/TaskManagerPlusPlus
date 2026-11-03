@@ -255,6 +255,9 @@ namespace tmpp::domain
         /// Per-device disk throughput, in bytes per second, keyed by the device's instance name.
         std::map<std::string, DirectionalHistory> diskBytesPerSecondByDevice;
 
+        /// Per-device busy-time percentage, independent of throughput, on a fixed 0..100 scale.
+        std::map<std::string, std::vector<double>> diskActivePercentByDevice;
+
         /// Per-adapter network throughput, in bytes per second, keyed by the adapter's name.
         std::map<std::string, DirectionalHistory> networkBytesPerSecondByAdapter;
 
@@ -418,6 +421,7 @@ namespace tmpp::domain
         };
 
         std::map<std::string, DirectionalRings> m_diskHistoryByDevice;
+        std::map<std::string, RingBuffer<double>> m_diskActiveHistoryByDevice;
 
         /// One pair of rings per network adapter, keyed by name for the same reason.
         std::map<std::string, DirectionalRings> m_networkHistoryByAdapter;

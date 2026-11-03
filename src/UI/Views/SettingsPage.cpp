@@ -320,6 +320,40 @@ namespace tmpp::ui
                     _notifyChange();
                 });
             }
+            if (metric.sectionIndex == 2)
+            {
+                _addRow(section, L"\xEDA2", L"Show cumulative reads and writes",
+                    L"Show session read and write totals in the disk sidebar", m_diskCumulativeBytes);
+                m_diskCumulativeBytes.MinWidth(0.0);
+                m_diskCumulativeBytes.Width(40.0);
+                m_diskCumulativeBytes.OnContent(winrt::box_value(L""));
+                m_diskCumulativeBytes.OffContent(winrt::box_value(L""));
+                m_diskCumulativeBytes.IsOn(m_settings.showDiskCumulativeBytes);
+                winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(
+                    m_diskCumulativeBytes, L"ShowDiskCumulativeBytes");
+                m_diskCumulativeBytes.Toggled([this](auto const&, auto const&) {
+                    m_settings.showDiskCumulativeBytes = m_diskCumulativeBytes.IsOn();
+                    _notifyChange();
+                });
+
+                _addRow(section, L"\xE9D2", L"Disk sidebar metric",
+                    L"Choose the chart and live reading shown for each disk", m_diskSidebarMetric);
+                m_diskSidebarMetric.MinWidth(180.0);
+                m_diskSidebarMetric.Items().Append(winrt::box_value(ui::Localize(L"Busy percentage")));
+                m_diskSidebarMetric.Items().Append(winrt::box_value(ui::Localize(L"Bandwidth")));
+                m_diskSidebarMetric.SelectedIndex(static_cast<int32_t>(m_settings.diskSidebarMetric));
+                winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(
+                    m_diskSidebarMetric, L"DiskSidebarMetric");
+                m_diskSidebarMetric.SelectionChanged([this](auto const&, auto const&) {
+                    if (ui::LocalizationInProgress()) return;
+                    auto const index = m_diskSidebarMetric.SelectedIndex();
+                    if (index >= 0 && index <= 1)
+                    {
+                        m_settings.diskSidebarMetric = static_cast<core::DiskSidebarMetric>(index);
+                        _notifyChange();
+                    }
+                });
+            }
             _addChartStyleGroup(section, metric.title, metric.sectionIndex);
             if (metric.sectionIndex == 0)
                 _addChartStyleGroup(section, L"Kernel time", 5);

@@ -67,6 +67,7 @@ SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, ui
             }
         for (auto* cores : {&m_perProcessorHistory, &m_perProcessorKernelHistory})
             for (auto& ring : *cores) resample(ring);
+        for (auto& [name, ring] : m_diskActiveHistoryByDevice) resample(ring);
         m_historyCapacity = capacity;
         m_historyIntervalMs = interval;
         m_latest.version = ++m_version;
@@ -476,6 +477,8 @@ SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, ui
 
             rings.first.Push(activity.readBytesPerSecond);
             rings.second.Push(activity.writeBytesPerSecond);
+            m_diskActiveHistoryByDevice.try_emplace(activity.instanceName, m_historyCapacity)
+                .first->second.Push(activity.activePercent);
         }
 
         // Every device's rings advance on every sample, including the ones absent from this sample, so
@@ -491,6 +494,7 @@ SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, ui
             {
                 entry.second.first.Push(0.0);
                 entry.second.second.Push(0.0);
+                m_diskActiveHistoryByDevice.at(entry.first).Push(0.0);
             }
         }
 
@@ -553,6 +557,9 @@ SystemModel::SystemModel(uint32_t logicalProcessorCount, uint32_t intervalMs, ui
             deviceHistory.second = entry.second.second.ToVector();
             view.diskBytesPerSecondByDevice[entry.first] = std::move(deviceHistory);
         }
+
+        for (auto const& [name, ring] : m_diskActiveHistoryByDevice)
+            view.diskActivePercentByDevice[name] = ring.ToVector();
 
         for (auto const& entry : m_networkHistoryByAdapter)
         {

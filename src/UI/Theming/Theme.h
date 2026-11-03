@@ -22,6 +22,9 @@ namespace tmpp::ui
         inline constexpr double CONTENT_LEFT_INSET = PAGE_MARGIN;
         inline constexpr double PERFORMANCE_LEFT_INSET = 12.0;
 
+        /// Cap the title-bar search field while allowing it to shrink in narrow windows.
+        inline constexpr double SEARCH_MAX_WIDTH = 480.0;
+
         /// Spacing between stacked elements.
         inline constexpr double STACK_SPACING = 8.0;
 

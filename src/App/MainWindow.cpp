@@ -20,6 +20,7 @@
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
+#include <shldisp.h>
 
 #include <algorithm>
 #include <chrono>
@@ -734,6 +735,7 @@ namespace tmpp
         m_searchBox.PlaceholderText(ui::Localize(L"Search processes (name or PID)"));
         m_searchBox.Height(32.0);
         m_searchBox.MinWidth(0.0);
+        m_searchBox.MaxWidth(ui::metrics::SEARCH_MAX_WIDTH);
         m_searchBox.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 16.0, 0.0));
         m_searchBox.VerticalAlignment(VerticalAlignment::Center);
         m_searchBox.TextChanged([this](auto const&, auto const&) {
@@ -1114,11 +1116,11 @@ namespace tmpp
             SystemBackdrop(nullptr);
             m_rootGrid.Background(ui::controls::ThemedBrush(ui::theme::PAGE_BACKGROUND));
         }
-        // Keep the native navigation/content templates, while allowing the window material to show.
+        // Content can show the window material, but the overlay pane must cover the page beneath it.
         m_navigation.Resources().Insert(winrt::box_value(L"NavigationViewContentBackground"),
             m_currentSettings.micaBackdrop ? transparent : ui::controls::ThemedBrush(ui::theme::LAYER_BACKGROUND));
         for (auto key : {L"NavigationViewDefaultPaneBackground", L"NavigationViewExpandedPaneBackground", L"NavigationViewTopPaneBackground"})
-            m_navigation.Resources().Insert(winrt::box_value(key), transparent);
+            m_navigation.Resources().Insert(winrt::box_value(key), ui::controls::ThemedBrush(ui::theme::PAGE_BACKGROUND));
     }
 
     void MainWindow::_updateTitleBarTheme()
@@ -1149,32 +1151,18 @@ namespace tmpp
 
     void MainWindow::_showRunTaskDialog()
     {
-        using namespace winrt::Microsoft::UI::Xaml::Controls;
-        ContentDialog dialog;
-        dialog.XamlRoot(m_rootGrid.XamlRoot());
-        dialog.RequestedTheme(m_rootGrid.ActualTheme());
-        dialog.Title(winrt::box_value(ui::Localize(L"Run new task")));
-        dialog.PrimaryButtonText(ui::Localize(L"Run"));
-        dialog.CloseButtonText(ui::Localize(L"Cancel"));
-        dialog.DefaultButton(ContentDialogButton::Primary);
-        StackPanel body = ui::controls::MakeStack(12.0);
-        TextBox command;
-        command.PlaceholderText(ui::Localize(L"Program or command, for example notepad.exe"));
-        command.MinWidth(340.0);
-        body.Children().Append(command);
-        auto error = ui::controls::MakeText(L"", 12.0, true);
-        error.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::Wrap);
-        body.Children().Append(error);
-        dialog.Content(body);
-        dialog.PrimaryButtonClick([this, command, error](auto const&, ContentDialogButtonClickEventArgs const& args) {
-            auto const result = platform::WindowsProcessActions{}.Launch(winrt::to_string(command.Text()));
-            if (!result.Success()) {
-                args.Cancel(true);
-                error.Text(ui::Localize(result.GetError().Message()));
-            } else
-                m_coordinator->RequestRefresh();
-        });
-        dialog.ShowAsync();
+        try
+        {
+            // Ask Windows Shell to open its native Run dialog, including shell command handling
+            // and command history, through the documented Shell.Application automation API.
+            auto const shell = winrt::create_instance<IShellDispatch>(__uuidof(Shell),
+                CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER);
+            winrt::check_hresult(shell->FileRun());
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            diag::LogStartup(winrt::to_string(error.message()).c_str());
+        }
     }
 
     void MainWindow::_startRefreshTimer()

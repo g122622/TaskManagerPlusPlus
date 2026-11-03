@@ -160,6 +160,8 @@ namespace tmpp::ui
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_opaqueFill{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_micaBackdrop{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_kernelTimes{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch m_diskCumulativeBytes{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::ComboBox m_diskSidebarMetric{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Grid m_fillOpacityRow{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::Slider m_fillOpacity{nullptr};
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_fillOpacityText{nullptr};

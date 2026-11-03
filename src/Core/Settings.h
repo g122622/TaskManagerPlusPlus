@@ -73,6 +73,13 @@ namespace tmpp::core
         FirstDriveLetter,
     };
 
+    /// The metric displayed by disk sidebar charts and their live readouts.
+    enum class DiskSidebarMetric
+    {
+        ActiveTime = 0,
+        Throughput,
+    };
+
     /**
      * @brief A chart's appearance, as the user configured it.
      *
@@ -120,7 +127,7 @@ namespace tmpp::core
 
         // General
         ThemeMode theme{ThemeMode::System};
-        LanguageMode language{LanguageMode::System};
+        LanguageMode language{LanguageMode::SimplifiedChinese};
         bool alwaysOnTop{false};
         bool minimizeToTray{false};
         bool closeToTray{false};
@@ -140,31 +147,32 @@ namespace tmpp::core
 
         /// How the disk rows are ordered. A machine's disks are named by the volumes they back, so the
         /// two orders give genuinely different lists rather than the same one reversed.
-        DiskSortOrder diskSortOrder{DiskSortOrder::DeviceIndex};
+        DiskSortOrder diskSortOrder{DiskSortOrder::FirstDriveLetter};
 
         /// The page in use when the application last closed. Only consulted when startupPage is
         /// LastUsed, and updated on every close so the two cannot disagree.
-        StartupPage lastUsedPage{StartupPage::Processes};
+        StartupPage lastUsedPage{StartupPage::Performance};
 
         // Appearance
         bool opaqueChartFill{false};
         bool micaBackdrop{true};
-        bool showCpuKernelTimes{false};
-        double chartFillOpacity{0.18};
+        bool showCpuKernelTimes{true};
+        bool showDiskCumulativeBytes{true};
+        DiskSidebarMetric diskSidebarMetric{DiskSidebarMetric::ActiveTime};
+        double chartFillOpacity{0.7};
         /// Per-metric chart styles, so each series can be coloured separately as the original
         /// allows. Keyed by the same Section the performance page uses.
-        ChartStyle cpuChart{0x4C, 0xC2, 0xFF, 1.0};
-        ChartStyle cpuKernelChart{0xF2, 0x8B, 0x82, 1.0};
+        ChartStyle cpuChart{78, 190, 229, 1.0};
+        ChartStyle cpuKernelChart{78, 190, 229, 1.0};
         // The memory series is violet, matching the original's memory chart.
-        ChartStyle memoryChart{155, 140, 255, 1.0};
+        ChartStyle memoryChart{124, 132, 227, 1.5};
         ChartStyle diskChart{0x6E, 0xD8, 0xB0, 1.0};
         ChartStyle networkChart{0xFF, 0xC1, 0x57, 1.0};
         ChartStyle gpuChart{0xFF, 0x8A, 0xA8, 1.0};
 
         // Layout
-        /// Width of the application's navigation rail. Negative means "not yet decided", so the
-        /// platform default applies.
-        double navigationWidth{-1.0};
+        /// Defaults captured from the user's configured layout. Negative widths still mean unset.
+        double navigationWidth{240.0};
 
         /// Whether the navigation rail is expanded.
         ///
@@ -174,18 +182,17 @@ namespace tmpp::core
         bool navigationExpanded{false};
 
         /// Width of the performance page's own sidebar. Negative means "not yet decided".
-        double performanceSidebarWidth{-1.0};
+        double performanceSidebarWidth{251.0};
 
         /// Width of the processes page's detail sidebar, in effective pixels. Negative means "not yet
         /// decided", so the view's own default applies.
-        double processSidebarWidth{-1.0};
+        double processSidebarWidth{499.0};
 
         /// Whether the processes page shows its detail sidebar.
         ///
         /// Persisted rather than fixed, because the sidebar is a substantial part of the window and a
-        /// user who does not tune processes should not have to hide it on every launch. It defaults to
-        /// shown: the panel is the feature, and a first run that hid it would hide the point of it.
-        bool processSidebarVisible{true};
+        /// user who does not tune processes should not have to hide it on every launch.
+        bool processSidebarVisible{false};
 
         /// The process list's column widths, in effective pixels, in the column table's order.
         ///
@@ -197,15 +204,18 @@ namespace tmpp::core
         /// A width outside its column's bounds is discarded on load rather than clamped, because a value
         /// that far out is a hand-edited or truncated file rather than a drag, and the column's own default
         /// is a better answer than the nearest legal one.
-        std::vector<double> processColumnWidths;
-        std::vector<bool> processColumnVisible;
+        std::vector<double> processColumnWidths{154.6666259765625, 80.0, 74.66665649414063,
+            90.00006103515625, 84.0, 72.66668701171875, 61.33331298828125, 80.0,
+            150.0, 160.0, 90.0, 90.0, 120.0, 120.0, 110.0, 110.0, 140.0, 130.0, 100.0, 100.0, 110.0};
+        std::vector<bool> processColumnVisible{true, true, true, true, true, true, true, true,
+            false, false, false, false, false, false, false, false, false, false, false, false, false};
         std::vector<uint32_t> processColumnOrder;
 
         // Window placement
-        int32_t windowX{-1}; ///< Negative means "not yet decided".
-        int32_t windowY{-1};
-        int32_t windowWidth{1100};
-        int32_t windowHeight{700};
+        int32_t windowX{4091}; ///< Negative means "not yet decided".
+        int32_t windowY{927};
+        int32_t windowWidth{860};
+        int32_t windowHeight{717};
         bool windowMaximized{false};
 
         /**

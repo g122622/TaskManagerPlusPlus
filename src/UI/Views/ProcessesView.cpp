@@ -1,6 +1,7 @@
 #include "UI/WinRTUI.h"
 
 #include "UI/Views/ProcessesView.h"
+#include "Core/Settings.h"
 #include "UI/Lists/PriorityIndicator.h"
 #include "UI/Lists/MemoryHeatScale.h"
 
@@ -981,6 +982,8 @@ namespace tmpp::ui
         dialog.CloseButtonText(ui::Localize(L"Cancel"));
         dialog.DefaultButton(ContentDialogButton::Primary);
         StackPanel options = controls::MakeStack(2.0);
+        // WinUI's expanded vertical scrollbar overlays its content; reserve its gutter.
+        options.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 24.0, 0.0));
         std::vector<ToggleSwitch> boxes;
         for (size_t i = 0; i < COLUMNS.size(); ++i) {
             ToggleSwitch box;
@@ -1006,6 +1009,8 @@ namespace tmpp::ui
         }
         ScrollViewer scroller;
         scroller.MaxHeight(420.0);
+        scroller.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+        scroller.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
         scroller.Content(options);
         dialog.Content(scroller);
         dialog.PrimaryButtonClick([this, boxes](auto const&, auto const&) {
@@ -1017,8 +1022,9 @@ namespace tmpp::ui
         });
         dialog.SecondaryButtonClick([boxes](auto const&, ContentDialogButtonClickEventArgs const& args) {
             args.Cancel(true);
+            auto const defaults = core::Settings{}.processColumnVisible;
             for (size_t i = 0; i < boxes.size(); ++i)
-                boxes[i].IsOn(i < 9);
+                boxes[i].IsOn(i < defaults.size() && defaults[i]);
         });
         dialog.ShowAsync();
     }

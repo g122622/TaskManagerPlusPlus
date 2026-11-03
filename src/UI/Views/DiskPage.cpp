@@ -324,8 +324,7 @@ namespace tmpp::ui
 
         // --- Active time -------------------------------------------------------
         //
-        // The figure in the caption is the live reading; the chart behind it is the mean across every
-        // device, and its axis is a real proportion so 100 percent means fully busy.
+        // The caption and chart both use this device's busy-time percentage.
         size_t const deviceIndex = (m_deviceIndex < system.disks.size()) ? m_deviceIndex : 0;
         double const activePercent = (deviceIndex < system.disks.size())
                                          ? system.disks[deviceIndex].activePercent
@@ -352,27 +351,14 @@ namespace tmpp::ui
             }
         }
 
-        // The active-time chart plots total throughput, scaled to its own peak: the model keeps a
-        // throughput series per device rather than an active-time one, and deriving a percentage from
-        // bytes would be inventing a figure. The shape is what this chart is for.
         ChartSeries activeSeries;
-        if (deviceRead != nullptr && deviceWrite != nullptr)
+        if (deviceIndex < system.disks.size())
         {
-            activeSeries.values = *deviceRead;
-            for (size_t i = 0; i < activeSeries.values.size() && i < deviceWrite->size(); ++i)
-            {
-                activeSeries.values[i] += (*deviceWrite)[i];
-            }
+            auto const found = history.diskActivePercentByDevice.find(system.disks[deviceIndex].instanceName);
+            if (found != history.diskActivePercentByDevice.end()) activeSeries.values = found->second;
         }
         activeSeries.windowSamples = history.windowSamples;
-
-        double activePeak = 0.0;
-        for (double const value : activeSeries.values)
-        {
-            activePeak = (std::max)(activePeak, value);
-        }
-
-        m_activeChart->SetMaximum(activePeak > 0.0 ? activePeak : 1.0);
+        m_activeChart->SetMaximum(100.0);
         m_activeChart->SetSeries(activeSeries);
 
         // --- Transfer rate -----------------------------------------------------

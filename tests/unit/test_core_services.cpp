@@ -234,7 +234,26 @@ namespace tmpp::core
 
         EXPECT_TRUE(settings.alwaysOnTop);
         EXPECT_EQ(settings.intervalMs, domain::sampling::DEFAULT_INTERVAL_MS);
+        Settings const defaults;
+        EXPECT_EQ(settings.language, LanguageMode::SimplifiedChinese);
+        EXPECT_DOUBLE_EQ(settings.chartFillOpacity, defaults.chartFillOpacity);
+        EXPECT_EQ(settings.showCpuKernelTimes, defaults.showCpuKernelTimes);
+        EXPECT_EQ(settings.processColumnWidths, defaults.processColumnWidths);
+        EXPECT_EQ(settings.processColumnVisible, defaults.processColumnVisible);
         EXPECT_FALSE(store.DamagedFilePreserved());
+    }
+
+    TEST(SettingsStoreTest, ExplicitValuesOverrideCapturedDefaults)
+    {
+        TempDirectory const temp;
+        auto const file = temp.File("settings.json");
+        _writeRaw(file, R"({"appearance":{"showCpuKernelTimes":false,"chartFillOpacity":0.2},
+            "layout":{"processColumnWidths":[],"processColumnVisible":[]}})");
+        auto const loaded = SettingsStore(file).Load();
+        EXPECT_FALSE(loaded.showCpuKernelTimes);
+        EXPECT_DOUBLE_EQ(loaded.chartFillOpacity, 0.2);
+        EXPECT_TRUE(loaded.processColumnWidths.empty());
+        EXPECT_TRUE(loaded.processColumnVisible.empty());
     }
 
     TEST(SettingsStoreTest, AbsurdWindowSizeIsRejected)
@@ -605,8 +624,41 @@ namespace tmpp::core
         auto const loaded = SettingsStore(file).Load();
         EXPECT_EQ(loaded.processColumnWidths, (std::vector<double>{400, 0, 100, 0, 120}));
         EXPECT_FALSE(loaded.opaqueChartFill);
-        EXPECT_TRUE(loaded.processColumnVisible.empty());
+        EXPECT_EQ(loaded.processColumnVisible, Settings{}.processColumnVisible);
     }
+    TEST(SettingsStoreTest, DiskSidebarPreferencesRoundTripIndependently)
+    {
+        TempDirectory const temp;
+        SettingsStore store(temp.File("settings.json"));
+        for (bool const showTotals : {false, true})
+            for (auto const metric : {DiskSidebarMetric::ActiveTime, DiskSidebarMetric::Throughput})
+            {
+                Settings selected;
+                selected.showDiskCumulativeBytes = showTotals;
+                selected.diskSidebarMetric = metric;
+                ASSERT_TRUE(store.Save(selected).Success());
+                auto const loaded = store.Load();
+                EXPECT_EQ(loaded.showDiskCumulativeBytes, showTotals);
+                EXPECT_EQ(loaded.diskSidebarMetric, metric);
+            }
+    }
+
+    TEST(SettingsStoreTest, OldOrInvalidDiskPreferencesUseDefaults)
+    {
+        TempDirectory const temp;
+        auto const file = temp.File("settings.json");
+        for (auto const* contents : {R"({"appearance":{}})",
+                 R"({"appearance":{"diskSidebarMetric":99,"showDiskCumulativeBytes":"no"}})",
+                 R"({"appearance":{"diskSidebarMetric":-1}})",
+                 R"({"appearance":{"diskSidebarMetric":"bandwidth"}})"})
+        {
+            _writeRaw(file, contents);
+            auto const loaded = SettingsStore(file).Load();
+            EXPECT_TRUE(loaded.showDiskCumulativeBytes);
+            EXPECT_EQ(loaded.diskSidebarMetric, DiskSidebarMetric::ActiveTime);
+        }
+    }
+
     TEST(SettingsStoreTest, KernelCurveStyleAndMicaHaveIndependentPersistedValues)
     {
         TempDirectory const temp;

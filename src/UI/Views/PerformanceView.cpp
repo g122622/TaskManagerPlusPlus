@@ -849,50 +849,35 @@ namespace tmpp::ui
 
                     domain::DiskActivity const& disk = system.disks[spec.subIndex];
 
-                    // The row states the device's throughput in both directions, which is what a user
-                    // reads a disk by. The active percentage is a summary of the same thing and says
-                    // nothing about how much data moved, so it is not what the row should lead with.
-                    subtitle = "R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesPerSecond)) + "/s";
-                    subtitle += "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesPerSecond)) + "/s";
+                    if (m_settings.showDiskCumulativeBytes)
+                        setDetail(i, "R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesTotal)) +
+                                         "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesTotal)));
 
-                    // The third line carries the same two directions as running totals for the session,
-                    // against the per-second figures above it.
-                    //
-                    // The unit is what tells them apart: the line above ends in "/s" and this one does not.
-                    // A disk's throughput at any instant says little about what it has done, and a machine
-                    // that has been reading steadily for an hour looks the same on the line above as one
-                    // that has just started.
-                    setDetail(i, "R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesTotal)) +
-                                     "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesTotal)));
-
-                    // The device's own series, looked up by instance name. Every disk has its own
-                    // history, so a machine with several disks shows each one's trend rather than one
-                    // trend repeated on every row. The two directions are summed for the thumbnail,
-                    // which has no room for two lines.
-                    auto const seriesForDevice = history.diskBytesPerSecondByDevice.find(disk.instanceName);
-                    if (seriesForDevice != history.diskBytesPerSecondByDevice.end())
+                    ChartSeries series;
+                    series.windowSamples = history.windowSamples;
+                    double maximum = 100.0;
+                    if (m_settings.diskSidebarMetric == core::DiskSidebarMetric::Throughput)
                     {
-                        ChartSeries series;
-                        series.values = seriesForDevice->second.first;
-                        for (size_t k = 0;
-                             k < series.values.size() && k < seriesForDevice->second.second.size();
-                             ++k)
+                        subtitle = "R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesPerSecond)) + "/s";
+                        subtitle += "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesPerSecond)) + "/s";
+                        auto const found = history.diskBytesPerSecondByDevice.find(disk.instanceName);
+                        if (found != history.diskBytesPerSecondByDevice.end())
                         {
-                            series.values[k] += seriesForDevice->second.second[k];
+                            series.values = found->second.first;
+                            for (size_t k = 0; k < series.values.size() && k < found->second.second.size(); ++k)
+                                series.values[k] += found->second.second[k];
                         }
-                        series.windowSamples = history.windowSamples;
-
-                        double peak = 0.0;
-                        for (double const value : series.values)
-                        {
-                            peak = (std::max)(peak, value);
-                        }
-                        m_rows[i].sparkline->SetSeries(series, peak > 0.0 ? peak : 1.0);
+                        maximum = 1.0;
+                        for (double const value : series.values) maximum = (std::max)(maximum, value);
                     }
                     else
                     {
-                        m_rows[i].sparkline->Clear();
+                        subtitle = FormatPercent(disk.activePercent);
+                        auto const found = history.diskActivePercentByDevice.find(disk.instanceName);
+                        if (found != history.diskActivePercentByDevice.end()) series.values = found->second;
                     }
+                    if (series.values.empty()) m_rows[i].sparkline->Clear();
+                    else m_rows[i].sparkline->SetSeries(series, maximum);
                     break;
                 }
 

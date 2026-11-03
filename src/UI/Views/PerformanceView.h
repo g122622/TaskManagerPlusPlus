@@ -35,6 +35,9 @@
 
 namespace tmpp::ui
 {
+#if defined(_DEBUG)
+    namespace test { struct WindowVerification; }
+#endif
     /**
      * @brief Builds and owns the performance page.
      */
@@ -92,6 +95,9 @@ namespace tmpp::ui
         void SetMiniMode(bool mini);
 
     private:
+#if defined(_DEBUG)
+        friend struct test::WindowVerification;
+#endif
         /**
          * @brief Which kind of page a sidebar row opens.
          *

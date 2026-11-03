@@ -145,11 +145,13 @@ namespace tmpp::core
         // Appearance. Each chart's colour is stored as three channels rather than one packed
         // integer, so the file stays readable and hand-editable.
         json const& appearance = _subObject(root, "appearance");
-        settings.opaqueChartFill = _getBool(appearance, "opaqueChartFill", false);
-        settings.micaBackdrop = _getBool(appearance, "micaBackdrop", true);
-        settings.showCpuKernelTimes = _getBool(appearance, "showCpuKernelTimes", false);
-        double const fillOpacity = _getNumber<double>(appearance, "chartFillOpacity", 0.18);
-        settings.chartFillOpacity = std::isfinite(fillOpacity) ? std::clamp(fillOpacity, 0.0, 1.0) : 0.18;
+        settings.opaqueChartFill = _getBool(appearance, "opaqueChartFill", settings.opaqueChartFill);
+        settings.micaBackdrop = _getBool(appearance, "micaBackdrop", settings.micaBackdrop);
+        settings.showCpuKernelTimes = _getBool(appearance, "showCpuKernelTimes", settings.showCpuKernelTimes);
+        settings.showDiskCumulativeBytes = _getBool(appearance, "showDiskCumulativeBytes", settings.showDiskCumulativeBytes);
+        settings.diskSidebarMetric = _getEnum(appearance, "diskSidebarMetric", settings.diskSidebarMetric, 1);
+        double const fillOpacity = _getNumber<double>(appearance, "chartFillOpacity", settings.chartFillOpacity);
+        if (std::isfinite(fillOpacity)) settings.chartFillOpacity = std::clamp(fillOpacity, 0.0, 1.0);
         auto readStyle = [&appearance](char const* key, ChartStyle& style) {
             json const& node = _subObject(appearance, key);
             style.red = static_cast<uint8_t>(std::clamp(_getNumber<int>(node, "r", style.red), 0, 255));
@@ -181,10 +183,10 @@ namespace tmpp::core
         // The process list's column widths. A non-array entry, or a value that is not a positive finite
         // number, is skipped rather than carried through: the view validates each width against its own
         // column's bounds and falls back to the default, so the only job here is to reject nonsense.
-        settings.processColumnWidths.clear();
         if (auto const found = layout.find("processColumnWidths");
             found != layout.end() && found->is_array())
         {
+            settings.processColumnWidths.clear();
             for (auto const& entry : *found)
             {
                 if (!entry.is_number())
@@ -203,8 +205,8 @@ namespace tmpp::core
             for (auto const& value : *order)
                 if (value.is_number_integer() && value.get<int64_t>() >= 0 && value.get<int64_t>() < 1024)
                     settings.processColumnOrder.push_back(value.get<uint32_t>());
-        settings.processColumnVisible.clear();
         if (auto const found = layout.find("processColumnVisible"); found != layout.end() && found->is_array()) {
+            settings.processColumnVisible.clear();
             for (auto const& entry : *found)
                 settings.processColumnVisible.push_back(entry.is_boolean() ? entry.get<bool>() : true);
         }
@@ -219,11 +221,11 @@ namespace tmpp::core
         // corrupt value is treated as absent.
         if (settings.windowWidth < 200)
         {
-            settings.windowWidth = 1100;
+            settings.windowWidth = Settings{}.windowWidth;
         }
         if (settings.windowHeight < 200)
         {
-            settings.windowHeight = 700;
+            settings.windowHeight = Settings{}.windowHeight;
         }
 
         return settings;
@@ -275,6 +277,8 @@ namespace tmpp::core
         appearance["network"] = writeStyle(settings.networkChart);
         appearance["opaqueChartFill"] = settings.opaqueChartFill;
         appearance["showCpuKernelTimes"] = settings.showCpuKernelTimes;
+        appearance["showDiskCumulativeBytes"] = settings.showDiskCumulativeBytes;
+        appearance["diskSidebarMetric"] = static_cast<int>(settings.diskSidebarMetric);
         appearance["chartFillOpacity"] = settings.chartFillOpacity;
         appearance["gpu"] = writeStyle(settings.gpuChart);
         root["appearance"] = std::move(appearance);

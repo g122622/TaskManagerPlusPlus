@@ -2,6 +2,7 @@
 #include "App/MainWindow.h"
 #include "UI/Lists/PriorityIndicator.h"
 #include "UI/Theming/Controls.h"
+#include "UI/Theming/Formatting.h"
 
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.Graphics.Imaging.h>
@@ -70,6 +71,12 @@ namespace tmpp::ui::test
         void CheckChrome()
         {
             window->m_rootGrid.UpdateLayout();
+            for (auto const& split : Descendants<SplitView>(window->m_navigation))
+            {
+                auto const background = split.PaneBackground().try_as<SolidColorBrush>();
+                Expect(background != nullptr && background.Color().A == 255,
+                    "Navigation pane must cover the underlying content with an opaque background");
+            }
             window->_updateNativeDragRegions();
             auto const source = window->m_nonClientPointerSource;
             Expect(source != nullptr, "Native non-client pointer source was not created");
@@ -117,8 +124,11 @@ namespace tmpp::ui::test
             if (window->m_searchBox.Visibility() == Visibility::Visible)
             {
                 auto const search = Bounds(window->m_searchBox);
-                Expect(std::abs(actions.X - search.X - search.Width - 16.0) < 1.0,
-                    "Search box must stretch across the available title bar space");
+                double const available = window->m_unifiedTitleBar.ColumnDefinitions().GetAt(1).ActualWidth() - 16.0;
+                Expect(std::abs(search.Width - (std::min)(available, metrics::SEARCH_MAX_WIDTH)) < 1.0,
+                    "Search box must shrink to fit and stop growing at its maximum width");
+                Expect(search.X + search.Width + 16.0 <= actions.X + 1.0,
+                    "Search box overlaps the title bar actions");
             }
             auto const captionLeft = window->m_rootGrid.ActualWidth() - window->AppWindow().TitleBar().RightInset() / scale;
             Expect(std::abs(actions.X + actions.Width - captionLeft) < 1.0,
@@ -127,6 +137,60 @@ namespace tmpp::ui::test
             auto const card = window->m_processesView->m_detailCard.Background().as<SolidColorBrush>().Color();
             report["phases"].back()["cardColor"] = {card.A, card.R, card.G, card.B};
             report["phases"].back()["dark"] = window->m_rootGrid.ActualTheme() == ElementTheme::Dark;
+        }
+
+        void CheckDiskSidebarPreferences()
+        {
+            auto& view = *window->m_performanceView;
+            domain::SystemView system;
+            domain::DiskActivity disk;
+            disk.instanceName = "Preview disk";
+            disk.activePercent = 25.0;
+            disk.readBytesPerSecond = 1024;
+            disk.writeBytesPerSecond = 2048;
+            disk.readBytesTotal = 8 * 1024 * 1024;
+            disk.writeBytesTotal = 16 * 1024 * 1024;
+            system.disks.push_back(disk);
+            domain::HistoryView history;
+            history.windowSamples = 2;
+            history.diskActivePercentByDevice[disk.instanceName] = {0, 25};
+            history.diskBytesPerSecondByDevice[disk.instanceName] = {{0, 1000}, {0, 3000}};
+            view._rebuildSidebarIfNeeded(system);
+            window->m_rootGrid.UpdateLayout();
+            for (auto const metric : {core::DiskSidebarMetric::ActiveTime, core::DiskSidebarMetric::Throughput})
+                for (bool const showTotals : {true, false})
+                {
+                    auto settings = window->m_currentSettings;
+                    settings.diskSidebarMetric = metric;
+                    settings.showDiskCumulativeBytes = showTotals;
+                    view.ApplySettings(settings);
+                    view._updateSidebarValues(system, history);
+                    window->m_rootGrid.UpdateLayout();
+                    bool foundDisk = false;
+                    for (auto const& row : view.m_rows)
+                    {
+                        if (row.kind != PerformanceView::SectionKind::Disk) continue;
+                        foundDisk = true;
+                        Expect(row.detail.Visibility() == (showTotals ? Visibility::Visible : Visibility::Collapsed),
+                            "Disk cumulative totals did not follow their visibility setting");
+                        if (showTotals)
+                            Expect(row.detail.Text() == ui::Localize("R: " + FormatBytes(static_cast<uint64_t>(disk.readBytesTotal)) +
+                                "  W: " + FormatBytes(static_cast<uint64_t>(disk.writeBytesTotal))), "Disk cumulative totals are incorrect");
+                        bool const bandwidth = metric == core::DiskSidebarMetric::Throughput;
+                        auto const expected = bandwidth ? "R: 1.0 KB/s  W: 2.0 KB/s" : "25.0%";
+                        Expect(row.subtitle.Text() == ui::Localize(expected),
+                            "Disk sidebar live reading did not follow the selected metric");
+                        auto const lines = Descendants<winrt::Microsoft::UI::Xaml::Shapes::Polyline>(row.sparkline->Root());
+                        Expect(!lines.empty() && lines[0].Points().Size() == 2, "Disk sidebar curve was not rendered");
+                        if (!lines.empty() && lines[0].Points().Size() == 2)
+                        {
+                            double const y = lines[0].Points().GetAt(1).Y;
+                            Expect(bandwidth ? std::abs(y) < 1.0 : y > 10.0,
+                                "Disk sidebar curve used the wrong values or vertical scale");
+                        }
+                    }
+                    Expect(foundDisk, "Synthetic disk sidebar row was not created");
+                }
         }
 
         void SeedRows()
@@ -259,6 +323,7 @@ namespace tmpp::ui::test
                 if (phase == 0)
                 {
                     SeedRows();
+                    window->m_navigation.IsPaneOpen(true);
                     window->m_processesView->SetColumnOrder({7, 0, 2, 3, 1, 5, 4, 6, 8});
                     window->m_startedAt = std::chrono::steady_clock::now() - std::chrono::seconds(3661);
                     window->_updateStatusBar();
@@ -271,12 +336,15 @@ namespace tmpp::ui::test
                     co_await Capture(L"ui-window-light.png");
                     auto settings = window->m_currentSettings;
                     settings.theme = core::ThemeMode::Dark;
+                    settings.micaBackdrop = true;
                     window->_applySettings(settings);
+                    window->AppWindow().Resize({1920, 1080});
                 }
                 else if (phase == 2)
                 {
                     CheckColumns();
                     co_await Capture(L"ui-window-dark.png");
+                    window->m_navigation.IsPaneOpen(false);
                     window->m_navigation.SelectedItem(window->m_navigation.FooterMenuItems().GetAt(1));
                 }
                 else if (phase == 3)
@@ -294,6 +362,27 @@ namespace tmpp::ui::test
                 }
                 else if (phase == 4)
                 {
+                    bool foundTotals = false;
+                    bool foundDiskMetric = false;
+                    for (auto const& toggle : Descendants<ToggleSwitch>(window->m_contentHost))
+                        if (Automation::AutomationProperties::GetAutomationId(toggle) == L"ShowDiskCumulativeBytes")
+                        {
+                            foundTotals = true;
+                            toggle.IsOn(false);
+                        }
+                    for (auto const& combo : Descendants<ComboBox>(window->m_contentHost))
+                        if (Automation::AutomationProperties::GetAutomationId(combo) == L"DiskSidebarMetric")
+                        {
+                            foundDiskMetric = true;
+                            combo.SelectedIndex(static_cast<int32_t>(core::DiskSidebarMetric::Throughput));
+                        }
+                    Expect(foundTotals && foundDiskMetric, "Disk settings controls were not found");
+                    Expect(!window->m_currentSettings.showDiskCumulativeBytes &&
+                        window->m_currentSettings.diskSidebarMetric == core::DiskSidebarMetric::Throughput,
+                        "Disk settings controls did not update the application settings");
+                    Expect(!window->m_performanceView->m_settings.showDiskCumulativeBytes &&
+                        window->m_performanceView->m_settings.diskSidebarMetric == core::DiskSidebarMetric::Throughput,
+                        "Disk settings did not reach the cached performance view");
                     int samplingControls = 0;
                     for (auto const& number : Descendants<NumberBox>(window->m_contentHost))
                     {
@@ -375,6 +464,42 @@ namespace tmpp::ui::test
                     Expect(window->m_searchBox.Visibility() == Visibility::Collapsed,
                         "Switching pages in a narrow window restored an overlapping search box");
                     co_await Capture(L"ui-window-narrow.png");
+                    window->AppWindow().Resize({1280, 900});
+                }
+                else if (phase == 7)
+                {
+                    window->m_processesView->_showColumnPicker();
+                }
+                else if (phase == 8)
+                {
+                    bool foundPicker = false;
+                    for (auto const& popup : VisualTreeHelper::GetOpenPopupsForXamlRoot(window->m_rootGrid.XamlRoot()))
+                        for (auto const& dialog : Descendants<ContentDialog>(popup.Child()))
+                            for (auto const& scroller : Descendants<ScrollViewer>(dialog))
+                            {
+                                auto const switches = Descendants<ToggleSwitch>(scroller);
+                                if (switches.size() < 10) continue;
+                                foundPicker = true;
+                                for (auto const& toggle : switches)
+                                {
+                                    auto const bounds = toggle.TransformToVisual(scroller).TransformBounds({0, 0,
+                                        static_cast<float>(toggle.ActualWidth()), static_cast<float>(toggle.ActualHeight())});
+                                    Expect(scroller.ActualWidth() - bounds.X - bounds.Width >= 23.0,
+                                        "Column picker scrollbar overlaps the switches");
+                                }
+                                co_await Capture(L"ui-column-picker.png", dialog);
+                                dialog.Hide();
+                            }
+                    Expect(foundPicker, "Column picker was not realised");
+                }
+                else if (phase == 9)
+                {
+                    window->m_navigation.SelectedItem(window->m_navigation.MenuItems().GetAt(1));
+                }
+                else if (phase == 10)
+                {
+                    CheckDiskSidebarPreferences();
+                    co_await Capture(L"ui-disk-sidebar-settings.png", window->m_performanceView->m_sidebarCard);
                 }
                 else
                 {

@@ -187,6 +187,42 @@ namespace tmpp::domain::test
             << "the sum of read and write service time would report 180 percent here";
     }
 
+    TEST(DiskRateTest, ActiveHistoryIsIndependentOfThroughputAndDeviceOrder)
+    {
+        SystemModel model(8, INTERVAL_MS, HISTORY_SECONDS);
+        model.SetHardwareCounters({_disk("A", 0, 0, 0, 0), _disk("B", 0, 0, 0, 0)}, {}, {}, T0);
+        // A moves a gigabyte while busy for 10%; B moves one byte while busy for 90%.
+        model.SetHardwareCounters({_disk("B", 1, 0, 0, 0, 100),
+            _disk("A", 1'000'000'000, 0, 0, 0, 900)}, {}, {}, _afterMs(1000));
+        auto const history = model.History();
+        ASSERT_EQ(history.diskActivePercentByDevice.size(), 2u);
+        EXPECT_DOUBLE_EQ(history.diskActivePercentByDevice.at("A").back(), 10.0);
+        EXPECT_DOUBLE_EQ(history.diskActivePercentByDevice.at("B").back(), 90.0);
+        EXPECT_DOUBLE_EQ(history.diskBytesPerSecondByDevice.at("A").first.back(), 1'000'000'000.0);
+
+        // A disappeared; B's counters reset. Neither may leave stale activity on the chart.
+        model.SetHardwareCounters({_disk("B", 0, 0, 0, 0)}, {}, {}, _afterMs(2000));
+        auto const reset = model.History();
+        EXPECT_DOUBLE_EQ(reset.diskActivePercentByDevice.at("A").back(), 0.0);
+        EXPECT_DOUBLE_EQ(reset.diskActivePercentByDevice.at("B").back(), 0.0);
+        EXPECT_EQ(reset.diskActivePercentByDevice.at("A").size(), reset.diskReadBytesPerSecond.size());
+    }
+
+    TEST(DiskRateTest, ActiveHistoryResamplesAlongsideTransferHistory)
+    {
+        SystemModel model(8, INTERVAL_MS, HISTORY_SECONDS);
+        model.SetHardwareCounters({_disk("A", 0, 0, 0, 0)}, {}, {}, T0);
+        model.SetHardwareCounters({_disk("A", 100, 0, 0, 0, 500)}, {}, {}, _afterMs(1000));
+        model.ConfigureHistory(500, 60);
+        auto const history = model.History();
+        auto const& active = history.diskActivePercentByDevice.at("A");
+        ASSERT_EQ(active.size(), 3u);
+        EXPECT_DOUBLE_EQ(active[0], 0.0);
+        EXPECT_DOUBLE_EQ(active[1], 25.0);
+        EXPECT_DOUBLE_EQ(active[2], 50.0);
+        EXPECT_EQ(active.size(), history.diskBytesPerSecondByDevice.at("A").first.size());
+    }
+
     TEST(NetworkRateTest, RatesAreDerivedFromTheCumulativeCounters)
     {
         SystemModel model(8, INTERVAL_MS, HISTORY_SECONDS);
