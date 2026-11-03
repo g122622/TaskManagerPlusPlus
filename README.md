@@ -18,6 +18,20 @@ colour customisation, metric collection performance, and code maintainability.
 > configurations build; the release is packaged as a self-contained folder that
 > needs nothing installed on the target machine.
 
+## Screenshots
+
+### CPU performance
+
+![CPU performance with per-logical-processor charts](docs/screenshots/1.png)
+
+### Processes
+
+![Process list with resource usage and priority indicators](docs/screenshots/2.png)
+
+### Memory
+
+![Memory usage, composition and hardware details](docs/screenshots/3.png)
+
 ## Highlights
 
 - **Faithful to Windows 11** — layout, spacing, colour, icons and interaction
