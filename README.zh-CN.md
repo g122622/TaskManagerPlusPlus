@@ -51,6 +51,9 @@
 逐进程网络流量通过 ETW 采集，Windows 要求以管理员身份运行才能使用。
 尚未实现（见 [docs/ROADMAP.md](docs/ROADMAP.md)）：NVIDIA 显卡的 NVML 温度与功耗。
 
+逐核心 CPU 传感器、GPU 遥测及可选硬件访问驱动的接入方案与本机实测结果，见
+[硬件监控调研](docs/HARDWARE_MONITORING.md)。
+
 ## 环境要求
 
 | 组件 | 版本 |

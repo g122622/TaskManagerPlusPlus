@@ -63,6 +63,9 @@ colour customisation, metric collection performance, and code maintainability.
 Planned but not yet implemented: NVML temperature and power figures for NVIDIA
 adapters. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
+CPU core sensors, NVIDIA telemetry and optional hardware driver integration are
+covered in [the hardware monitoring research](docs/HARDWARE_MONITORING.md), including local capability probes.
+
 ## Requirements
 
 | Component | Version |

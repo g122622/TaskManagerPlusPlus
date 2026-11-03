@@ -163,7 +163,8 @@ Type 17 结构。`SmbiosMemoryProbe` 的字段偏移曾整体错位一个字段�
 
 - NVML **必须动态加载**：`LoadLibraryExW(L"nvml.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)`
   + `GetProcAddress`。**不得静态链接**。未安装 NVIDIA 驱动时静默降级。
-- DXGI 适配器与 NVML 设备通过**名称模糊匹配**建立映射。
+- DXGI / NVML / NVAPI 的设备索引不可互换；应使用 Windows LUID 与 PCI 位置等稳定标识建立映射，
+  不使用名称模糊匹配。硬件传感器接入方案与本机验证结果见 [HARDWARE_MONITORING.md](HARDWARE_MONITORING.md)。
 - NVML 的 UUID 体系与 DXGI 的 LUID 体系**不同，不可混用**。
 - 部分 NVML 函数在旧驱动上不存在（如 `nvmlDeviceGetComputeRunningProcesses`），
   必须用**可选加载**：缺失时置空函数指针并降级，不得因此判定整体失败。
