@@ -35,7 +35,7 @@ namespace tmpp::ui
      * Not a WinRT runtime class: it composes controls rather than deriving from one,
      * which avoids needing an IDL for a class with no XAML counterpart.
      */
-    class ProcessesView
+    class ProcessesView : public std::enable_shared_from_this<ProcessesView>
     {
     public:
         explicit ProcessesView(core::SamplingCoordinator& coordinator);
@@ -179,6 +179,32 @@ namespace tmpp::ui
 
         /// Reports what the rule engine did since the last refresh, if anything.
         void _reportRuleEvents();
+
+        /**
+         * @brief Rebinds the rows on screen, which is what a new sample mostly comes down to.
+         *
+         * Skipped while a row's context menu is open. A menu is anchored to the row it was opened on,
+         * and the values under it are the ones the user right-clicked; the list is a little behind for
+         * as long as the menu is, which is the one moment nobody is reading it. The next sample catches
+         * it up.
+         */
+        void _refreshRows();
+
+        /// Whether the context menu of one of the rows on screen is open.
+        [[nodiscard]] bool _rowMenuOpen() const noexcept { return m_openRowMenus != 0; }
+
+        /// The name to show for a process, localised, or an empty string when it is no longer known.
+        [[nodiscard]] winrt::hstring _displayNameForPid(uint32_t pid) const;
+
+        /**
+         * @brief How many row menus are open.
+         *
+         * A count rather than a flag because a row is recycled, and the menu raised Opened for the
+         * visual before it was handed to a different process can still be the one being dismissed.
+         * Opened and Closed are paired by the framework for every way a menu is closed, including the
+         * row leaving the list.
+         */
+        uint32_t m_openRowMenus{0};
 
         /// The selected process, or zero when none is.
         uint32_t m_selectedPid{0};

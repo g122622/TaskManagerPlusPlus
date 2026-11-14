@@ -176,7 +176,10 @@ namespace tmpp
         /// The application-wide sampling owner. Declared before the views so it
         /// outlives them.
         std::unique_ptr<core::SamplingCoordinator> m_coordinator;
-        std::unique_ptr<ui::ProcessesView> m_processesView;
+
+        /// Shared rather than unique: a row's context menu has to be told, from inside the menu's own
+        /// events, whether its view is still alive before it touches the view's state.
+        std::shared_ptr<ui::ProcessesView> m_processesView;
         std::unique_ptr<ui::PerformanceView> m_performanceView;
 
         /// The settings page. Recreated on each visit so it reflects the settings in force.

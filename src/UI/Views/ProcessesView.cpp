@@ -291,7 +291,13 @@ namespace tmpp::ui
     void ProcessesView::_buildLayout()
     {
         m_root = Grid();
-        m_root.Padding(ThicknessHelper::FromLengths(12.0, 12.0, metrics::PAGE_MARGIN, 8.0));
+
+        // The table runs edge to edge; only the toolbar is inset. The page margin used to apply to
+        // everything, which left a band of nothing down each side of a list the user is scanning
+        // column by column -- the scroll bar floated a margin clear of the frame, and the first column
+        // started a margin clear of the navigation rail. The list is the content here, so it gets the
+        // window; the toolbar keeps its inset because it is a row of labels and controls, not a table.
+        m_root.Padding(ThicknessHelper::FromLengths(0.0, 12.0, 0.0, 8.0));
         m_root.ActualThemeChanged([this](auto const&, auto const&) { _updateHeatColors(); });
         m_root.SizeChanged([this](auto const&, auto const&) { _applySidebarLayout(); });
         _updateHeatColors();
@@ -340,7 +346,7 @@ namespace tmpp::ui
         Grid toolbarRow;
         toolbarRow.ColumnDefinitions().Append(controls::MakeStarColumn());
         toolbarRow.ColumnDefinitions().Append(controls::MakeAutoColumn());
-        toolbarRow.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 0.0, 8.0));
+        toolbarRow.Margin(ThicknessHelper::FromLengths(12.0, 0.0, metrics::PAGE_MARGIN, 8.0));
 
         StackPanel toolbar;
         toolbar.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
@@ -1046,6 +1052,48 @@ namespace tmpp::ui
             if (element.Tag() != nullptr) _selectRow(winrt::unbox_value<uint32_t>(element.Tag()));
         });
 
+        // One menu per row, built here and never replaced. The process it acts on is read from the
+        // clicked item's Tag at the moment of the click, which is what lets the row be recycled for
+        // another process without the menu having to be rebuilt.
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyout menu;
+        auto addAction = [this, menu](wchar_t const* text, bool entireTree) {
+            winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem item;
+            item.Text(ui::Localize(text));
+            item.Click([this, entireTree](winrt::Windows::Foundation::IInspectable const& sender,
+                                          winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+                auto const item = sender.as<winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem>();
+                if (item.Tag() == nullptr)
+                {
+                    return;
+                }
+                uint32_t const pid = winrt::unbox_value<uint32_t>(item.Tag());
+                _confirmAndTerminate(pid, _displayNameForPid(pid), entireTree);
+            });
+            menu.Items().Append(item);
+        };
+        addAction(L"End task", /*entireTree=*/false);
+        addAction(L"End process tree", /*entireTree=*/true);
+        row.ContextFlyout(menu);
+
+        // A row can be taken out of the list while its menu is open -- scroll it off, or rebuild after
+        // a sort -- and the framework closes the menu when it does. The count is what keeps a refresh
+        // from taking a row out from under an open menu.
+        std::weak_ptr<ProcessesView> const self = weak_from_this();
+        menu.Opened([self](winrt::Windows::Foundation::IInspectable const&,
+                           winrt::Windows::Foundation::IInspectable const&) {
+            if (auto const view = self.lock())
+            {
+                ++view->m_openRowMenus;
+            }
+        });
+        menu.Closed([self](winrt::Windows::Foundation::IInspectable const&,
+                           winrt::Windows::Foundation::IInspectable const&) {
+            if (auto const view = self.lock(); view != nullptr && view->m_openRowMenus > 0)
+            {
+                --view->m_openRowMenus;
+            }
+        });
+
         // Built at the live widths, not at the column table's defaults.
         //
         // The table's width is what a fresh window starts from; the live value is whatever the user has
@@ -1197,30 +1245,21 @@ namespace tmpp::ui
         uint32_t const pid = process.identity.pid;
         row.Tag(winrt::box_value(pid));
 
-        // The context menu is rebuilt on every binding rather than attached once, because a row is
-        // recycled for a different process when the list is reordered and the menu has to name the
-        // right one.
-        std::string const displayName = ProcessDisplayName(process.identity.pid, process.imageName);
-
-        winrt::Microsoft::UI::Xaml::Controls::MenuFlyout menu;
-
-        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem endTask;
-        endTask.Text(ui::Localize(L"End task"));
-        endTask.Click([this, pid, displayName](winrt::Windows::Foundation::IInspectable const&,
-                          winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
-            _confirmAndTerminate(pid, ui::Localize(displayName), /*entireTree=*/false);
-        });
-        menu.Items().Append(endTask);
-
-        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem endTree;
-        endTree.Text(ui::Localize(L"End process tree"));
-        endTree.Click([this, pid, displayName](winrt::Windows::Foundation::IInspectable const&,
-                          winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
-            _confirmAndTerminate(pid, ui::Localize(displayName), /*entireTree=*/true);
-        });
-        menu.Items().Append(endTree);
-
-        row.ContextFlyout(menu);
+        // The menu itself is created once, with the row, and only the process it acts on changes with
+        // the binding. Replacing the flyout on every bind was what closed the menu whenever the list
+        // moved: assigning ContextFlyout anchors a new flyout and dismisses the old one, so a re-sort or
+        // a sample arriving while the menu was open took it away. The items carry their process in Tag
+        // for the same reason -- a captured value would be the one from the bind the menu was built at.
+        if (auto const menu = row.ContextFlyout().try_as<winrt::Microsoft::UI::Xaml::Controls::MenuFlyout>())
+        {
+            if (!_rowMenuOpen())
+            {
+                for (auto const& item : menu.Items())
+                {
+                    item.as<winrt::Microsoft::UI::Xaml::FrameworkElement>().Tag(winrt::box_value(pid));
+                }
+            }
+        }
 
         // Column 0: icon and name. The idle process has no image name from the
         // platform, which is its report rather than a failure; naming it is ours.
@@ -1762,7 +1801,7 @@ namespace tmpp::ui
             // exactly when a user is most likely to be looking at rows whose icons have not appeared.
             if (m_icons.ReadPending())
             {
-                m_rowHost->RefreshVisibleRows();
+                _refreshRows();
             }
             return;
         }
@@ -1804,7 +1843,7 @@ namespace tmpp::ui
         // of the rows on screen, not a rebuild: the row set and the scroll position are untouched.
         if (m_icons.ReadPending())
         {
-            m_rowHost->RefreshVisibleRows();
+            _refreshRows();
         }
 
         bool const empty = m_listModel->VisibleCount() == 0;
@@ -1822,6 +1861,13 @@ namespace tmpp::ui
 
         if (orderingChanged)
         {
+            // A visual cannot stand for a different row while a menu is anchored to it. The list stays
+            // as it is until the menu closes, and the next sample rebuilds it.
+            if (_rowMenuOpen())
+            {
+                return;
+            }
+
             m_rowHost->SetRowCount(rowCount,
                                    [this] { return _createRow(); },
                                    [this](winrt::Microsoft::UI::Xaml::FrameworkElement const& element,
@@ -1829,7 +1875,39 @@ namespace tmpp::ui
         }
         else
         {
-            m_rowHost->RefreshVisibleRows();
+            _refreshRows();
         }
+    }
+
+    void ProcessesView::_refreshRows()
+    {
+        if (m_rowHost == nullptr)
+        {
+            return;
+        }
+
+        // While a menu is open the rows are left as they are: its anchor is one of these visuals, and
+        // the figures behind it are the ones the user right-clicked.
+        if (_rowMenuOpen())
+        {
+            return;
+        }
+
+        m_rowHost->RefreshVisibleRows();
+    }
+
+    winrt::hstring ProcessesView::_displayNameForPid(uint32_t pid) const
+    {
+        for (auto const& process : m_snapshot.processes)
+        {
+            if (process.identity.pid == pid)
+            {
+                return ui::Localize(ProcessDisplayName(pid, process.imageName));
+            }
+        }
+
+        // The process has exited since the menu was opened. Its actions can no longer apply, and the
+        // confirmation dialog is not reached: the name is only what it says the process is called.
+        return winrt::hstring{};
     }
 }

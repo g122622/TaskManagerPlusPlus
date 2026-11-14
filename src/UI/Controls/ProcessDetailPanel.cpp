@@ -31,6 +31,7 @@ using winrt::Microsoft::UI::Xaml::Controls::TextBlock;
 using winrt::Microsoft::UI::Xaml::GridLengthHelper;
 using winrt::Microsoft::UI::Xaml::GridUnitType;
 using winrt::Microsoft::UI::Xaml::HorizontalAlignment;
+using winrt::Microsoft::UI::Xaml::TextAlignment;
 using winrt::Microsoft::UI::Xaml::TextWrapping;
 using winrt::Microsoft::UI::Xaml::ThicknessHelper;
 using winrt::Microsoft::UI::Xaml::VerticalAlignment;
@@ -317,9 +318,29 @@ namespace tmpp::ui
         m_root.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
         m_root.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
 
+        // The content is stretched to the viewport even when it is shorter, which is what gives the
+        // "select a process" message a full-height box to be centred in. Without it the message sits
+        // wherever a top-aligned stack of two elements ends, a few pixels under the title bar.
+        m_root.VerticalContentAlignment(VerticalAlignment::Stretch);
+
         m_content = controls::MakeStack(10.0);
         m_content.Margin(ThicknessHelper::FromLengths(0.0, 0.0, 4.0, 0.0));
-        m_root.Content(m_content);
+        m_content.VerticalAlignment(VerticalAlignment::Top);
+
+        // The message shares the page with the cards rather than sitting in the stack: overlapping them
+        // is what makes it centred in the panel, and it is hidden as soon as a process is selected, so
+        // the overlap is never visible.
+        m_placeholder = controls::MakeText(L"Select a process to see and change its settings.", 13.0, true);
+        m_placeholder.TextWrapping(TextWrapping::Wrap);
+        m_placeholder.TextAlignment(TextAlignment::Center);
+        m_placeholder.HorizontalAlignment(HorizontalAlignment::Center);
+        m_placeholder.VerticalAlignment(VerticalAlignment::Center);
+        m_placeholder.Margin(ThicknessHelper::FromLengths(12.0, 0.0, 16.0, 0.0));
+
+        Grid page;
+        page.Children().Append(m_content);
+        page.Children().Append(m_placeholder);
+        m_root.Content(page);
 
         // The feedback line sits above everything and is always present, so it does not push the
         // cards down when a change is applied. Its text is what changes.
@@ -328,12 +349,7 @@ namespace tmpp::ui
         m_status.Visibility(Visibility::Collapsed);
         m_content.Children().Append(m_status);
 
-        m_placeholder = controls::MakeText(L"Select a process to see and change its settings.", 13.0, true);
-        m_placeholder.TextWrapping(TextWrapping::Wrap);
-        m_placeholder.Margin(ThicknessHelper::FromLengths(0.0, 8.0, 0.0, 0.0));
-        m_content.Children().Append(m_placeholder);
-
-        // Everything below the placeholder is hidden until a process is selected, so the sidebar does
+        // Everything below is hidden until a process is selected, so the sidebar does
         // not present four cards of dashes on first run.
         m_details = controls::MakeStack(10.0);
         m_details.Visibility(Visibility::Collapsed);

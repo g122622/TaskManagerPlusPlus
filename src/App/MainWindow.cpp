@@ -207,7 +207,7 @@ namespace tmpp
 
     void MainWindow::_createPages()
     {
-        m_processesView = std::make_unique<ui::ProcessesView>(*m_coordinator);
+        m_processesView = std::make_shared<ui::ProcessesView>(*m_coordinator);
 
         // Ending a process goes through the coordinator, which owns both the action and the snapshot
         // the tree is derived from.
