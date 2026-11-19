@@ -46,7 +46,7 @@
          desktop app only needs UseWinUI + DesktopCompatible. -->
     <!-- Pinned SDK: the "10.0" (latest-installed) alias is unreliable from a bare
          command line and can resolve to a version that is not installed. -->
-    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(WindowsTargetPlatformVersion)'==''">10.0.26100.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformMinVersion>10.0.22000.0</WindowsTargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
@@ -60,7 +60,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <!-- Component packages, not the Microsoft.WindowsAppSDK metapackage: it would
+         also pull AI, ML and Widgets into the self-contained payload even though
+         this app uses none of them. See Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" />
     <PackageReference Include="Microsoft.Windows.CppWinRT" />
   </ItemGroup>
 
@@ -94,7 +102,7 @@
 
   <PropertyGroup Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset Condition="'$(PlatformToolset)'==''">v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
     <DesktopCompatible>true</DesktopCompatible>
   </PropertyGroup>
@@ -133,6 +141,19 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
 
+  <!-- Product version, injected by CI as YYMMDDNN (e.g. 26111901) split into its
+       four numeric fields. app.rc reads the generated header; the defaults keep a
+       plain local build at 0.1.0 until the version is passed in. See
+       tools/version.ps1 and tools/package.ps1. -->
+  <PropertyGroup>
+    <TMPP_VER_MAJOR Condition="'$(TMPP_VER_MAJOR)'==''">0</TMPP_VER_MAJOR>
+    <TMPP_VER_MINOR Condition="'$(TMPP_VER_MINOR)'==''">1</TMPP_VER_MINOR>
+    <TMPP_VER_PATCH Condition="'$(TMPP_VER_PATCH)'==''">0</TMPP_VER_PATCH>
+    <TMPP_VER_BUILD Condition="'$(TMPP_VER_BUILD)'==''">0</TMPP_VER_BUILD>
+    <TMPP_VER_STR Condition="'$(TMPP_VER_STR)'==''">0.1.0.0</TMPP_VER_STR>
+    <TMPP_VER_DISPLAY Condition="'$(TMPP_VER_DISPLAY)'==''">0.1.0</TMPP_VER_DISPLAY>
+  </PropertyGroup>
+
   <ItemDefinitionGroup>
     <ClCompile>
       <!-- No precompiled header. The WinRT projections expand to roughly 930 MB of
@@ -150,6 +171,10 @@
       <!-- Headers are included as "Core/...", "UI/...", so src\ is the include root. -->
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <!-- app.rc includes the generated app-version.h from the intermediate directory. -->
+    <ResourceCompile>
+      <AdditionalIncludeDirectories>$(IntDir)version;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
   </ItemDefinitionGroup>
 
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -202,6 +227,18 @@
          see the header comment in app.rc. -->
     <ResourceCompile Include="app.rc" />
   </ItemGroup>
+
+  <!-- app.rc cannot read MSBuild properties, so the version is materialised as a
+       header before rc.exe runs. WriteOnlyWhenDifferent keeps an unchanged
+       version from recompiling the resource on every incremental build. -->
+  <Target Name="GenerateAppVersionHeader" BeforeTargets="PrepareForBuild">
+    <MakeDir Directories="$(IntDir)version" />
+    <WriteLinesToFile
+        File="$(IntDir)version\app-version.h"
+        Overwrite="true"
+        WriteOnlyWhenDifferent="true"
+        Lines="#define TMPP_VERSION $(TMPP_VER_MAJOR),$(TMPP_VER_MINOR),$(TMPP_VER_PATCH),$(TMPP_VER_BUILD);#define TMPP_VERSION_STRING &quot;$(TMPP_VER_STR)&quot;;#define TMPP_PRODUCT_STRING &quot;$(TMPP_VER_DISPLAY)&quot;" />
+  </Target>
 
   <ItemGroup>
     <ClInclude Include="App.h" />
@@ -269,5 +306,24 @@
   <Target Name="CopyLocaleResources" AfterTargets="Build">
     <Copy SourceFiles="@(LocaleResource)" DestinationFolder="$(OutDir)assets\locales" SkipUnchangedFiles="true" />
   </Target>
+
+  <!-- Prefer the component-package payload over the Runtime package's MSIX.
+       The MSIX is a superset that still carries AI, ML and Widgets binaries,
+       even though this project no longer references those component packages
+       (see Directory.Packages.props). Clearing MicrosoftWindowsAppSDKPackageDir
+       switches Microsoft.WindowsAppSDK.SelfContained.targets to its component
+       path, which copies exactly the referenced packages and builds the WinRT
+       manifest from their fragments, so the manifest cannot reference a binary
+       that is not shipped. This must come after the NuGet props are imported. -->
+  <PropertyGroup Condition="'$(WindowsAppSDKSelfContained)'=='true'">
+    <MicrosoftWindowsAppSDKPackageDir></MicrosoftWindowsAppSDKPackageDir>
+    <!-- WebView2's targets normally infer this from a non-empty
+         MicrosoftWindowsAppSDKPackageDir. Without it the WinUI projection
+         needs CoreWebView2 metadata that is no longer referenced and cppwinrt
+         fails. This is WinRT, not the Win32 loader, so the setting is correct
+         for an unpackaged WinUI app regardless of package mode. -->
+    <WebView2UseWinRT>true</WebView2UseWinRT>
+  </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

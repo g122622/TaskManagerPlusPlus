@@ -1,0 +1,216 @@
+name: build
+
+# Every push builds a release version. The version is YYMMDDNN, where NN is
+# incremented for each build of this workflow that day (Asia/Shanghai). The
+# artefacts are the portable zip and the MSI; nothing is published to a release
+# automatically.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# Queue builds of the same branch instead of running them concurrently: the
+# version sequence is derived from finished and queued runs, so two builds racing
+# on the same day could otherwise pick the same number.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute release version
+        id: version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tzName = 'China Standard Time'
+          $tz = [TimeZoneInfo]::FindSystemTimeZoneById($tzName)
+          $now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $tz)
+          $today = $now.Date
+          $currentRunNumber = [int]$env:GITHUB_RUN_NUMBER
+          $workflowFile = ($env:GITHUB_WORKFLOW_REF -split '/')[-1] -replace '@.*$', ''
+
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'User-Agent' = 'TaskManagerPlusPlus-ci'
+          }
+          $base = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/$workflowFile/runs?per_page=100"
+
+          # Count this workflow's runs created today whose run_number is at or
+          # below this run's. run_number is assigned when the run is created, so
+          # this is stable even when several pushes are queued at once.
+          $sequence = 0
+          for ($page = 1; $page -le 5; $page++) {
+            $response = Invoke-RestMethod -Uri "$base&page=$page" -Headers $headers
+            $runs = @($response.workflow_runs)
+            if ($runs.Count -eq 0) { break }
+
+            $sequence += @($runs | Where-Object {
+              $_.run_number -le $currentRunNumber -and
+              [TimeZoneInfo]::ConvertTimeFromUtc([DateTimeOffset]::Parse($_.created_at).UtcDateTime, $tz).Date -eq $today
+            }).Count
+
+            if ($runs.Count -lt 100) { break }
+          }
+
+          if ($sequence -lt 1) { $sequence = 1 }
+          if ($sequence -gt 99) {
+            throw "More than 99 builds today ($sequence). The YYMMDDNN version scheme needs a wider sequence."
+          }
+
+          $version = $today.ToString('yyMMdd') + ('{0:D2}' -f $sequence)
+          Write-Host "Release version: $version (build $sequence of $($today.ToString('yyyy-MM-dd')))"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Locate Visual Studio and Windows SDK
+        id: toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio with the C++ toolset is not installed on this runner.' }
+          $vs = ($vs | Select-Object -First 1).Trim()
+
+          # v180 ships with VS 2026 and maps to the v145 toolset; v170 ships
+          # with VS 2022 and maps to v143. The projects default to v145 and let
+          # this environment variable override it.
+          if (Test-Path (Join-Path $vs 'MSBuild\Microsoft\VC\v180')) { $toolset = 'v145' }
+          else { $toolset = 'v143' }
+
+          $sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\Include"
+          $sdks = @(Get-ChildItem $sdkRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+          if ($sdks.Count -eq 0) { throw "No Windows SDK found under $sdkRoot" }
+          $sdk = $sdks | Where-Object { $_.Name -eq '10.0.26100.0' } | Select-Object -First 1
+          if (-not $sdk) { $sdk = $sdks[0] }
+
+          Write-Host "Visual Studio : $vs"
+          Write-Host "Toolset       : $toolset"
+          Write-Host "Windows SDK   : $($sdk.Name)"
+
+          "VSBASE=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PlatformToolset=$toolset" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WindowsTargetPlatformVersion=$($sdk.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "toolset=$toolset" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Locate vcpkg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root -or -not (Test-Path (Join-Path $root 'vcpkg.exe'))) {
+            $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
+            if (-not (Test-Path $root)) {
+              git clone --depth 1 https://github.com/microsoft/vcpkg.git $root
+            }
+            & (Join-Path $root 'bootstrap-vcpkg.bat') -disableMetrics
+            if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          }
+
+          Write-Host "vcpkg root: $root"
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: vcpkg_installed
+          key: vcpkg-${{ runner.os }}-${{ steps.toolchain.outputs.toolset }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ steps.toolchain.outputs.toolset }}-
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.USERPROFILE }}\.nuget\packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', 'nuget.config') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Cache WiX
+        uses: actions/cache@v4
+        with:
+          path: .cache/wix314
+          key: wix-3.14.1-${{ runner.os }}
+
+      - name: Build, package and create the MSI
+        shell: pwsh
+        env:
+          TMPP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          & .\tools\package.ps1 -Version $env:TMPP_VERSION -Build
+          if ($LASTEXITCODE -ne 0) { throw "package.ps1 failed with exit code $LASTEXITCODE" }
+
+          & .\tools\build-msi.ps1 -Version $env:TMPP_VERSION
+          if ($LASTEXITCODE -ne 0) { throw "build-msi.ps1 failed with exit code $LASTEXITCODE" }
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $tests = '.\build\x64\Release\tmpp_tests.exe'
+          if (-not (Test-Path $tests)) { throw "test binary not found at $tests" }
+          & $tests --gtest_brief=1
+          if ($LASTEXITCODE -ne 0) { throw "unit tests failed with exit code $LASTEXITCODE" }
+
+      # An administrative install extracts the MSI's payload without touching
+      # the machine, so it needs no elevation and still proves that the cabinet
+      # is complete and that the versioned executable is inside it.
+      - name: Smoke test the MSI
+        shell: pwsh
+        env:
+          TMPP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $msi = Join-Path $PWD "dist\TaskManagerPlusPlus-$env:TMPP_VERSION-win-x64.msi"
+          if (-not (Test-Path $msi)) { throw "MSI not found at $msi" }
+
+          $extract = Join-Path $env:RUNNER_TEMP 'tmpp-msi-extract'
+          if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+
+          $admin = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @(
+            '/a', "`"$msi`"", '/qn', "TARGETDIR=`"$extract`""
+          )
+          if ($admin.ExitCode -ne 0) {
+            throw "administrative install failed with exit code $($admin.ExitCode)"
+          }
+
+          $exe = @(Get-ChildItem $extract -Recurse -Filter 'tmpp.exe' -File)[0]
+          if (-not $exe) { throw 'tmpp.exe was not in the MSI payload' }
+          $reported = $exe.VersionInfo.ProductVersion
+          if ($reported -ne $env:TMPP_VERSION) {
+            throw "MSI payload tmpp.exe reports version '$reported', expected '$env:TMPP_VERSION'"
+          }
+
+          $files = @(Get-ChildItem $extract -Recurse -File)
+          Write-Host "MSI payload: $($files.Count) file(s), version $reported"
+          Remove-Item $extract -Recurse -Force
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaskManagerPlusPlus-${{ steps.version.outputs.version }}
+          path: |
+            dist/TaskManagerPlusPlus-${{ steps.version.outputs.version }}-win-x64.zip
+            dist/TaskManagerPlusPlus-${{ steps.version.outputs.version }}-win-x64.msi
+          if-no-files-found: error
+          retention-days: 30

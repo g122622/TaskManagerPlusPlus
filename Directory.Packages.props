@@ -8,8 +8,20 @@
          (Base / Foundation / WinUI / Runtime) whose versions drift apart. With
          version 2.4.0 the resolved Microsoft.UI.Input.dll fail-fasts at startup
          (0xC0000602) even for a plain Window. The 1.8 line ships every component
-         in lockstep and is the current stable servicing branch. -->
-    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+         in lockstep and is the current stable servicing branch.
+
+         The metapackage Microsoft.WindowsAppSDK is deliberately not referenced.
+         It also pulls AI, ML and Widgets, which this app never uses but which add
+         ~43 MB to a self-contained package (DirectML, onnxruntime) and hundreds of
+         activatable-class entries to the embedded WinRT manifest. Referencing the
+         components directly gives the exact same set of core binaries without them.
+         Versions are the ones the 1.8.260921001 metapackage pins. -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Base" Version="1.8.251216001" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Foundation" Version="1.8.260803002" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="1.8.260708001" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260803003" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.DWrite" Version="1.8.25122902" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260921001" />
     <PackageVersion Include="Microsoft.Windows.CppWinRT" Version="2.0.240405.15" />
 
     <!-- Build tooling -->

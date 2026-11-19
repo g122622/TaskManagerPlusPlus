@@ -20,7 +20,7 @@
     <ProjectGuid>{7D4B2E96-3C51-4A87-B902-6E5F1D80C4A7}</ProjectGuid>
     <ProjectName>tmpp_domain</ProjectName>
     <RootNamespace>tmpp_domain</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(WindowsTargetPlatformVersion)'==''">10.0.26100.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformMinVersion>10.0.22000.0</WindowsTargetPlatformMinVersion>
   </PropertyGroup>
 
@@ -28,7 +28,7 @@
 
   <PropertyGroup Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset Condition="'$(PlatformToolset)'==''">v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
 

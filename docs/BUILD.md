@@ -7,10 +7,10 @@
 | 组件 | 使用版本 | 说明 |
 | --- | --- | --- |
 | Windows | 11（build 26200 或更高） | WinUI 3 的目标特性集需要 Windows 11 |
-| Visual Studio | 2026 Community | 安装路径 `D:\Program Files\Microsoft Visual Studio\18\Community` |
-| MSVC 工具集 | v145（14.51.36231） | 随 VS 2026 提供 |
-| Windows SDK | 10.0.26100.0 | 必须安装；工程已锁定此版本 |
-| Windows App SDK | 1.8.260921001 | 经 NuGet 还原，不依赖系统级安装 |
+| Visual Studio | 2026 Community（本机）或 2022 | 本机路径 `D:\Program Files\Microsoft Visual Studio\18\Community`；CI 使用 runner 自带的版本 |
+| MSVC 工具集 | v145（VS 2026）或 v143（VS 2022） | 工程默认 v145；可用环境变量 `PlatformToolset` 覆盖，CI 会自动选择 |
+| Windows SDK | 10.0.26100.0 | 工程默认此版本；可用环境变量 `WindowsTargetPlatformVersion` 覆盖 |
+| Windows App SDK | 1.8（Base/Foundation/InteractiveExperiences/WinUI/DWrite/Runtime） | 经 NuGet 还原；刻意不引用元包，见 7.1 |
 | vcpkg | `E:\vcpkg` | 第三方依赖 |
 
 ### 所需的 Visual Studio 工作负载
@@ -234,9 +234,9 @@ query session
 
 ```powershell
 # 构建三个配置
-tools\m1build.bat Debug
-tools\m1build.bat Release
-tools\m1build.bat RelWithDebInfo
+tools\build.bat Debug
+tools\build.bat Release
+tools\build.bat RelWithDebInfo
 
 # 确认可执行文件存在
 Test-Path build\x64\Debug\tmpp.exe
@@ -258,18 +258,24 @@ Get-ChildItem build\x64\Release -Filter *.pdb      # 期望：无输出
 ## 7. 发布打包
 
 ```powershell
-# 打包（默认 Release）
+# 打包（默认 Release、当天日期 + 序列 01）
 tools\package.ps1
 
-# 先构建、再打包
-tools\package.ps1 -Build
+# 指定版本：YYMMDDNN
+tools\package.ps1 -Version 26111901 -Build
+
+# 同一天的第二个包
+tools\package.ps1 -Sequence 2 -Build
+
+# 生成 MSI 安装包
+tools\build-msi.ps1 -Version 26111901
 
 # 跳过 zip，只留目录
 tools\package.ps1 -NoZip
 
 # 只校验一个已生成的目录
 tools\verify-portable.ps1
-tools\verify-portable.ps1 -Path dist\TaskManagerPlusPlus-0.1.0-win-x64
+tools\verify-portable.ps1 -Path dist\TaskManagerPlusPlus-26111901-win-x64
 ```
 
 ### 7.1 为什么交付的不是"单个 exe"
@@ -279,19 +285,31 @@ WinUI 3 的原生 C++ 应用**无法**收敛成单个可执行文件：
 - 不存在静态版的 `Microsoft.UI.Xaml*.lib`，其运行时只能以独立 DLL 形式随包分发。
 - 微软文档明确 `PublishSingleFile` 是 .NET 的模型，对 WinUI 3 原生应用不适用。
 
-因此交付形态是**干净的目录 + zip**。`tmpp.exe` 自身仅约 1 MB，包体大头是 Windows App
-SDK 的自包含运行时（`onnxruntime.dll` 约 20.7 MB、`DirectML.dll` 约 17.8 MB、
-`Microsoft.ui.xaml.dll` 约 14.4 MB 等），这些 DLL 是必需的。
+因此交付形态是**干净的目录 + zip + MSI**。`tmpp.exe` 自身仅约 1.6 MB，包体大头是
+Windows App SDK 的自包含运行时（`Microsoft.ui.xaml.dll` 约 14.4 MB、
+`Microsoft.UI.Xaml.Controls.dll` 约 6.3 MB、`DWriteCore.dll` 3 MB 等），这些 DLL 是必需的。
+
+Windows App SDK 的**元包** `Microsoft.WindowsAppSDK` 会把 AI、ML、Widgets 三个组件包
+一并带入，其中 `onnxruntime.dll`（20.7 MB）与 `DirectML.dll`（17.8 MB）本项目完全不用。
+工程因此直接引用 Base / Foundation / InteractiveExperiences / WinUI / DWrite / Runtime
+六个组件包（版本与元包锁定的组合一致），并把 `MicrosoftWindowsAppSDKPackageDir` 清空以
+走「组件」复制路径而非 Runtime 包的 MSIX 超集。这样自包含载荷、WinRT 清单与产物三者
+保持一致，详见 `Directory.Packages.props` 与 `src\App\TaskManagerPlusPlus.vcxproj`。
 
 ### 7.2 产物
 
 | 项 | 内容 |
 | --- | --- |
-| 目录 | `dist\TaskManagerPlusPlus-<版本>-win-x64\` |
-| 压缩包 | `dist\TaskManagerPlusPlus-<版本>-win-x64.zip`（内含顶层目录，解压即得一个文件夹） |
+| 目录 | `dist\TaskManagerPlusPlus-<YYMMDDNN>-win-x64\` |
+| 压缩包 | `dist\TaskManagerPlusPlus-<YYMMDDNN>-win-x64.zip`（内含顶层目录，解压即得一个文件夹） |
+| 安装包 | `dist\TaskManagerPlusPlus-<YYMMDDNN>-win-x64.msi`（WiX 3.14，见 7.8） |
 
 包内实际内容：`tmpp.exe`、Windows App SDK 自包含运行时 DLL 与 `.pri` / `.winmd`、
-79 个本地化子目录（WinUI 自身的 `.mui`）、VC++ 运行库 DLL、`LICENSE`、`README.txt`。
+`en-us` / `zh-CN` / `zh-TW` 三个本地化子目录、VC++ 运行库 DLL、`LICENSE`、`README.txt`。
+当前版本为 87 个文件、约 56 MB（zip 约 21 MB）。
+
+SDK 自带约 90 个语言目录，每个只含 `Microsoft.ui.xaml.dll.mui` 等控件字符串；应用自身的
+本地化在 `assets\locales`，因此打包只保留中英文三个目录，其余在打包阶段删除。
 
 打包脚本排除的构建产物：`*.pdb`、`*.lib`、`*.exp`、`*.ilk`、`*.idb`、`*.obj`、
 `*.tlog`、`tmpp_tests.exe`、`gmock*.dll`、`run.bat`。排除之后脚本会**再断言一次**
@@ -307,11 +325,21 @@ SDK 的自包含运行时（`onnxruntime.dll` 约 20.7 MB、`DirectML.dll` 约 1
 即微软文档所述的**应用本地部署**方式；这样除操作系统本身外不再有外部依赖。
 传 `-NoCrt` 可跳过（届时要求目标机已安装可再发行组件）。
 
-### 7.4 版本一致性由打包脚本把关
+### 7.4 版本号：YYMMDDNN
 
-版本号只有一个来源：`vcpkg.json` 的 `version` 字段，包名取自它。而 `src/App/app.rc`
-中的版本资源是手写的，因此打包脚本会**比对 exe 的 `ProductVersion`**，不一致即拒绝
-打包，避免出现"文件名一个版本、属性页另一个版本"。修改版本时两处都要改。
+版本只有一个来源：`tools\version.ps1`。它把当天的日期（YYMMDD）与当天的构建序号
+（NN）拼成 `26111901` 这样的八位版本号；本地默认序列号为 01，可用 `-Sequence` 指定，
+CI 则用 GitHub API 统计当天已创建的构建数。
+
+该字符串通过 `TMPP_VER_*` MSBuild 属性进入构建：`src\App\TaskManagerPlusPlus.vcxproj`
+的 `GenerateAppVersionHeader` 目标在 `rc.exe` 之前生成 `app-version.h`，`app.rc`
+将它写入 exe 的版本资源（`FILEVERSION` 为 `26,11,19,1`，产品版本字符串为 `26111901`）。
+打包脚本比对 exe 的 `ProductVersion` 与 `FileVersion`，不一致即拒绝打包。
+
+Windows Installer 的 `ProductVersion` 只能由三段数字组成（major/minor ≤ 255，
+build ≤ 65535），因此 MSI 使用 `YY.MM.(DD*100+NN)`：`26111901` → `26.11.1901`。
+映射保持升级顺序：同日序号递增，跨日/月/年时 major/minor/build 递增；安装后的显示名
+仍使用完整的 `26111901`。`vcpkg.json` 的 `version` 字段不再参与产品版本。
 
 ### 7.5 应用图标与版本资源（B-003）
 
@@ -341,11 +369,11 @@ tools\extract-icon.ps1 -Module $env:windir\System32\taskmgr.exe -GroupId 30651 -
 不依赖任何文件清单：
 
 1. **清单完整性**——解析 `tmpp.exe` 内嵌的 `RT_MANIFEST`，确认其中引用的每个文件都在
-   包内（当前 25 个引用、0 缺失）。该清单是免注册 WinRT 激活的依据，缺文件表现为
+   包内（当前 16 个引用、0 缺失）。该清单是免注册 WinRT 激活的依据，缺文件表现为
    **启动时激活失败**，而不是功能降级。
 2. **导入闭包**——解析包内每个 exe/dll 的 PE 导入表，确认每个被导入的 DLL 要么在包内，
    要么由操作系统提供（`System32`，或 `api-ms-win-*` / `ext-ms-win-*` 这类虚拟 API 集）。
-   当前：68 个包内解析、1066 个由系统提供、**0 个未解析**。
+   当前：65 个包内解析、839 个由系统提供、**0 个未解析**。
 
 两个检查都不执行被检查的二进制，因此不需要 VS 开发环境，也不需要 `dumpbin`。
 
@@ -354,6 +382,42 @@ tools\extract-icon.ps1 -Module $env:windir\System32\taskmgr.exe -GroupId 30651 -
 应用**必须**在交互式桌面会话中启动（原因见第 5 节）。打包后在 `dist` 目录内直接运行
 `tmpp.exe`，确认窗口正常出现即可；`build\` 下的同名文件即使被占用也不影响打包，
 但 `dist\...\tmpp.exe` 若正在运行，会阻止下一次重新打包（脚本会先删除该目录）。
+
+### 7.8 MSI 安装包
+
+`tools\build-msi.ps1` 使用 **WiX Toolset 3.14**（首次运行时下载到 `.cache\wix314`，
+只依赖 Windows 自带的 .NET Framework，不需要 .NET SDK）：
+
+- `tools\msi\harvest.ps1` 扫描打包目录，逐文件生成 `<Component>`，嵌套 `<Directory>`
+  镜像目录结构，输出 `build\msi\Payload.wxs`。
+- `tools\msi\Product.wxs` 定义产品标识、`WixUI_InstallDir` 安装位置对话框、
+  开始菜单快捷方式与 `MajorUpgrade`。
+- `candle` 编译、`light` 链接；禁用 ICE38 / ICE43 / ICE57——这些规则假定快捷方式组件的
+  KeyPath 位于 HKCU，与 per-machine 组件必须使用 HKLM 相冲突，MSI 本身是有效的。
+
+安装为 per-machine（默认 `Program Files\TaskManagerPlusPlus`），需要管理员权限；
+卸载不会删除 `%LOCALAPPDATA%\TaskManagerPlusPlus` 中的用户设置。不带参数的
+`msiexec /a <msi> TARGETDIR=<目录>` 可以把载荷解压到任意目录，用于无需提权的校验。
+
+> MSI 的升级判断基于 `ProductVersion`，所以同一天重新打包时请使用新的序列号
+> （`-Sequence`），否则相同版本的 MSI 会与已安装实例冲突。
+
+### 7.9 持续集成
+
+`.github/workflows/build.yml` 在每次 push 和手动触发时运行于 GitHub 的
+`windows-latest`：
+
+1. 调用 GitHub API 统计当天（Asia/Shanghai）已创建的构建数，得到 `YYMMDDNN`；
+2. 用 `vswhere` 定位 Visual Studio，按是否存在 `MSBuild\Microsoft\VC\v180` 选择
+   v145 或 v143，并选择可用的 Windows SDK；
+3. 复用 runner 的 vcpkg（不存在时克隆并 bootstrap），缓存 `vcpkg_installed`、
+   NuGet 包与 WiX；
+4. `tools\package.ps1 -Build` 生成目录与 zip，`tools\build-msi.ps1` 生成 MSI；
+5. 运行 `tmpp_tests.exe`；
+6. 用 `msiexec /a` 解包 MSI，断言 `tmpp.exe` 存在且产品版本等于 CI 版本；
+7. 上传 zip 与 MSI 两个 artifact（保留 30 天）。
+
+同一分支的多次 push 通过 `concurrency` 排队，避免并发构建取到相同的当日序号。
 
 ## 12. 构建性能：诊断与结论
 

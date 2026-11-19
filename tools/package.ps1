@@ -16,9 +16,15 @@
     documented app-local deployment model and removes the last external dependency.
     Pass -NoCrt to skip that and rely on the machine having the redistributable.
 
-    The version comes from vcpkg.json and is checked against the version resource in the
-    built executable. Those two are written in different places, so the check is what
-    stops a package whose file version disagrees with the manifest from being produced.
+    The version is YYMMDDNN (26 Nov 2026, first build -> 26112101). Pass -Version in CI;
+    locally the date and -Sequence are used. The same string is injected into the
+    executable's version resource through the TMPP_VER_* MSBuild properties, and the
+    check below refuses to package an executable whose version resource disagrees with
+    it. See tools\version.ps1.
+
+    Windows App SDK ships its localised control strings in ~90 locale folders. The app
+    itself is localised through assets\locales; only the locale folders that can match
+    its supported languages are kept, which removes ~170 files from the package.
 
     Nothing here is destructive outside dist\.
 
@@ -28,6 +34,12 @@
 
 .PARAMETER OutputDir
     Where to write the package folder and the zip. Defaults to dist\ next to the solution.
+
+.PARAMETER Version
+    Full release version, YYMMDDNN. Defaults to today's date plus -Sequence.
+
+.PARAMETER Sequence
+    Sequence number for today when -Version is not supplied. Defaults to 1.
 
 .PARAMETER NoZip
     Skip creating the zip, leaving only the folder.
@@ -42,14 +54,20 @@
     Build the configuration first, through tools\build.bat, before packaging.
 
 .EXAMPLE
-    tools\package.ps1
     tools\package.ps1 -Build
-    tools\package.ps1 -Configuration RelWithDebInfo -NoZip
+
+.EXAMPLE
+    tools\package.ps1 -Version 26111901 -Build
+
+.EXAMPLE
+    tools\package.ps1 -Sequence 2
 #>
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
     [string]$OutputDir,
+    [string]$Version,
+    [int]$Sequence = 1,
     [switch]$NoZip,
     [switch]$NoCrt,
     [switch]$SkipVerify,
@@ -69,21 +87,28 @@ function Fail([string]$Message) {
     exit 1
 }
 
-# --- Version, from the one place it is declared ------------------------------
-$vcpkgPath = Join-Path $root 'vcpkg.json'
-if (-not (Test-Path -LiteralPath $vcpkgPath)) { Fail "vcpkg.json not found at $vcpkgPath" }
+# --- Version ----------------------------------------------------------------
+$versionScript = Join-Path $PSScriptRoot 'version.ps1'
+if (-not (Test-Path -LiteralPath $versionScript)) { Fail "version.ps1 not found at $versionScript" }
 
-$vcpkgText = Get-Content -LiteralPath $vcpkgPath -Raw
-if ($vcpkgText -notmatch '"version"\s*:\s*"([^"]+)"') {
-    Fail "could not read the ""version"" field from $vcpkgPath"
-}
-$version = $Matches[1]
+$v = & $versionScript -Version $Version -Sequence $Sequence
+if (-not $v) { Fail 'could not compute the release version' }
 
-$packageName = "TaskManagerPlusPlus-$version-win-x64"
+$packageName = "TaskManagerPlusPlus-$($v.Display)-win-x64"
+
+# MSBuild picks these up as properties. The project defaults only apply when the
+# property is unset, so an environment-supplied value reaches app.rc unchanged.
+$env:TMPP_VER_MAJOR   = [string]$v.FileMajor
+$env:TMPP_VER_MINOR   = [string]$v.FileMinor
+$env:TMPP_VER_PATCH   = [string]$v.FilePatch
+$env:TMPP_VER_BUILD   = [string]$v.FileBuild
+$env:TMPP_VER_STR     = [string]$v.FileVersion
+$env:TMPP_VER_DISPLAY = [string]$v.Display
 
 Write-Host "=== PACKAGE $packageName ==="
 Write-Step "  configuration : $Configuration"
-Write-Step "  version       : $version (vcpkg.json)"
+Write-Step "  version       : $($v.Display)  (file $($v.FileVersion), msi $($v.MsiVersion))"
+Write-Step "  package       : $packageName"
 
 # --- Optional build ----------------------------------------------------------
 if ($Build) {
@@ -105,12 +130,16 @@ if (-not (Test-Path -LiteralPath $sourceExe)) {
 }
 
 # --- Version drift guard -----------------------------------------------------
-# app.rc carries the same version by hand. If the two ever diverge, the package would
-# claim one version in its file name and another in its property sheet.
+# The version reaches the executable through app.rc. If it did not, the package
+# would be named for one version and carry another in its property sheet.
 $exeVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($sourceExe)
-if ($exeVersion.ProductVersion -ne $version) {
-    Fail ("version mismatch: vcpkg.json says '$version' but $sourceExe reports " +
-          "'$($exeVersion.ProductVersion)'. Update src\App\app.rc to match.")
+if ($exeVersion.ProductVersion -ne $v.Display) {
+    Fail ("version mismatch: expected ProductVersion '$($v.Display)' but $sourceExe reports " +
+          "'$($exeVersion.ProductVersion)'. Rebuild with the version properties set.")
+}
+if ($exeVersion.FileVersion -ne $v.FileVersion) {
+    Fail ("version mismatch: expected FileVersion '$($v.FileVersion)' but $sourceExe reports " +
+          "'$($exeVersion.FileVersion)'.")
 }
 
 if ($Configuration -ne 'Release') {
@@ -153,6 +182,19 @@ $leaked = @(Get-ChildItem -LiteralPath $staging -Recurse -File |
 if ($leaked.Count -gt 0) {
     Fail ("build artefacts reached the package: " + (($leaked | ForEach-Object { $_.Name }) -join ', '))
 }
+
+# --- Windows App SDK locale folders -------------------------------------------
+# Microsoft.ui.xaml.dll.mui and friends exist for every language the SDK supports.
+# The app's own localisation is assets\locales; these are only the SDK's control
+# strings, so the Chinese and English ones are the only ones that can ever match.
+$keepLocales = @('assets', 'Microsoft.UI.Xaml', 'en-us', 'zh-CN', 'zh-TW')
+$removedLocales = @(Get-ChildItem -LiteralPath $staging -Directory |
+    Where-Object { $_.Name -notin $keepLocales -and $_.Name -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]+)*$' })
+
+foreach ($directory in $removedLocales) {
+    Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+}
+Write-Step "  locales       : kept en-us, zh-CN, zh-TW; removed $($removedLocales.Count) SDK locale folder(s)"
 
 # --- Visual C++ runtime, app-local ------------------------------------------
 if (-not $NoCrt) {
@@ -212,8 +254,8 @@ if (Test-Path -LiteralPath $license) {
 }
 
 $readme = @"
-TaskManagerPlusPlus $version
-$(('=' * ("TaskManagerPlusPlus $version".Length)))
+TaskManagerPlusPlus $($v.Display)
+$(('=' * ("TaskManagerPlusPlus $($v.Display)".Length)))
 
 A task manager for Windows, built with C++20 and WinUI 3.
 
@@ -222,11 +264,11 @@ Running it
 Start tmpp.exe. There is no installer and nothing is written outside the user's
 own profile.
 
-Portable
---------
-Delete this folder and the application is gone, apart from its settings, which
-live in %LOCALAPPDATA%\TaskManagerPlusPlus. Delete that directory too for a
-complete removal.
+Installing
+----------
+The matching TaskManagerPlusPlus-$($v.Display)-win-x64.msi installs the same files
+under Program Files and lets you choose the directory. Uninstalling removes them;
+settings in %LOCALAPPDATA%\TaskManagerPlusPlus are left alone.
 
 Requirements
 ------------
@@ -245,7 +287,7 @@ Set-Content -LiteralPath (Join-Path $staging 'README.txt') -Value $readme -Encod
 if (-not $SkipVerify) {
     Write-Host ''
     $verifier = Join-Path $PSScriptRoot 'verify-portable.ps1'
-    if (-not (Test-Path -LiteralPath $verifier)) { Fail "verify-portable.ps1 not found at $verifier" }
+    if (-not (Test-Path -LiteralPath $verifier)) { Fail 'verify-portable.ps1 not found' }
 
     & $verifier -Path $staging
     if ($LASTEXITCODE -ne 0) { Fail 'the assembled package did not pass the portability check' }
@@ -276,12 +318,14 @@ $folderBytes = (Get-ChildItem -LiteralPath $staging -Recurse -File | Measure-Obj
 
 Write-Host ''
 Write-Host '=== PACKAGE_OK ==='
-Write-Host ("  folder : {0}" -f $staging)
-Write-Host ("           {0} file(s), {1:N1} MB" -f $fileCount, ($folderBytes / 1MB))
+Write-Host ("  version : {0}" -f $v.Display)
+Write-Host ("  folder  : {0}" -f $staging)
+Write-Host ("            {0} file(s), {1:N1} MB" -f $fileCount, ($folderBytes / 1MB))
 if ($zipPath) {
     $zipBytes = (Get-Item -LiteralPath $zipPath).Length
-    Write-Host ("  zip    : {0}" -f $zipPath)
-    Write-Host ("           {0:N1} MB" -f ($zipBytes / 1MB))
+    Write-Host ("  zip     : {0}" -f $zipPath)
+    Write-Host ("            {0:N1} MB" -f ($zipBytes / 1MB))
 }
+Write-Host ''
 
 exit 0

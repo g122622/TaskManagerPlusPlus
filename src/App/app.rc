@@ -13,10 +13,9 @@
 //   * RT_VERSION, which is what the Details tab of the file's property sheet
 //     reads. Before this file existed the executable carried no version at all.
 //
-// The version below mirrors the "version" field of vcpkg.json, which is the
-// manifest's notion of the product version. tools/package.ps1 reads that field
-// and refuses to build a package when the two disagree, so drift is caught when
-// a release is assembled rather than shipped.
+// The version is generated at build time from the TMPP_VER_* MSBuild properties
+// (see TaskManagerPlusPlus.vcxproj, target GenerateAppVersionHeader). CI passes
+// the release version YYMMDDNN; a local build falls back to 0.1.0.0.
 //
 // The manifest is deliberately NOT here. It is embedded through the project's
 // <Manifest> item so that the Windows App SDK's activatable-class registrations
@@ -26,9 +25,8 @@
 
 #include <winver.h>
 
-#define TMPP_VERSION         0,1,0,0
-#define TMPP_VERSION_STRING  "0.1.0.0"
-#define TMPP_PRODUCT_STRING  "0.1.0"
+// Written by the GenerateAppVersionHeader target into $(IntDir)version.
+#include "app-version.h"
 
 #define TMPP_PRODUCT_NAME    "TaskManagerPlusPlus"
 #define TMPP_INTERNAL_NAME   "tmpp"

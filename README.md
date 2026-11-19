@@ -72,7 +72,7 @@ covered in [the hardware monitoring research](docs/HARDWARE_MONITORING.md), incl
 | --- | --- |
 | Operating system | Windows 11 or later |
 | Architecture | x64 |
-| Visual Studio | 2026 (MSVC v145 toolset) |
+| Visual Studio | 2026 (MSVC v145) or 2022 (v143) |
 | Windows SDK | 10.0.26100.0 |
 | Windows App SDK | 1.8 |
 | vcpkg | For third-party dependencies |
@@ -101,14 +101,31 @@ See [docs/BUILD.md](docs/BUILD.md) for environment setup and troubleshooting.
 ## Releasing
 
 ```powershell
-# Build Release, then assemble dist\TaskManagerPlusPlus-<version>-win-x64 and its zip
-tools\package.ps1 -Build
+# Build Release and assemble dist\TaskManagerPlusPlus-<YYMMDDNN>-win-x64 plus its zip
+tools\package.ps1 -Version 26111901 -Build
+
+# Build the MSI installer from that folder
+tools\build-msi.ps1 -Version 26111901
 ```
+
+The version is the date as YYMMDD followed by a two-digit sequence for that day:
+`26111901` is the first release on 19 Nov 2026. Omit `-Version` to use today's date
+with sequence 01, or pass `-Sequence N` for another release on the same day. The
+same string is written into the executable's version resource and the package name.
+Windows Installer requires a numeric `major.minor.build`, so the MSI stores it as
+`YY.MM.DDNN` (`26.11.1901`); the installed product is still named after the full
+version.
 
 The build output directory is not a release: it also holds the static libraries, the
 test binary and gmock. The packaging script copies only what runs, puts the Visual C++
-runtime next to the executable so that nothing has to be installed, verifies that the
-result is complete, and zips it.
+runtime next to the executable so that nothing has to be installed, keeps only the
+Chinese and English Windows App SDK locale folders, verifies that the result is
+complete, and zips it.
+
+`tools\build-msi.ps1` builds the installer with WiX 3.14, downloaded once into
+`.cache\wix314`. The MSI installs per machine under Program Files, shows the standard
+install-location dialog, adds a start-menu shortcut, upgrades previous versions in
+place and can be removed from Apps & Features.
 
 Two configurations matter here. `Release` is built without any debug information —
 no PDB, no debug directory — and `RelWithDebInfo` is the one that keeps symbols, for
@@ -116,8 +133,21 @@ profiling and crash dumps.
 
 A WinUI 3 native application cannot be collapsed into a single executable: there is no
 static `Microsoft.UI.Xaml*.lib`, and Microsoft's `PublishSingleFile` is a .NET model.
-The deliverable is therefore a clean folder and a zip. See
+The deliverables are therefore a portable folder, a zip and an MSI. See
 [docs/BUILD.md](docs/BUILD.md) for what the package contains and how it is checked.
+
+The Windows App SDK metapackage is deliberately not referenced. It also pulls the AI,
+ML and Widgets component packages, which this application never uses; referencing
+Base/Foundation/InteractiveExperiences/WinUI/DWrite directly keeps onnxruntime,
+DirectML and the Workloads payload out of the package. See
+`Directory.Packages.props`.
+
+### Continuous integration
+
+`.github/workflows/build.yml` builds every push on `windows-latest`: it derives the
+version from the date and the number of builds already run that day, builds and
+packages, creates the MSI, runs the unit tests, smoke-tests the MSI payload and
+uploads both artefacts.
 
 ## Running
 
@@ -129,7 +159,7 @@ cd build\x64\Debug
 Or run the packaged build, which is the same executable with its runtime beside it:
 
 ```powershell
-dist\TaskManagerPlusPlus-0.1.0-win-x64\tmpp.exe
+dist\TaskManagerPlusPlus-<version>-win-x64\tmpp.exe
 ```
 
 > The application must run in an **interactive desktop session**. WinUI 3 cannot

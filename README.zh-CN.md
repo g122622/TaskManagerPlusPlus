@@ -60,7 +60,7 @@
 | --- | --- |
 | 操作系统 | Windows 11 或更高 |
 | 架构 | x64 |
-| Visual Studio | 2026（MSVC v145 工具集） |
+| Visual Studio | 2026（v145）或 2022（v143） |
 | Windows SDK | 10.0.26100.0 |
 | Windows App SDK | 1.8 |
 | vcpkg | 用于第三方依赖 |
@@ -87,20 +87,43 @@ Visual Studio 通过 `vswhere` 查找，找不到时回退到一组常见路径�
 ## 发布
 
 ```powershell
-# 构建 Release，并生成 dist\TaskManagerPlusPlus-<版本>-win-x64 与其 zip
-tools\package.ps1 -Build
+# 构建 Release，生成 dist\TaskManagerPlusPlus-<YYMMDDNN>-win-x64 与其 zip
+tools\package.ps1 -Version 26111901 -Build
+
+# 从该目录生成 MSI 安装包
+tools\build-msi.ps1 -Version 26111901
 ```
 
+版本号是「日期（YYMMDD）+ 当天两位序列号」：`26111901` 表示 2026-11-19 的第 1 次构建。
+省略 `-Version` 时取当天日期、序列号 01；同一天再构建一次可传 `-Sequence N`。同一个
+字符串会写入 exe 版本资源和包名。Windows Installer 的 ProductVersion 只接受数字形式的
+`major.minor.build`，因此 MSI 中记为 `YY.MM.DDNN`（`26111901` → `26.11.1901`），
+安装后的产品名仍显示完整的 `26111901`。
+
 构建输出目录**不是**发布包：它同时含有静态库、测试程序与 gmock。打包脚本只复制运行
-所需的内容，把 VC++ 运行库放到 exe 旁边（这样目标机无需安装任何东西），校验包的完整性
-后再压缩。
+所需的内容，把 VC++ 运行库放到 exe 旁边（这样目标机无需安装任何东西），并只保留中英文
+两套 Windows App SDK 本地化资源，校验包的完整性后再压缩。
+
+`tools\build-msi.ps1` 使用 WiX 3.14 生成安装包（首次运行下载到 `.cache\wix314`）。
+MSI 采用 per-machine 安装到 Program Files，带标准的安装位置选择对话框、开始菜单快捷方式，
+支持直接升级旧版本，也可从「应用和功能」中卸载。
 
 这里涉及两个配置：`Release` 不含任何调试信息（无 PDB、无调试目录），需要符号做剖析或
 崩溃分析时用 `RelWithDebInfo`。
 
 WinUI 3 原生应用**无法**收敛成单个可执行文件：不存在静态版 `Microsoft.UI.Xaml*.lib`，
-而微软的 `PublishSingleFile` 是 .NET 的模型。因此交付形态是干净的目录 + zip，
+而微软的 `PublishSingleFile` 是 .NET 的模型。因此交付形态是便携目录 + zip + MSI，
 包内清单与校验方式见 [docs/BUILD.md](docs/BUILD.md)。
+
+项目**刻意不引用** Windows App SDK 元包：它还会带入 AI、ML 与 Widgets 组件包，而本项目
+完全不用这些功能。直接引用 Base/Foundation/InteractiveExperiences/WinUI/DWrite 可以让
+onnxruntime、DirectML 与 Workloads 不再进入安装包（详见 `Directory.Packages.props`）。
+
+### 持续集成
+
+`.github/workflows/build.yml` 在每次 push 时于 `windows-latest` 上构建：按日期与当天
+已构建次数计算版本号，完成构建、zip 打包、MSI 生成、单元测试与 MSI 载荷冒烟测试，最后
+上传 zip 与 MSI 两个产物。
 
 ## 运行
 
@@ -112,7 +135,7 @@ cd build\x64\Debug
 或直接运行打包结果（同一个 exe，只是旁边带着它的运行时）：
 
 ```powershell
-dist\TaskManagerPlusPlus-0.1.0-win-x64\tmpp.exe
+dist\TaskManagerPlusPlus-<版本>-win-x64\tmpp.exe
 ```
 
 > 本程序**必须运行在交互式桌面会话**中。WinUI 3 无法在服务窗口站
