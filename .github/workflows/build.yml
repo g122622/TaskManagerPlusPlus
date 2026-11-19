@@ -41,14 +41,22 @@ jobs:
           $now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $tz)
           $today = $now.Date
           $currentRunNumber = [int]$env:GITHUB_RUN_NUMBER
-          $workflowFile = ($env:GITHUB_WORKFLOW_REF -split '/')[-1] -replace '@.*$', ''
+
+          # GITHUB_WORKFLOW_REF is owner/repo/.github/workflows/build.yml@refs/heads/main.
+          # Keep the path part; the API reports it in each run's "path" field.
+          # (Splitting on '/' and taking the last segment yields the branch, not
+          # the file, because the ref after '@' contains slashes.)
+          $workflowRef = $env:GITHUB_WORKFLOW_REF
+          if (-not $workflowRef) { throw 'GITHUB_WORKFLOW_REF is not set' }
+          $workflowPath = ($workflowRef -split '@')[0] -replace '^[^/]+/[^/]+/', ''
+          if (-not $workflowPath) { throw "could not derive the workflow path from '$workflowRef'" }
 
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = 'application/vnd.github+json'
             'User-Agent' = 'TaskManagerPlusPlus-ci'
           }
-          $base = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/$workflowFile/runs?per_page=100"
+          $base = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs?per_page=100"
 
           # Count this workflow's runs created today whose run_number is at or
           # below this run's. run_number is assigned when the run is created, so
@@ -60,8 +68,11 @@ jobs:
             if ($runs.Count -eq 0) { break }
 
             $sequence += @($runs | Where-Object {
+              # Invoke-RestMethod turns ISO timestamps into DateTime on pwsh 7,
+              # so cast and normalise rather than parsing a string.
+              $_.path -eq $workflowPath -and
               $_.run_number -le $currentRunNumber -and
-              [TimeZoneInfo]::ConvertTimeFromUtc([DateTimeOffset]::Parse($_.created_at).UtcDateTime, $tz).Date -eq $today
+              [TimeZoneInfo]::ConvertTimeFromUtc(([datetime]$_.created_at).ToUniversalTime(), $tz).Date -eq $today
             }).Count
 
             if ($runs.Count -lt 100) { break }
