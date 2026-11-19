@@ -70,7 +70,15 @@ namespace tmpp::platform::test
             // empty above, so these are the populated ones.
             EXPECT_FALSE(module.slot.empty()) << "a populated slot must be named";
             EXPECT_GT(module.capacityBytes, 0u);
-            EXPECT_GT(module.configuredSpeedMhz, 0u) << "a running module has a configured speed";
+
+            // SMBIOS type 17 permits 0 for an unknown configured speed, and virtual
+            // machines — including CI runners — commonly leave the field at 0. When
+            // the firmware does report it, it cannot exceed the rated speed.
+            if (module.configuredSpeedMhz > 0 && module.ratedSpeedMhz > 0)
+            {
+                EXPECT_LE(module.configuredSpeedMhz, module.ratedSpeedMhz)
+                    << "the configured speed cannot exceed the rated speed";
+            }
         }
 
         std::printf("modules total: %.1f GB\n", static_cast<double>(totalBytes) / (1024.0 * 1024.0 * 1024.0));

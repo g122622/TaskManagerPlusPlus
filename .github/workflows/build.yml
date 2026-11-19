@@ -161,23 +161,6 @@ jobs:
           path: .cache/wix314
           key: wix-3.14.1-${{ runner.os }}
 
-      # Temporary diagnostic: print what the runner's vcpkg.targets computes.
-      # Remove once the CI build is green.
-      - name: Diagnose vcpkg integration
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $vcpkgTargets = Join-Path $env:VSBASE 'VC\vcpkg\scripts\buildsystems\msbuild\vcpkg.targets'
-          Write-Host "vcpkg.targets: $vcpkgTargets (exists: $(Test-Path $vcpkgTargets))"
-          if (Test-Path $vcpkgTargets) {
-            Select-String -Path $vcpkgTargets -Pattern '_ZVcpkgInstalledDir|_ZVcpkgCurrentInstalledDir|VcpkgTriplet Condition' |
-              ForEach-Object { Write-Host ('  ' + $_.Line.Trim()) }
-          }
-          $msbuild = Join-Path $env:VSBASE 'MSBuild\Current\Bin\MSBuild.exe'
-          & $msbuild 'src\Core\tmpp_core.vcxproj' '/p:Configuration=Release' '/p:Platform=x64' `
-            '/getProperty:VcpkgEnableManifest,VcpkgTriplet,VcpkgInstalledDir,_ZVcpkgInstalledDir,_ZVcpkgCurrentInstalledDir,ExternalIncludePath' 2>&1 |
-            Write-Host
-
       - name: Build, package and create the MSI
         shell: pwsh
         env:
