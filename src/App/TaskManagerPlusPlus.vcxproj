@@ -81,11 +81,14 @@
        version: vcpkg.targets:79 already appends $(VcpkgTriplet) when deriving
        _ZVcpkgInstalledDir, and line 90 appends the triplet again, producing the
        doubled path vcpkg_installed\x64-windows\x64-windows\include. Supplying the
-       value directly skips the derivation. -->
+       value directly skips the derivation. It is conditional because the same
+       workaround is wrong for a newer vcpkg.targets that no longer appends the
+       triplet (GitHub's runner); CI overrides VcpkgInstalledDir with
+       vcpkg_installed\x64-windows. -->
   <PropertyGroup>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
     <VcpkgManifestInstall>false</VcpkgManifestInstall>
-    <VcpkgInstalledDir>$(MSBuildThisFileDirectory)..\..\vcpkg_installed\</VcpkgInstalledDir>
+    <VcpkgInstalledDir Condition="'$(VcpkgInstalledDir)'==''">$(MSBuildThisFileDirectory)..\..\vcpkg_installed\</VcpkgInstalledDir>
   </PropertyGroup>
 
   <!-- Explicit intermediate and output locations. The VC targets assign

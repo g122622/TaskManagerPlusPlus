@@ -139,6 +139,13 @@ jobs:
           Write-Host "vcpkg root: $root"
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+          # The projects point VcpkgInstalledDir at the manifest root as a
+          # workaround for an older vcpkg.targets that appended the triplet
+          # twice. The runner's vcpkg does not append it, so tell MSBuild where
+          # the triplet output actually lives.
+          "VcpkgInstalledDir=$env:GITHUB_WORKSPACE\vcpkg_installed\x64-windows" |
+            Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Cache vcpkg packages
         uses: actions/cache@v4
         with:

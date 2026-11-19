@@ -29,7 +29,7 @@
   <PropertyGroup>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
     <VcpkgManifestInstall>false</VcpkgManifestInstall>
-    <VcpkgInstalledDir>$(MSBuildThisFileDirectory)..\..\vcpkg_installed\</VcpkgInstalledDir>
+    <VcpkgInstalledDir Condition="'$(VcpkgInstalledDir)'==''">$(MSBuildThisFileDirectory)..\..\vcpkg_installed\</VcpkgInstalledDir>
   </PropertyGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
