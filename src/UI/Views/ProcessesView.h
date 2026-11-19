@@ -101,6 +101,17 @@ namespace tmpp::ui
          */
         void SetTerminateHandler(std::function<platform::ProcessActionResult(uint32_t, bool)> handler);
 
+        /**
+         * @brief Called when the user asks for a process's executable properties.
+         *
+         * As with ending a process, the view does not reach the shell itself: the application owns the
+         * window the dialog has to be owned by, and the outcome comes back so a failure can be
+         * reported instead of the menu item appearing to do nothing.
+         *
+         * @param pid Process whose image is asked about.
+         */
+        void SetPropertiesHandler(std::function<platform::ProcessActionResult(uint32_t)> handler);
+
         /// Reports how an action turned out. Called by the application once it has acted.
         void ReportActionOutcome(platform::ProcessActionResult const& result, std::wstring_view subject);
 
@@ -361,6 +372,14 @@ namespace tmpp::ui
 
         /// Called when the user asks to end a process. Empty until the application supplies one.
         std::function<platform::ProcessActionResult(uint32_t, bool)> m_onTerminate;
+
+        /// Called when the user asks for a process's executable properties. Empty until the application
+        /// supplies one.
+        std::function<platform::ProcessActionResult(uint32_t)> m_onProperties;
+
+        /// Opens the executable's Properties dialog and reports a failure; a success needs no message,
+        /// because the dialog itself is the answer.
+        void _showProperties(uint32_t pid);
 
         /// Where an action's outcome is reported: the summary line, which is always visible.
         winrt::Microsoft::UI::Xaml::Controls::TextBlock m_actionMessage{nullptr};

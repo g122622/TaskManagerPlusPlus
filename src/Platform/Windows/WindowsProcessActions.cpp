@@ -2,6 +2,7 @@
 #include "Platform/Windows/WindowsString.h"
 
 #include <windows.h>
+#include <shlobj.h>
 
 #include <algorithm>
 #include <map>
@@ -291,5 +292,33 @@ VoidResult WindowsProcessActions::Launch(std::string const& command) const
         }
 
         return total;
+    }
+
+    ProcessActionResult WindowsProcessActions::ShowFileProperties(std::string const& path, void* ownerWindow) const
+    {
+        ProcessActionResult result;
+
+        std::wstring const file = ToUtf16(path);
+        if (file.empty())
+        {
+            result.outcome = ProcessActionOutcome::Failed;
+            result.message = "The executable path of this process could not be read.";
+            return result;
+        }
+
+        // SHObjectProperties is the shell's own entry point for this: it opens the same sheet as the
+        // Properties command in Explorer, with every page a shell extension has registered, rather than
+        // a reimplementation of it. The owner handle is what keeps the sheet above the window it was
+        // opened from.
+        if (::SHObjectProperties(static_cast<HWND>(ownerWindow), SHOP_FILEPATH, file.c_str(), nullptr) == FALSE)
+        {
+            result.outcome = ProcessActionOutcome::Failed;
+            result.message = "The Properties dialog could not be shown.";
+            return result;
+        }
+
+        result.outcome = ProcessActionOutcome::Succeeded;
+        result.affected = 1;
+        return result;
     }
 }

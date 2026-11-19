@@ -64,5 +64,19 @@ namespace tmpp::platform
             uint32_t pid,
             uint64_t expectedCreateTime,
             std::vector<std::pair<uint32_t, uint32_t>> const& parentByPid) const;
+
+        /**
+         * @brief Shows the shell's Properties dialog for a file.
+         *
+         * The dialog is the system's own: the same property sheet Explorer opens, including the pages
+         * third-party shell extensions register, so what it shows cannot drift from the rest of the
+         * system.
+         *
+         * @param path Full path of the file, in UTF-8.
+         * @param ownerWindow The window the dialog is owned by, as an HWND, or nullptr. Typed as void*
+         *        so this header does not have to pull in the Win32 types.
+         */
+        [[nodiscard]] ProcessActionResult ShowFileProperties(std::string const& path,
+                                                             void* ownerWindow = nullptr) const;
     };
 }

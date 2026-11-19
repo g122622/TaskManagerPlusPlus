@@ -290,6 +290,11 @@ namespace tmpp::core
         return m_processTuning.ExecutablePath(pid);
     }
 
+    platform::ProcessActionResult SamplingCoordinator::ShowProcessProperties(uint32_t pid, void* ownerWindow) const
+    {
+        return m_processActions.ShowFileProperties(m_processTuning.ExecutablePath(pid), ownerWindow);
+    }
+
     std::vector<ProcessRule> SamplingCoordinator::ProcessRules() const
     {
         return m_ruleEngine.Rules();

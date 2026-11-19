@@ -221,6 +221,18 @@ namespace tmpp::core
         /// The process's executable path, empty when it cannot be read.
         [[nodiscard]] std::string ProcessExecutablePath(uint32_t pid) const;
 
+        /**
+         * @brief Shows the shell's Properties dialog for a process's executable.
+         *
+         * The path is read at the moment of the call rather than from the snapshot, because the dialog
+         * describes the file the process is running now; when the process has exited, or cannot be
+         * opened, the path is empty and the outcome says so instead of opening a dialog for nothing.
+         *
+         * @param pid Process whose image is asked about.
+         * @param ownerWindow Window the dialog is owned by, as an HWND, or nullptr.
+         */
+        [[nodiscard]] platform::ProcessActionResult ShowProcessProperties(uint32_t pid, void* ownerWindow) const;
+
         /// The saved rules, in file order.
         [[nodiscard]] std::vector<ProcessRule> ProcessRules() const;
 

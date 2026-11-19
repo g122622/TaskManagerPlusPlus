@@ -214,6 +214,13 @@ namespace tmpp
         m_processesView->SetTerminateHandler(
             [this](uint32_t pid, bool entireTree) { return m_coordinator->TerminateProcess(pid, entireTree); });
 
+        // The Properties dialog belongs to the shell, but it is owned by this window so it cannot be
+        // lost behind the list it was opened from. The handle is read when the item is clicked: the
+        // pages are created before the window handle has been resolved.
+        m_processesView->SetPropertiesHandler([this](uint32_t pid) {
+            return m_coordinator->ShowProcessProperties(pid, m_windowHandle);
+        });
+
         // The process list's column widths, remembered across sessions. The view validates each width
         // against its own column's bounds and falls back to the default for anything it rejects, so a
         // hand-edited file cannot leave a column unreadable.

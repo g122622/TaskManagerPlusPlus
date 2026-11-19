@@ -1073,6 +1073,25 @@ namespace tmpp::ui
         };
         addAction(L"End task", /*entireTree=*/false);
         addAction(L"End process tree", /*entireTree=*/true);
+
+        // The executable's Properties dialog. Set apart from the two above because it is the only item
+        // that does not act on the process itself: it asks the shell about the file behind it.
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator separator;
+        menu.Items().Append(separator);
+
+        winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem properties;
+        properties.Text(ui::Localize(L"Properties"));
+        properties.Click([this](winrt::Windows::Foundation::IInspectable const& sender,
+                                winrt::Microsoft::UI::Xaml::RoutedEventArgs const&) {
+            auto const item = sender.as<winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem>();
+            if (item.Tag() == nullptr)
+            {
+                return;
+            }
+            _showProperties(winrt::unbox_value<uint32_t>(item.Tag()));
+        });
+        menu.Items().Append(properties);
+
         row.ContextFlyout(menu);
 
         // A row can be taken out of the list while its menu is open -- scroll it off, or rebuild after
@@ -1547,6 +1566,34 @@ namespace tmpp::ui
     void ProcessesView::SetTerminateHandler(std::function<platform::ProcessActionResult(uint32_t, bool)> handler)
     {
         m_onTerminate = std::move(handler);
+    }
+
+    void ProcessesView::SetPropertiesHandler(std::function<platform::ProcessActionResult(uint32_t)> handler)
+    {
+        m_onProperties = std::move(handler);
+    }
+
+    void ProcessesView::_showProperties(uint32_t pid)
+    {
+        winrt::hstring const name = _displayNameForPid(pid);
+
+        if (!m_onProperties)
+        {
+            // Nothing is wired up to act. Saying so is better than a menu item that silently does
+            // nothing.
+            ReportActionOutcome(platform::ProcessActionResult{platform::ProcessActionOutcome::Failed,
+                                                               0,
+                                                               0,
+                                                               "No handler is available to show file properties."},
+                                name);
+            return;
+        }
+
+        platform::ProcessActionResult const result = m_onProperties(pid);
+        if (!result.Succeeded())
+        {
+            ReportActionOutcome(result, name);
+        }
     }
 
     void ProcessesView::_confirmAndTerminate(uint32_t pid, winrt::hstring const& name, bool entireTree)
