@@ -1,0 +1,8 @@
+<Project>
+  <!-- See Directory.Build.props: import the vcpkg targets when the user-level
+       integration (%LOCALAPPDATA%\vcpkg\vcpkg.user.targets) is absent. The guard
+       on _ZVcpkgCurrentInstalledDir keeps a machine that has run
+       `vcpkg integrate install` from importing them twice. -->
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.targets"
+          Condition="'$(_ZVcpkgCurrentInstalledDir)'=='' and !Exists('$(LOCALAPPDATA)\vcpkg\vcpkg.user.targets') and '$(VcpkgRoot)'!='' and Exists('$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.targets')" />
+</Project>

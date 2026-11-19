@@ -1,0 +1,20 @@
+<Project>
+  <!-- vcpkg's MSBuild integration is normally imported from
+       %LOCALAPPDATA%\vcpkg\vcpkg.user.props, which `vcpkg integrate install`
+       writes for the current user. A clean CI runner has no such file, so the
+       projects never saw VcpkgTriplet and could not find spdlog or nlohmann-json.
+       Import the integration from the project instead, which also makes the
+       build reproducible on a fresh machine.
+
+       VcpkgRoot is taken from the VCPKG_ROOT environment variable that build.bat
+       requires, falling back to the copy that ships inside Visual Studio (CI sets
+       VSBASE). The import is skipped when the user-level integration already
+       imported vcpkg.props. -->
+  <PropertyGroup>
+    <VcpkgRoot Condition="'$(VcpkgRoot)'=='' and '$(VCPKG_ROOT)'!=''">$(VCPKG_ROOT)</VcpkgRoot>
+    <VcpkgRoot Condition="'$(VcpkgRoot)'=='' and '$(VSBASE)'!=''">$(VSBASE)\VC\vcpkg</VcpkgRoot>
+  </PropertyGroup>
+
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props"
+          Condition="'$(VcpkgEnabled)'=='' and !Exists('$(LOCALAPPDATA)\vcpkg\vcpkg.user.props') and '$(VcpkgRoot)'!='' and Exists('$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props')" />
+</Project>

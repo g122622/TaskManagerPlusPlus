@@ -78,13 +78,14 @@
        dependencies (spdlog, nlohmann-json, gtest) are installed.
 
        VcpkgInstalledDir is set explicitly to work around a bug in this vcpkg
-       version: vcpkg.targets:79 already appends $(VcpkgTriplet) when deriving
-       _ZVcpkgInstalledDir, and line 90 appends the triplet again, producing the
-       doubled path vcpkg_installed\x64-windows\x64-windows\include. Supplying the
-       value directly skips the derivation. It is conditional because the same
-       workaround is wrong for a newer vcpkg.targets that no longer appends the
-       triplet (GitHub's runner); CI overrides VcpkgInstalledDir with
-       vcpkg_installed\x64-windows. -->
+       version: the default value already includes $(VcpkgTriplet), and the
+       triplet is appended to it again when the directory is resolved, producing
+       the doubled path vcpkg_installed\x64-windows\x64-windows\include.
+       Supplying the manifest root directly skips the default.
+
+       The MSBuild integration itself is imported by Directory.Build.props and
+       Directory.Build.targets rather than relying on the user-level
+       %LOCALAPPDATA%\vcpkg\vcpkg.user.* files, which a CI runner does not have. -->
   <PropertyGroup>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
     <VcpkgManifestInstall>false</VcpkgManifestInstall>
